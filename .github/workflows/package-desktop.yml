@@ -20,8 +20,12 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
       - run: npm run test:e2e
       - run: npm run package:win
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
       - run: npm run verify:package -- release/win-unpacked
       - run: npm run test:e2e
         env:
@@ -49,8 +53,12 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
       - run: npm run test:e2e
       - run: npm run package:mac
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
       - run: npm run verify:package -- release/mac-universal/Witch.app
       - run: npm run test:e2e
         env:

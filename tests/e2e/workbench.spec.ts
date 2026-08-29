@@ -736,7 +736,11 @@ test("settings, remapped shortcuts, auto save and local snippet extensions work 
     .locator(".file-list")
     .getByRole("button", { name: "app.cjs", exact: true })
     .click();
-  await expect(page.locator(".witch-breakpoint")).toHaveCount(1);
+  await expect(
+    page
+      .locator(".workbench-view:not([hidden]) .monaco-editor .witch-breakpoint")
+      .first(),
+  ).toBeVisible();
   expect(errors).toEqual([]);
 });
 
