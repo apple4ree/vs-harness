@@ -298,6 +298,19 @@ body {
   flex: none;
   height: 44px;
 }
+.pane-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.reveal-map-action {
+  border: 1px solid #60457a;
+  border-radius: 7px;
+  padding: 6px 8px;
+  background: #251734;
+  color: #d7c0ef;
+  font-size: 10px;
+}
 .surface {
   flex: 1;
   min-height: 180px;

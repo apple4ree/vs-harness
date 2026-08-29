@@ -57,6 +57,7 @@ export function Workbench() {
     null,
   );
   const [view, setView] = useState<"architecture" | "source">("architecture");
+  const [architectureReveal, setArchitectureReveal] = useState(0);
   const [lineTarget, setLineTarget] = useState<number | null>(null);
   const [graph, setGraph] = useState<ArchitectureGraph | null>(null);
   const [graphBusy, setGraphBusy] = useState(false);
@@ -185,6 +186,19 @@ export function Workbench() {
   const saving = useRef(new Set<string>());
   const openingProject = useRef(false);
   const activeTab = tabs.find((tab) => tab.path === selectedFile) || null;
+  const mappedGraphFiles = useMemo(
+    () =>
+      new Set(
+        graph?.nodes
+          .filter((node) => node.kind === "file")
+          .flatMap((node) => [node.id, ...(node.path ? [node.path] : [])]) ||
+          [],
+      ),
+    [graph?.revision, graph?.workspaceRoot],
+  );
+  const activeFileMapped = Boolean(
+    selectedFile && mappedGraphFiles.has(selectedFile),
+  );
   const files = useMemo(
     () => entries.filter((entry) => entry.kind === "file"),
     [entries],
@@ -1334,13 +1348,26 @@ export function Workbench() {
                 Source {tabs.length > 0 && `· ${tabs.length}`}
               </button>
             </div>
-            <button
-              className="analyze-action"
-              onClick={() => void analyze()}
-              disabled={graphBusy || !workspace}
-            >
-              {graphBusy ? "Reading…" : "Read structure"}
-            </button>
+            <div className="pane-actions">
+              {view === "source" && activeFileMapped && (
+                <button
+                  className="reveal-map-action"
+                  onClick={() => {
+                    setArchitectureReveal((value) => value + 1);
+                    setView("architecture");
+                  }}
+                >
+                  Reveal in Constellation
+                </button>
+              )}
+              <button
+                className="analyze-action"
+                onClick={() => void analyze()}
+                disabled={graphBusy || !workspace}
+              >
+                {graphBusy ? "Reading…" : "Read structure"}
+              </button>
+            </div>
           </header>
           <div className="surface">
             <div className="workbench-view" hidden={view !== "architecture"}>
@@ -1351,6 +1378,8 @@ export function Workbench() {
                 onOpenFile={(path, line) => void selectFile(path, line)}
                 onAttach={attach}
                 onExport={(format) => void exportArchitecture(format)}
+                activeFile={selectedFile}
+                revealRequest={architectureReveal}
               />
             </div>
             <div className="workbench-view" hidden={view !== "source"}>

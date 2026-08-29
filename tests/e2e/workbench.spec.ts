@@ -220,11 +220,21 @@ test("architecture edges and drag-to-chat source context work in Electron", asyn
     "src/ui/view.ts",
   );
   await page
-    .getByRole("button", { name: "Constellation", exact: true })
+    .getByRole("button", { name: "Reveal in Constellation", exact: true })
     .click();
-  await page
-    .getByRole("button", { name: "Close connection details", exact: true })
-    .click();
+  await expect(page.locator(".source-focus-banner")).toContainText(
+    "src/ui/view.ts",
+  );
+  await expect(page.locator(".source-focus-banner")).toContainText(
+    "0 imported-by · 1 imports · 1 evidence lines",
+  );
+  await expect(page.locator(".architecture-card")).toHaveCount(2);
+  await expect(page.locator(".component-details")).toContainText(
+    "Direct static source relations only",
+  );
+  await expect(page.locator(".component-details")).toContainText("client.ts");
+  await page.screenshot({ path: "test-results/witch-source-neighborhood.png" });
+  await page.getByRole("button", { name: "Modules", exact: true }).click();
   const sourceModule = page.locator(
     '.react-flow__node[data-id="module:src/ui"]',
   );

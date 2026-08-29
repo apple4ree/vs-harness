@@ -29,6 +29,7 @@ import {
   Package,
   ChevronLeft,
   Maximize2,
+  LocateFixed,
 } from "lucide-react";
 import {
   COMPONENT_DRAG_TYPE,
@@ -40,6 +41,7 @@ import {
   traceArchitectureRoute,
   type ArchitectureTrace,
 } from "../../../shared/architecture-navigation";
+import { projectSourceNeighborhood } from "../../../shared/architecture-projection";
 import "@xyflow/react/dist/style.css";
 import "./architecture.css";
 
@@ -101,6 +103,8 @@ export function ArchitectureCanvas({
   onOpenFile,
   onAttach,
   onExport,
+  activeFile,
+  revealRequest,
 }: {
   graph: ArchitectureGraph | null;
   busy: boolean;
@@ -108,8 +112,10 @@ export function ArchitectureCanvas({
   onOpenFile: (path: string, line?: number) => void;
   onAttach: (context: ComponentContext) => void;
   onExport: (format: "json" | "html") => void;
+  activeFile?: string | null;
+  revealRequest?: number;
 }) {
-  const [scope, setScope] = useState<"modules" | "files">("modules");
+  const [scope, setScope] = useState<"modules" | "files" | "focus">("modules");
   const [module, setModule] = useState<string | null>(null);
   const [external, setExternal] = useState(false);
   const [query, setQuery] = useState("");
@@ -119,7 +125,14 @@ export function ArchitectureCanvas({
   const [routeStart, setRouteStart] = useState<CardNode | null>(null);
   const [traceNotice, setTraceNotice] = useState("");
   const flow = useRef<ReactFlowInstance<CardNode, Edge> | null>(null);
-  const layoutKey = `${graph?.workspaceRoot}|${scope}|${module}|${external}|${query}`;
+  const projection = useMemo(
+    () =>
+      graph && activeFile
+        ? projectSourceNeighborhood(graph, activeFile, external)
+        : null,
+    [graph?.revision, graph?.workspaceRoot, activeFile, external],
+  );
+  const layoutKey = `${graph?.workspaceRoot}|${scope}|${module}|${external}|${query}|${scope === "focus" ? projection?.focus.id || "missing" : ""}`;
   const previousLayout = useRef("");
   const previous = useRef<ArchitectureGraph | null>(null);
   const changed = useMemo(() => {
@@ -149,10 +162,26 @@ export function ArchitectureCanvas({
     setRouteStart(null);
     setTraceNotice("");
   }, [graph?.workspaceRoot]);
+  const revealActiveFile = () => {
+    if (!projection) return;
+    setScope("focus");
+    setModule(null);
+    setQuery("");
+    setRelationSelection(null);
+    setTrace(null);
+    setRouteStart(null);
+    setTraceNotice("");
+  };
+  const previousReveal = useRef(revealRequest || 0);
+  useEffect(() => {
+    if (!revealRequest || revealRequest === previousReveal.current) return;
+    previousReveal.current = revealRequest;
+    revealActiveFile();
+  }, [revealRequest, projection?.focus.id]);
   const view = useMemo(
     () =>
       graph
-        ? buildView(graph, scope, module, external, query, changed)
+        ? buildView(graph, scope, module, external, query, changed, projection)
         : { nodes: [], edges: [], total: 0, totalEdges: 0 },
     [
       graph?.revision,
@@ -162,6 +191,7 @@ export function ArchitectureCanvas({
       external,
       query,
       changed,
+      projection,
     ],
   );
   const [nodes, setNodes, onNodesChange] = useNodesState<CardNode>([]);
@@ -185,16 +215,20 @@ export function ArchitectureCanvas({
         ? view.edges.find((edge) => edge.id === previous.id) || null
         : null,
     );
-    setSelection((previous) =>
-      !reset && previous
+    setSelection((previous) => {
+      if (reset)
+        return scope === "focus" && projection
+          ? view.nodes.find((node) => node.id === projection.focus.id) || null
+          : null;
+      return previous
         ? view.nodes.find((node) => node.id === previous.id) || null
-        : null,
-    );
+        : null;
+    });
     if (reset)
       requestAnimationFrame(() => {
         void flow.current?.fitView({ padding: 0.22 });
       });
-  }, [view, layoutKey]);
+  }, [view, layoutKey, scope, projection]);
   useEffect(() => {
     setTrace(null);
     setRouteStart(null);
@@ -245,6 +279,17 @@ export function ArchitectureCanvas({
     graph && relationSelection
       ? relationsForEdge(graph, relationSelection)
       : [];
+  const selectedNeighborhood = useMemo(
+    () =>
+      graph && selection?.data.kind === "file"
+        ? projectSourceNeighborhood(graph, selection.id, external)
+        : null,
+    [graph?.revision, graph?.workspaceRoot, selection?.id, external],
+  );
+  const labels = useMemo(
+    () => new Map(graph?.nodes.map((node) => [node.id, node.label])),
+    [graph?.revision, graph?.workspaceRoot],
+  );
   return (
     <div className="architecture-workspace">
       <div className="architecture-toolbar">
@@ -264,6 +309,19 @@ export function ArchitectureCanvas({
           >
             <FileCode2 size={14} /> Files
           </button>
+          <button
+            className={scope === "focus" ? "active" : ""}
+            disabled={!projection}
+            title={
+              projection
+                ? `Show direct source relations for ${projection.focus.path}`
+                : "Open an analyzed source file to focus it"
+            }
+            aria-label="Focus active file"
+            onClick={revealActiveFile}
+          >
+            <LocateFixed size={14} /> Focus
+          </button>
         </div>
         <label className="graph-search">
           <Search size={13} />
@@ -271,7 +329,12 @@ export function ArchitectureCanvas({
             aria-label="Find architecture component"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Find a component…"
+            placeholder={
+              scope === "focus"
+                ? "Focused view follows the active source file"
+                : "Find a component…"
+            }
+            disabled={scope === "focus"}
           />
         </label>
         <label className="external-toggle">
@@ -362,6 +425,22 @@ export function ArchitectureCanvas({
         </div>
       ) : (
         <div className="graph-stage">
+          {scope === "focus" && projection && (
+            <div className="source-focus-banner" role="status">
+              <LocateFixed size={14} />
+              <div>
+                <strong>{projection.focus.path}</strong>
+                <span>
+                  {projection.incoming.length} imported-by ·{" "}
+                  {projection.outgoing.length} imports ·{" "}
+                  {projection.evidenceCount} evidence lines
+                </span>
+              </div>
+              <button onClick={() => onOpenFile(projection.focus.id)}>
+                Open source
+              </button>
+            </div>
+          )}
           <ReactFlow
             nodes={displayedNodes}
             edges={displayedEdges}
@@ -544,24 +623,86 @@ export function ArchitectureCanvas({
               Quick open to reach the others.
             </p>
           )}
-          <h4>Source relations</h4>
-          <div className="component-relations">
-            {related.slice(0, 30).map((edge) => (
-              <button
-                key={edge.id}
-                onClick={() =>
-                  onOpenFile(edge.evidence[0].path, edge.evidence[0].line)
-                }
-              >
-                <span>
-                  {edge.from.split("/").at(-1)} → {edge.to.split("/").at(-1)}
-                </span>
-                <small>
-                  {edge.evidence[0].path}:{edge.evidence[0].line}
-                </small>
-              </button>
-            ))}
-          </div>
+          {selectedNeighborhood ? (
+            <div className="source-neighborhood-board">
+              <h4>
+                Imported by <span>{selectedNeighborhood.incoming.length}</span>
+              </h4>
+              <div className="component-relations">
+                {selectedNeighborhood.incoming.slice(0, 30).map((edge) => (
+                  <button
+                    key={edge.id}
+                    onClick={() =>
+                      onOpenFile(edge.evidence[0].path, edge.evidence[0].line)
+                    }
+                  >
+                    <span>{labels.get(edge.from) || edge.from}</span>
+                    <small>
+                      {edge.evidence[0].path}:{edge.evidence[0].line} ·{" "}
+                      {edge.kind}
+                    </small>
+                    {edge.evidence[0].excerpt && (
+                      <code>{edge.evidence[0].excerpt}</code>
+                    )}
+                  </button>
+                ))}
+                {!selectedNeighborhood.incoming.length && (
+                  <p className="empty-relation">No authored imports found.</p>
+                )}
+              </div>
+              <h4>
+                Imports <span>{selectedNeighborhood.outgoing.length}</span>
+              </h4>
+              <div className="component-relations">
+                {selectedNeighborhood.outgoing.slice(0, 30).map((edge) => (
+                  <button
+                    key={edge.id}
+                    onClick={() =>
+                      onOpenFile(edge.evidence[0].path, edge.evidence[0].line)
+                    }
+                  >
+                    <span>{labels.get(edge.to) || edge.to}</span>
+                    <small>
+                      {edge.evidence[0].path}:{edge.evidence[0].line} ·{" "}
+                      {edge.kind}
+                    </small>
+                    {edge.evidence[0].excerpt && (
+                      <code>{edge.evidence[0].excerpt}</code>
+                    )}
+                  </button>
+                ))}
+                {!selectedNeighborhood.outgoing.length && (
+                  <p className="empty-relation">No authored imports found.</p>
+                )}
+              </div>
+              <p className="projection-boundary">
+                Direct static source relations only. Runtime order, data flow,
+                and impact are not inferred.
+              </p>
+            </div>
+          ) : (
+            <>
+              <h4>Source relations</h4>
+              <div className="component-relations">
+                {related.slice(0, 30).map((edge) => (
+                  <button
+                    key={edge.id}
+                    onClick={() =>
+                      onOpenFile(edge.evidence[0].path, edge.evidence[0].line)
+                    }
+                  >
+                    <span>
+                      {edge.from.split("/").at(-1)} →{" "}
+                      {edge.to.split("/").at(-1)}
+                    </span>
+                    <small>
+                      {edge.evidence[0].path}:{edge.evidence[0].line}
+                    </small>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
         </aside>
       )}
       {relationSelection && (

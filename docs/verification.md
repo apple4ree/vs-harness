@@ -18,15 +18,15 @@ Windows와 macOS GitHub Actions job은 source E2E, 패키징, 패키지 내용 �
 
 Archify 원칙을 Witch core로 옮긴 commit `1d05558` 이후 구조 시점 비교와 오프라인 내보내기는 아직 새 Release에 포함되지 않은 작업입니다. 현재 로컬 검증 결과는 다음과 같습니다.
 
-| 검증                                                                                   | 결과      | 범위                                                                                    |
-| -------------------------------------------------------------------------------------- | --------- | --------------------------------------------------------------------------------------- |
-| `npm run typecheck`                                                                    | 통과      | 현재 TypeScript 소스                                                                    |
-| `npm test`                                                                             | 55개 통과 | 검증된 IR, route/reach, 정확한 delta, script-safe export를 포함한 서비스·안전성 회귀    |
-| `npm run build`                                                                        | 통과      | main/preload/renderer 프로덕션 번들                                                     |
-| `npx playwright test tests/e2e/workbench.spec.ts`                                      | 16개 통과 | 실제 Electron에서 구조 비교·HTML/JSON 저장과 IDE 핵심 UI 흐름                           |
-| [GitHub Actions #16](https://github.com/apple4ree/vs-harness/actions/runs/33258497296) | 양쪽 통과 | commit `0c23594`, Windows x64와 macOS universal의 source/package/packaged-app 전체 체인 |
+| 검증                                                                                   | 결과      | 범위                                                                                                      |
+| -------------------------------------------------------------------------------------- | --------- | --------------------------------------------------------------------------------------------------------- |
+| `npm run typecheck`                                                                    | 통과      | 현재 TypeScript 소스                                                                                      |
+| `npm test`                                                                             | 57개 통과 | 검증된 IR, source-neighborhood, route/reach, 정확한 delta, script-safe export를 포함한 서비스·안전성 회귀 |
+| `npm run build`                                                                        | 통과      | main/preload/renderer 프로덕션 번들                                                                       |
+| `npm run test:e2e`                                                                     | 21개 통과 | 실제 Electron에서 Source→Focus 왕복, 구조 비교·HTML/JSON 저장과 IDE 핵심 UI 흐름                          |
+| [GitHub Actions #16](https://github.com/apple4ree/vs-harness/actions/runs/33258497296) | 양쪽 통과 | commit `0c23594`, Windows x64와 macOS universal의 source/package/packaged-app 전체 체인                   |
 
-구조 비교는 저장된 reading을 다시 검증한 뒤 현재 reading과 비교합니다. HTML과 JSON 내보내기는 검증된 graph만 허용하며, HTML은 외부 리소스 없이 동작하고 authored text를 HTML로 주입하지 않습니다.
+구조 비교는 저장된 reading을 다시 검증한 뒤 현재 reading과 비교합니다. HTML과 JSON 내보내기는 검증된 graph만 허용하며, HTML은 외부 리소스 없이 동작하고 authored text를 HTML로 주입하지 않습니다. 활성 소스의 Focus 투영은 canonical graph를 다시 검증한 뒤 직접 연결된 authored import와 evidence line만 표시하며, Electron E2E에서 Source→Constellation→evidence panel 흐름과 화면을 확인했습니다.
 
 Actions #16의 첫 Windows 시도는 기존 interactive terminal 출력의 10초 대기에서 한 번 시간 초과가 났습니다. 같은 commit의 실패 job만 재실행한 attempt 2에서는 source E2E 21개, NSIS 패키징, 패키지 검증, packaged-app E2E와 artifact 업로드가 모두 통과했습니다. macOS는 source E2E, universal DMG/ZIP, Mach-O/ASAR 검증, packaged-app E2E를 첫 시도에 모두 통과했습니다. Actions artifact ZIP digest는 Windows `6c094154801bc7d86324083a524a64f3d21278ba7efaef60999fd670e50b8c6c`, macOS `5fb116e6a075ae2a6c4b1a7d6bc110b681e494f59a930792391b2c1133615671`입니다. 이 artifact는 v0.2.0 Release asset을 교체하지 않습니다.
 

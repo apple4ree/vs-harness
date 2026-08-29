@@ -7,6 +7,7 @@ import type {
   ComponentContext,
 } from "../../../shared/architecture";
 import { componentContext } from "../../../shared/architecture";
+import type { SourceNeighborhoodProjection } from "../../../shared/architecture-projection";
 
 export type CardData = {
   label: string;
@@ -24,17 +25,27 @@ export type CardNode = Node<CardData, "component">;
 
 export function buildView(
   graph: ArchitectureGraph,
-  scope: "modules" | "files",
+  scope: "modules" | "files" | "focus",
   module: string | null,
   external: boolean,
   query: string,
   changed: Set<string>,
+  projection: SourceNeighborhoodProjection | null = null,
 ) {
-  const candidates = graph.nodes.filter(
-    (node) =>
-      (external || node.kind !== "external") &&
-      (!module || node.module === module || node.kind === "external"),
-  );
+  const projectedIds = new Set(projection?.nodes.map((node) => node.id) || []);
+  const candidates = graph.nodes
+    .filter(
+      (node) =>
+        (external || node.kind !== "external") &&
+        (!module || node.module === module || node.kind === "external") &&
+        (scope !== "focus" || projectedIds.has(node.id)),
+    )
+    .sort((a, b) => {
+      if (scope !== "focus" || !projection) return 0;
+      if (a.id === projection.focus.id) return -1;
+      if (b.id === projection.focus.id) return 1;
+      return a.id.localeCompare(b.id);
+    });
   const groups = new Map<string, ArchitectureNode[]>();
   for (const node of candidates) {
     const id =
@@ -48,6 +59,7 @@ export function buildView(
   const visible = [...groups.entries()]
     .filter(
       ([, group]) =>
+        scope === "focus" ||
         !query ||
         group.some((node) =>
           `${node.path} ${node.module} ${node.label} ${node.symbols.map((symbol) => symbol.name).join(" ")}`
@@ -87,8 +99,10 @@ export function buildView(
   });
   const ids = new Set(nodes.map((node) => node.id));
   const lookup = new Map(graph.nodes.map((node) => [node.id, node]));
+  const projectedEdges = new Set(projection?.edgeIds || []);
   const edgesByPair = new Map<string, Edge>();
   for (const relation of graph.edges) {
+    if (scope === "focus" && !projectedEdges.has(relation.id)) continue;
     const sourceNode = lookup.get(relation.from),
       targetNode = lookup.get(relation.to);
     if (!sourceNode || !targetNode) continue;
@@ -143,7 +157,15 @@ export function buildView(
     const position = layout.node(node.id);
     node.position = { x: position.x - 111, y: position.y - 58 };
   });
-  return { nodes, edges, total: groups.size, totalEdges: edgesByPair.size };
+  return {
+    nodes,
+    edges,
+    total: groups.size,
+    totalEdges:
+      scope === "focus" && projection
+        ? projection.edgeIds.length
+        : edgesByPair.size,
+  };
 }
 
 export function relationsForEdge(
