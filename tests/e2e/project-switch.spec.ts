@@ -10,8 +10,8 @@ import os from "node:os";
 import { electronEnvironment } from "./environment";
 
 test("repeated project switches isolate same-name editor buffers, language results and graph updates", async () => {
-  const directory = await fs.mkdtemp(
-    path.join(os.tmpdir(), "witch-switch-ui-"),
+  const directory = await fs.realpath(
+    await fs.mkdtemp(path.join(os.tmpdir(), "witch-switch-ui-")),
   );
   const profile = path.join(directory, "profile");
   await fs.mkdir(profile);

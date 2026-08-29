@@ -23,8 +23,12 @@ const executablePath = process.env.WITCH_PACKAGED_EXECUTABLE
 test.describe.configure({ mode: "serial" });
 
 test.beforeAll(async () => {
-  fixture = await fs.mkdtemp(path.join(os.tmpdir(), "witch-ui-fixture-"));
-  profile = await fs.mkdtemp(path.join(os.tmpdir(), "witch-ui-profile-"));
+  fixture = await fs.realpath(
+    await fs.mkdtemp(path.join(os.tmpdir(), "witch-ui-fixture-")),
+  );
+  profile = await fs.realpath(
+    await fs.mkdtemp(path.join(os.tmpdir(), "witch-ui-profile-")),
+  );
   await fs.mkdir(path.join(fixture, "src/api"), { recursive: true });
   await fs.mkdir(path.join(fixture, "src/ui"), { recursive: true });
   await fs.mkdir(path.join(fixture, "empty-folder"));

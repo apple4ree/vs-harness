@@ -5,7 +5,9 @@ import os from "node:os";
 import { electronEnvironment } from "./environment";
 
 test("app quit completes after stopping the language server and flushing profile state", async () => {
-  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "witch-quit-ui-"));
+  const directory = await fs.realpath(
+    await fs.mkdtemp(path.join(os.tmpdir(), "witch-quit-ui-")),
+  );
   const root = path.join(directory, "project"),
     profile = path.join(directory, "profile");
   await fs.mkdir(root);
@@ -88,7 +90,11 @@ test("app quit completes after stopping the language server and flushing profile
       forced = true;
       child.kill();
     }, 15_000);
+    const exited = new Promise<void>((resolve) =>
+      child.once("exit", () => resolve()),
+    );
     await application.close();
+    await exited;
     clearTimeout(watchdog);
     expect(
       forced,
@@ -106,7 +112,13 @@ test("app quit completes after stopping the language server and flushing profile
     ).toBe("Save completes before exit.\n");
   } finally {
     clearTimeout(watchdog);
-    if (child.exitCode === null) child.kill();
+    if (child.exitCode === null) {
+      const exited = new Promise<void>((resolve) =>
+        child.once("exit", () => resolve()),
+      );
+      child.kill();
+      await exited;
+    }
     await fs.rm(directory, {
       recursive: true,
       force: true,
