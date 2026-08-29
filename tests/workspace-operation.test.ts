@@ -39,3 +39,27 @@ test("workspace operations reject overlapping work and release after success or 
   assert.equal(gate.busy, null);
   assert.equal(await gate.run("saving a file", () => 42), 42);
 });
+
+test("queued workspace operations wait for the active mutation", async () => {
+  const gate = new WorkspaceOperation();
+  let finish!: () => void;
+  const pending = gate.run(
+    "saving a file",
+    () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  let started = false;
+  const queued = gate.enqueue("starting a terminal", () => {
+    started = true;
+    return 7;
+  });
+  await Promise.resolve();
+  assert.equal(started, false);
+  finish();
+  await pending;
+  assert.equal(await queued, 7);
+  assert.equal(started, true);
+  assert.equal(gate.busy, null);
+});

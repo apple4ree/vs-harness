@@ -23,4 +23,9 @@ export class WorkspaceOperation {
       for (const resolve of this.idleWaiters.splice(0)) resolve();
     }
   }
+
+  async enqueue<T>(label: string, operation: () => T | Promise<T>): Promise<T> {
+    while (this.active) await this.whenIdle();
+    return this.run(label, operation);
+  }
 }

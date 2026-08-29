@@ -1008,6 +1008,10 @@ const exclusiveWorkspaceOperations: Record<string, string> = {
   "terminal:run-task": "starting a task",
   "debug:start": "starting the debugger",
 };
+const queuedWorkspaceOperations = new Set([
+  "terminal:create",
+  "terminal:run-task",
+]);
 
 function handleDesktop(
   channel: string,
@@ -1027,10 +1031,13 @@ function handleDesktop(
     )
       throw new Error("Untrusted desktop IPC sender");
     const label = exclusiveWorkspaceOperations[channel];
+    const invoke = () => listener(event, ...args);
     const operation = Promise.resolve(
       label
-        ? workspaceOperation.run(label, () => listener(event, ...args))
-        : listener(event, ...args),
+        ? queuedWorkspaceOperations.has(channel)
+          ? workspaceOperation.enqueue(label, invoke)
+          : workspaceOperation.run(label, invoke)
+        : invoke(),
     );
     pendingDesktopCalls.add(operation);
     void operation.then(
