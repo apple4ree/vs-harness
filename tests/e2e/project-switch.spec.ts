@@ -37,6 +37,8 @@ test("repeated project switches isolate same-name editor buffers, language resul
     ? path.resolve(process.env.WITCH_PACKAGED_EXECUTABLE)
     : undefined;
   const mod = process.platform === "darwin" ? "Meta" : "Control";
+  const documentEnd =
+    process.platform === "darwin" ? "Meta+ArrowDown" : "Control+End";
   let application: ElectronApplication | undefined;
   try {
     application = await electron.launch({
@@ -115,10 +117,10 @@ test("repeated project switches isolate same-name editor buffers, language resul
         async () => (await window.witch.analysis.current())?.revision,
       );
       await editor.click({ position: { x: 210, y: 40 } });
-      await page.keyboard.press(`${mod}+End`);
       const addition = `// saved in ${labels[index]}, cycle ${cycle}\n`;
-      await page.keyboard.insertText(addition);
       contents[index] += addition;
+      await page.keyboard.press(documentEnd);
+      await page.keyboard.insertText(addition);
       await page.keyboard.press(`${mod}+s`);
       await expect
         .poll(() => fs.readFile(path.join(root, "module.ts"), "utf8"))

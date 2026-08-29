@@ -17,6 +17,10 @@ let fixture: string;
 let profile: string;
 const errors: string[] = [];
 const mod = process.platform === "darwin" ? "Meta" : "Control";
+const documentStart =
+  process.platform === "darwin" ? "Meta+ArrowUp" : "Control+Home";
+const documentEnd =
+  process.platform === "darwin" ? "Meta+ArrowDown" : "Control+End";
 const executablePath = process.env.WITCH_PACKAGED_EXECUTABLE
   ? path.resolve(process.env.WITCH_PACKAGED_EXECUTABLE)
   : undefined;
@@ -334,7 +338,8 @@ test("language server diagnostics, rename review and multiple terminal sessions 
     .locator(".workbench-view:not([hidden]) .monaco-editor")
     .first();
   await editor.click({ position: { x: 220, y: 30 } });
-  await page.keyboard.press(`${mod}+Home`);
+  await page.keyboard.press(documentStart);
+  await page.keyboard.press("Home");
   for (let index = 0; index < 18; index++)
     await page.keyboard.press("ArrowRight");
   await page.keyboard.press("F2");
@@ -541,7 +546,7 @@ test("Node debugger and project tasks are connected to the desktop UI", async ()
     .locator(".workbench-view:not([hidden]) .monaco-editor")
     .first();
   await editor.click({ position: { x: 220, y: 40 } });
-  await page.keyboard.press(`${mod}+Home`);
+  await page.keyboard.press(documentStart);
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("ArrowDown");
@@ -926,7 +931,8 @@ test("TypeScript hover and signature hints show source documentation in the edit
     .locator(".workbench-view:not([hidden]) .monaco-editor")
     .first();
   await editor.click({ position: { x: 190, y: 40 } });
-  await page.keyboard.press(`${mod}+Home`);
+  await page.keyboard.press(documentStart);
+  await page.keyboard.press("Home");
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("Home");
@@ -946,7 +952,7 @@ test("TypeScript hover and signature hints show source documentation in the edit
   });
   await page.keyboard.press("Escape");
   await editor.click({ position: { x: 210, y: 40 } });
-  await page.keyboard.press(`${mod}+End`);
+  await page.keyboard.press(documentEnd);
   await page.keyboard.insertText('makeGreeting("Witch", ');
   await page.keyboard.press(`${mod}+Shift+Space`);
   const hint = page.locator(".parameter-hints-widget.visible");
