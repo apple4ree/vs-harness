@@ -1,5 +1,5 @@
 import path from "node:path";
-import { promises as fs } from "node:fs";
+import { promises as fs, realpathSync } from "node:fs";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
@@ -110,11 +110,19 @@ export class LanguageServer extends EventEmitter {
     super();
   }
   setWorkspace(root: string | null) {
-    if (this.root !== root) {
+    let canonicalRoot = root;
+    if (root) {
+      try {
+        canonicalRoot = realpathSync(root);
+      } catch {
+        canonicalRoot = path.resolve(root);
+      }
+    }
+    if (this.root !== canonicalRoot) {
       void this.stop().catch((error) =>
         this.emit("log", `Language-server cleanup: ${error}`),
       );
-      this.root = root;
+      this.root = canonicalRoot;
     }
   }
   async status(): Promise<LanguageStatus> {

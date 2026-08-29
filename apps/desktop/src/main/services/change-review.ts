@@ -39,10 +39,14 @@ export async function createWorkspaceCopy(
     throw new Error(
       "Workspace exceeds the isolation file limit; narrow the opened folder",
     );
-  const root = path.join(runDirectory, "workspace");
-  const baselineRoot = path.join(runDirectory, "baseline");
-  await fs.mkdir(root, { recursive: true });
-  await fs.mkdir(baselineRoot, { recursive: true });
+  const requestedRoot = path.join(runDirectory, "workspace");
+  const requestedBaselineRoot = path.join(runDirectory, "baseline");
+  await fs.mkdir(requestedRoot, { recursive: true });
+  await fs.mkdir(requestedBaselineRoot, { recursive: true });
+  // macOS exposes /var through /private/var and Windows can expose 8.3 aliases.
+  // Child processes report physical paths, so keep sandbox roots canonical too.
+  const root = await fs.realpath(requestedRoot);
+  const baselineRoot = await fs.realpath(requestedBaselineRoot);
   const baseline: Record<string, string> = Object.create(null);
   const warnings = [...listing.warnings];
   let total = 0;

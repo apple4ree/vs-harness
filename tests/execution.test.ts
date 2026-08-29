@@ -64,7 +64,7 @@ test("VS Code style execution configs validate paths, variables and unsupported 
   assert.equal(catalog.launches.length, 1);
   assert.equal(catalog.warnings.length, 1);
   const launch = await resolveLaunch(root, catalog.launches[0]);
-  assert.equal(launch.program, path.join(root, "app.cjs"));
+  assert.equal(launch.program, await fs.realpath(path.join(root, "app.cjs")));
   const task = await resolveTask(root, catalog.tasks[0], "app.cjs");
   assert.match(task.shellCommand, /'a;b'/);
   assert.equal(quoteShellArgument("don't", "win32"), "'don''t'");

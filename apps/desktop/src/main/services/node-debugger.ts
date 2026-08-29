@@ -50,6 +50,7 @@ export class NodeDebugService extends EventEmitter {
   private breakpointQueue: Promise<void> = Promise.resolve();
   private breakpointMutations: Promise<unknown> = Promise.resolve();
   private breakpointLoads = new Map<string, Promise<Breakpoint[]>>();
+  private rootAliases = new Map<string, string>();
   private breakpointStore?: BreakpointStore;
   constructor(
     private options: {
@@ -82,12 +83,30 @@ export class NodeDebugService extends EventEmitter {
     this.state.output = (this.state.output + chunk).slice(-100_000);
     this.publish();
   }
+  private rootKey(root: string) {
+    const resolved = path.resolve(root);
+    return this.rootAliases.get(resolved) || resolved;
+  }
+  private async canonicalRoot(root: string) {
+    const resolved = path.resolve(root);
+    const canonical = await fs.realpath(resolved).catch(
+      (error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT") return resolved;
+        throw error;
+      },
+    );
+    this.rootAliases.set(resolved, canonical);
+    this.rootAliases.set(canonical, canonical);
+    return canonical;
+  }
   breakpoints(root: string) {
+    root = this.rootKey(root);
     return (this.breakpointsByRoot.get(root) || []).map((item) => ({
       ...item,
     }));
   }
   async loadBreakpoints(root: string): Promise<Breakpoint[]> {
+    root = await this.canonicalRoot(root);
     if (this.breakpointsByRoot.has(root)) return this.breakpoints(root);
     let loading = this.breakpointLoads.get(root);
     if (!loading) {
@@ -116,6 +135,7 @@ export class NodeDebugService extends EventEmitter {
       throw new Error("Invalid breakpoints");
     if (!/\.[cm]?js$/i.test(file))
       throw new Error("Breakpoints currently support JavaScript files only");
+    root = await this.canonicalRoot(root);
     file = normalizedRelative(file);
     await resolveWorkspacePath(root, file);
     const update = this.breakpointMutations
@@ -158,6 +178,7 @@ export class NodeDebugService extends EventEmitter {
   ) {
     if (this.isRunning())
       throw new Error("Stop the debugger before moving or deleting files");
+    root = await this.canonicalRoot(root);
     source = normalizedRelative(source);
     if (destination !== undefined)
       destination = normalizedRelative(destination);
@@ -338,6 +359,7 @@ export class NodeDebugService extends EventEmitter {
     this.starting = true;
     const generation = ++this.generation;
     try {
+      root = await this.canonicalRoot(root);
       await this.loadBreakpoints(root);
       const target = await resolveWorkspacePath(
         root,
