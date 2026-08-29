@@ -359,11 +359,12 @@ export class NodeDebugService extends EventEmitter {
     this.starting = true;
     const generation = ++this.generation;
     try {
+      const requestedRoot = root;
       root = await this.canonicalRoot(root);
       await this.loadBreakpoints(root);
       const target = await resolveWorkspacePath(
-        root,
-        path.relative(root, launch.program),
+        requestedRoot,
+        path.relative(requestedRoot, launch.program),
       );
       if (!(await fs.stat(target)).isFile())
         throw new Error("Debug program is not a file");
