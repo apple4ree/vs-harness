@@ -7,6 +7,7 @@ import type {
   ArchitectureEdge,
   CodeSymbol,
 } from "../../shared/architecture";
+import { finalizeArchitectureGraph } from "../../shared/architecture-ir";
 import {
   listWorkspace,
   contentHash,
@@ -484,8 +485,9 @@ export async function analyzeRepository(
       .map((node) => `${node.id}:${node.hash}`)
       .join("\n"),
   );
-  return {
+  return finalizeArchitectureGraph({
     schemaVersion: 1,
+    diagramKind: "architecture",
     analyzerVersion: "typescript-ast-v2",
     workspaceRoot: root,
     revision,
@@ -496,5 +498,5 @@ export async function analyzeRepository(
     totalFiles: files.length,
     truncated: listing.truncated || budgetReached,
     warnings: warnings.slice(0, 100),
-  };
+  });
 }

@@ -4,10 +4,8 @@ import {
   buildView,
   relationsForEdge,
 } from "../apps/desktop/src/renderer/src/components/architecture-view";
-import {
-  componentContext,
-  type ArchitectureGraph,
-} from "../apps/desktop/src/shared/architecture";
+import { componentContext } from "../apps/desktop/src/shared/architecture";
+import { finalizeArchitectureGraph } from "../apps/desktop/src/shared/architecture-ir";
 
 test("dense source maps cap rendered connections without losing source evidence", () => {
   const nodes = Array.from({ length: 230 }, (_, index) => ({
@@ -20,22 +18,27 @@ test("dense source maps cap rendered connections without losing source evidence"
     count: 1,
     hash: String(index),
     symbols: [],
-    evidence: [],
+    evidence: [
+      {
+        path: `module${index}/index.ts`,
+        line: 1,
+        hash: String(index),
+      },
+    ],
   }));
   const edges = nodes.flatMap((from, index) =>
-    nodes
-      .slice(index + 1)
-      .map((to) => ({
-        id: `${from.id}->${to.id}`,
-        from: from.id,
-        to: to.id,
-        kind: "imports" as const,
-        count: 1,
-        evidence: [{ path: from.id, line: 1, hash: from.hash }],
-      })),
+    nodes.slice(index + 1).map((to) => ({
+      id: `${from.id}->${to.id}`,
+      from: from.id,
+      to: to.id,
+      kind: "imports" as const,
+      count: 1,
+      evidence: [{ path: from.id, line: 1, hash: from.hash }],
+    })),
   );
-  const graph: ArchitectureGraph = {
+  const graph = finalizeArchitectureGraph({
     schemaVersion: 1,
+    diagramKind: "architecture",
     analyzerVersion: "test",
     workspaceRoot: "/fixture",
     revision: "test",
@@ -46,7 +49,7 @@ test("dense source maps cap rendered connections without losing source evidence"
     totalFiles: nodes.length,
     truncated: false,
     warnings: [],
-  };
+  });
   const started = performance.now();
   const view = buildView(graph, "modules", null, false, "", new Set());
   assert.equal(view.nodes.length, 220);

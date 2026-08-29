@@ -6,10 +6,12 @@ import os from "node:os";
 import { randomUUID } from "node:crypto";
 import { WorkbenchStore } from "../apps/desktop/src/main/services/workbench-store";
 import type { ArchitectureGraph } from "../apps/desktop/src/shared/architecture";
+import { finalizeArchitectureGraph } from "../apps/desktop/src/shared/architecture-ir";
 
 function graph(root: string): ArchitectureGraph {
-  return {
+  return finalizeArchitectureGraph({
     schemaVersion: 1,
+    diagramKind: "architecture",
     analyzerVersion: "test",
     workspaceRoot: root,
     revision: "fixture",
@@ -29,9 +31,9 @@ function graph(root: string): ArchitectureGraph {
       count: 1,
       hash: "fixture",
       symbols: [],
-      evidence: [],
+      evidence: [{ path: `file-${index}.ts`, line: 1, hash: "fixture" }],
     })),
-  };
+  });
 }
 
 test("workbench index stays small, serializes updates and retains full immutable graph readings", async (t) => {

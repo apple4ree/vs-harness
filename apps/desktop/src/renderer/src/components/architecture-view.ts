@@ -18,6 +18,7 @@ export type CardData = {
   context: ComponentContext;
   changed: boolean;
   dimmed: boolean;
+  traced: boolean;
 } & Record<string, unknown>;
 export type CardNode = Node<CardData, "component">;
 
@@ -80,6 +81,7 @@ export function buildView(
         context: componentContext(id, label, paths, graph.revision),
         changed: paths.some((path) => changed.has(path)),
         dimmed: false,
+        traced: false,
       },
     };
   });

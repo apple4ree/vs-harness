@@ -113,6 +113,12 @@
 .architecture-card.has-changed {
   border-color: #78ba9a;
 }
+.architecture-card.is-traced {
+  border-color: #d3a4ff;
+  box-shadow:
+    0 0 0 2px #ad72f12e,
+    0 0 24px #9c65db30;
+}
 .architecture-card.is-dimmed {
   opacity: 0.3;
 }
@@ -208,6 +214,35 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.graph-trace-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 14px;
+  border-bottom: 1px solid #4b3561;
+  background: #21142f;
+  color: #d8c2ee;
+  font-size: 10px;
+}
+.graph-trace-bar span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.graph-trace-bar button,
+.trace-actions button {
+  border: 1px solid #6b4c87;
+  border-radius: 5px;
+  padding: 5px 7px;
+  background: #352147;
+  color: #e2cdf5;
+  font-size: 9px;
+}
+.graph-trace-bar button {
+  order: -1;
+  flex: 0 0 auto;
+}
 .live-dot {
   display: inline-block;
   width: 5px;
@@ -230,6 +265,9 @@
   padding: 14px;
   background: #17101ff5;
   box-shadow: 0 12px 45px #0008;
+}
+.architecture-workspace:has(.graph-trace-bar) .component-details {
+  top: 92px;
 }
 .component-details header {
   display: flex;
@@ -265,6 +303,15 @@
   background: #382349;
   color: #e0c6f3;
   font-size: 11px;
+}
+.trace-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 8px;
+}
+.trace-actions button:last-child {
+  grid-column: 1 / -1;
 }
 .component-source-list section {
   margin: 8px 0;

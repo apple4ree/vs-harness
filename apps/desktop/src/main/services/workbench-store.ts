@@ -106,6 +106,7 @@ export class WorkbenchStore {
   private metadata(snapshot: any): SnapshotMetadata {
     return {
       schemaVersion: 1,
+      diagramKind: "architecture",
       id: snapshot.id,
       workspaceRoot: snapshot.workspaceRoot,
       workspaceName:

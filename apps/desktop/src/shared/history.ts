@@ -1,6 +1,9 @@
 import type { ArchitectureGraph } from "./architecture";
 
-export type SnapshotMetadata = Omit<ArchitectureGraph, "nodes" | "edges"> & {
+export type SnapshotMetadata = Omit<
+  ArchitectureGraph,
+  "nodes" | "edges" | "validation"
+> & {
   id: string;
   workspaceName: string;
   commit: string;

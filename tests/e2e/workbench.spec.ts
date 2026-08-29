@@ -210,6 +210,30 @@ test("architecture edges and drag-to-chat source context work in Electron", asyn
   await page
     .getByRole("button", { name: "Close connection details", exact: true })
     .click();
+  const sourceModule = page.locator(
+    '.react-flow__node[data-id="module:src/ui"]',
+  );
+  await sourceModule.click();
+  await page
+    .getByRole("button", { name: "Trace downstream", exact: true })
+    .click();
+  await expect(page.locator(".architecture-card.is-traced")).toHaveCount(2);
+  await expect(page.locator(".graph-trace-bar")).toContainText(
+    "downstream · 2 components · 1 authored relations",
+  );
+  await page.getByRole("button", { name: "Clear trace", exact: true }).click();
+  await sourceModule.click();
+  await page.getByRole("button", { name: "Start route", exact: true }).click();
+  await expect(page.locator(".graph-trace-bar")).toContainText(
+    "Route from src/ui",
+  );
+  await page.locator('.react-flow__node[data-id="module:src/api"]').click();
+  await expect(page.locator(".graph-trace-bar")).toContainText(
+    "route · src/ui → src/api",
+  );
+  await expect(page.locator(".architecture-card.is-traced")).toHaveCount(2);
+  await page.screenshot({ path: "test-results/witch-architecture-route.png" });
+  await page.getByRole("button", { name: "Clear trace", exact: true }).click();
   const handle = page.getByRole("button", {
     name: "Drag src/api to chat",
     exact: true,

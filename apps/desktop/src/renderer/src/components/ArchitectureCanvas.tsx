@@ -35,6 +35,11 @@ import {
   type ArchitectureGraph,
   type ComponentContext,
 } from "../../../shared/architecture";
+import {
+  traceArchitectureReach,
+  traceArchitectureRoute,
+  type ArchitectureTrace,
+} from "../../../shared/architecture-navigation";
 import "@xyflow/react/dist/style.css";
 import "./architecture.css";
 
@@ -47,7 +52,7 @@ function ComponentCard({ data, selected }: NodeProps<CardNode>) {
         : FileCode2;
   return (
     <div
-      className={`architecture-card ${selected ? "is-selected" : ""} ${data.changed ? "has-changed" : ""} ${data.dimmed ? "is-dimmed" : ""}`}
+      className={`architecture-card ${selected ? "is-selected" : ""} ${data.changed ? "has-changed" : ""} ${data.traced ? "is-traced" : ""} ${data.dimmed ? "is-dimmed" : ""}`}
     >
       <Handle type="target" position={Position.Left} />
       <div className="architecture-card-top">
@@ -108,6 +113,9 @@ export function ArchitectureCanvas({
   const [query, setQuery] = useState("");
   const [selection, setSelection] = useState<CardNode | null>(null);
   const [relationSelection, setRelationSelection] = useState<Edge | null>(null);
+  const [trace, setTrace] = useState<ArchitectureTrace | null>(null);
+  const [routeStart, setRouteStart] = useState<CardNode | null>(null);
+  const [traceNotice, setTraceNotice] = useState("");
   const flow = useRef<ReactFlowInstance<CardNode, Edge> | null>(null);
   const layoutKey = `${graph?.workspaceRoot}|${scope}|${module}|${external}|${query}`;
   const previousLayout = useRef("");
@@ -135,6 +143,9 @@ export function ArchitectureCanvas({
     setQuery("");
     setSelection(null);
     setRelationSelection(null);
+    setTrace(null);
+    setRouteStart(null);
+    setTraceNotice("");
   }, [graph?.workspaceRoot]);
   const view = useMemo(
     () =>
@@ -182,19 +193,45 @@ export function ArchitectureCanvas({
         void flow.current?.fitView({ padding: 0.22 });
       });
   }, [view, layoutKey]);
+  useEffect(() => {
+    setTrace(null);
+    setRouteStart(null);
+    setTraceNotice("");
+  }, [layoutKey]);
   const neighbors = new Set(selection ? [selection.id] : []);
   if (selection)
     for (const edge of edges) {
       if (edge.source === selection.id) neighbors.add(edge.target);
       if (edge.target === selection.id) neighbors.add(edge.source);
     }
+  const tracedNodes = new Set(trace?.nodeIds || []);
+  if (routeStart) tracedNodes.add(routeStart.id);
+  const tracedEdges = new Set(trace?.edgeIds || []);
+  const tracing = Boolean(trace || routeStart);
   const displayedNodes = nodes.map((node) => ({
     ...node,
     data: {
       ...node.data,
-      dimmed: Boolean(selection && !neighbors.has(node.id)),
+      traced: tracedNodes.has(node.id),
+      dimmed: tracing
+        ? !tracedNodes.has(node.id)
+        : Boolean(selection && !neighbors.has(node.id)),
     },
   }));
+  const displayedEdges = edges.map((edge) => {
+    if (!tracing) return edge;
+    const active = tracedEdges.has(edge.id);
+    return {
+      ...edge,
+      animated: active,
+      style: {
+        ...edge.style,
+        stroke: active ? "#d3a4ff" : "#4a3a59",
+        strokeWidth: active ? 2.4 : 1,
+        opacity: active ? 1 : 0.18,
+      },
+    };
+  });
   const selectedPaths = new Set(selection?.data.paths || []);
   const selectedFiles =
     graph?.nodes.filter((node) => selectedPaths.has(node.id)) || [];
@@ -258,6 +295,25 @@ export function ArchitectureCanvas({
           <Maximize2 size={14} />
         </button>
       </div>
+      {(trace || routeStart || traceNotice) && (
+        <div className="graph-trace-bar" role="status">
+          <span>
+            {routeStart
+              ? `Route from ${routeStart.data.label} · choose a downstream destination`
+              : traceNotice ||
+                `${trace?.mode} · ${trace?.nodeIds.length || 0} components · ${trace?.edgeIds.length || 0} authored relations`}
+          </span>
+          <button
+            onClick={() => {
+              setTrace(null);
+              setRouteStart(null);
+              setTraceNotice("");
+            }}
+          >
+            Clear trace
+          </button>
+        </div>
+      )}
       {module && (
         <div className="graph-breadcrumb">
           <button
@@ -292,7 +348,7 @@ export function ArchitectureCanvas({
         <div className="graph-stage">
           <ReactFlow
             nodes={displayedNodes}
-            edges={edges}
+            edges={displayedEdges}
             onInit={(instance) => {
               flow.current = instance;
             }}
@@ -305,6 +361,23 @@ export function ArchitectureCanvas({
             maxZoom={1.8}
             nodesConnectable={false}
             onNodeClick={(_event, node) => {
+              if (routeStart && node.id !== routeStart.id) {
+                const result = traceArchitectureRoute(
+                  edges,
+                  routeStart.id,
+                  node.id,
+                );
+                setTrace(result);
+                setTraceNotice(
+                  result
+                    ? `route · ${routeStart.data.label} → ${node.data.label}`
+                    : `No authored downstream route from ${routeStart.data.label} to ${node.data.label}`,
+                );
+                setRouteStart(null);
+                setSelection(node);
+                setRelationSelection(null);
+                return;
+              }
               setSelection(node);
               setRelationSelection(null);
             }}
@@ -345,7 +418,9 @@ export function ArchitectureCanvas({
           </ReactFlow>
           <div className="graph-metrics">
             <span className="live-dot" /> {graph.scannedFiles} files ·{" "}
-            {graph.edges.length} source relations · {graph.revision.slice(0, 8)}
+            {graph.edges.length} source relations · verified IR{" "}
+            {graph.validation.sourceBackedEdges}/{graph.validation.edgeCount} ·{" "}
+            {graph.revision.slice(0, 8)}
             {view.total > view.nodes.length && (
               <span>
                 {" "}
@@ -384,6 +459,40 @@ export function ArchitectureCanvas({
               <GripVertical size={14} /> Add component to chat
             </button>
           )}
+          <div className="trace-actions">
+            <button
+              onClick={() => {
+                setTrace(
+                  traceArchitectureReach(edges, selection.id, "upstream"),
+                );
+                setRouteStart(null);
+                setTraceNotice("");
+              }}
+            >
+              Trace upstream
+            </button>
+            <button
+              onClick={() => {
+                setTrace(
+                  traceArchitectureReach(edges, selection.id, "downstream"),
+                );
+                setRouteStart(null);
+                setTraceNotice("");
+              }}
+            >
+              Trace downstream
+            </button>
+            <button
+              onClick={() => {
+                setTrace(null);
+                setRouteStart(selection);
+                setTraceNotice("");
+                setSelection(null);
+              }}
+            >
+              Start route
+            </button>
+          </div>
           <p>
             {selection.data.paths.length} source files · {related.length} import
             relations

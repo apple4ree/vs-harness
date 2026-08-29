@@ -2,20 +2,23 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { RepositoryAnalysisService } from "../apps/desktop/src/main/services/repository-analysis";
 import type { ArchitectureGraph } from "../apps/desktop/src/shared/architecture";
+import { finalizeArchitectureGraph } from "../apps/desktop/src/shared/architecture-ir";
 
-const graph = (root: string, revision: string): ArchitectureGraph => ({
-  schemaVersion: 1,
-  analyzerVersion: "test",
-  workspaceRoot: root,
-  revision,
-  generatedAt: "now",
-  nodes: [],
-  edges: [],
-  scannedFiles: 0,
-  totalFiles: 0,
-  truncated: false,
-  warnings: [],
-});
+const graph = (root: string, revision: string): ArchitectureGraph =>
+  finalizeArchitectureGraph({
+    schemaVersion: 1,
+    diagramKind: "architecture",
+    analyzerVersion: "test",
+    workspaceRoot: root,
+    revision,
+    generatedAt: "now",
+    nodes: [],
+    edges: [],
+    scannedFiles: 0,
+    totalFiles: 0,
+    truncated: false,
+    warnings: [],
+  });
 test("repository watcher bursts coalesce without concurrent scans", async () => {
   let release!: () => void;
   const gate = new Promise<void>((resolve) => {

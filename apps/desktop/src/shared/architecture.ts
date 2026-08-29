@@ -37,8 +37,29 @@ export type ArchitectureEdge = {
   evidence: SourceEvidence[];
 };
 
+export type ArchitectureDiagnostic = {
+  code: string;
+  severity: "error" | "warning";
+  subject: string;
+  message: string;
+};
+
+/** Deterministic receipt for the source-grounded IR consumed by every viewer. */
+export type ArchitectureValidationReceipt = {
+  contract: "witch.architecture/v1";
+  valid: boolean;
+  revision: string;
+  nodeCount: number;
+  edgeCount: number;
+  evidenceCount: number;
+  sourceBackedNodes: number;
+  sourceBackedEdges: number;
+  diagnostics: ArchitectureDiagnostic[];
+};
+
 export type ArchitectureGraph = {
   schemaVersion: 1;
+  diagramKind: "architecture";
   analyzerVersion: string;
   workspaceRoot: string;
   revision: string;
@@ -49,6 +70,7 @@ export type ArchitectureGraph = {
   totalFiles: number;
   truncated: boolean;
   warnings: string[];
+  validation: ArchitectureValidationReceipt;
 };
 
 export type ComponentContext = {
