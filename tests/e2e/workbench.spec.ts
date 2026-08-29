@@ -975,6 +975,7 @@ test("TypeScript hover and signature hints show source documentation in the edit
   );
   await page.keyboard.press("Escape");
   await page.keyboard.press(`${mod}+Alt+s`);
+  await expect(page.getByRole("status")).toContainText("src/hints.ts saved");
   expect(errors).toEqual([]);
 });
 

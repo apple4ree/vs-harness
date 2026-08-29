@@ -8,6 +8,10 @@ test("macOS preview packaging requests local ad-hoc signing and never automatic 
   assert.equal(config.build.mac.notarize, false);
   assert.match(config.scripts["package:mac"], /--universal/);
   assert.match(config.scripts["package:mac"], /--publish never/);
+  assert.match(
+    config.scripts.postinstall,
+    /fix-node-pty-permissions\.cjs/,
+  );
   const entitlements = await fs.readFile(config.build.mac.entitlements, "utf8");
   assert.match(
     entitlements,

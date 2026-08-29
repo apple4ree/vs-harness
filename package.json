@@ -9,6 +9,7 @@
   "description": "A local-first AI-native development environment",
   "main": "out/main/index.js",
   "scripts": {
+    "postinstall": "node scripts/fix-node-pty-permissions.cjs",
     "test": "tsx --test --test-concurrency=1 tests/*.test.ts",
     "test:e2e": "playwright test",
     "test:all": "npm run typecheck && npm test && npm run build && npm run test:e2e",
