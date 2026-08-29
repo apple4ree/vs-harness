@@ -40,21 +40,59 @@
   overscroll-behavior: contain;
 }
 .chat-welcome {
-  padding: 25px 8px;
+  padding: 18px 8px 25px;
   color: #b1a0c4;
   font-size: 12px;
   line-height: 1.7;
+  text-align: center;
 }
-.chat-sigil {
-  color: #c6a0f5;
-  font-size: 38px;
+.chat-observatory {
+  position: relative;
+  display: grid;
+  width: 136px;
+  height: 136px;
+  margin: 0 auto 4px;
+  place-items: center;
+}
+.chat-observatory::after {
+  position: absolute;
+  inset: 29%;
+  border-radius: 50%;
+  background: #a67cff66;
+  box-shadow: 0 0 45px 17px #8c5ed94d;
+  content: "";
+  filter: blur(10px);
+}
+.chat-observatory img {
+  position: relative;
+  z-index: 2;
+  width: 124px;
+  height: 124px;
+  object-fit: contain;
+  filter: drop-shadow(0 12px 19px #09050dc7);
+}
+.chat-orbit {
+  position: absolute;
+  z-index: 1;
+  border: 1px solid #d4b2ff45;
+  border-radius: 50%;
+  pointer-events: none;
+}
+.chat-orbit-one {
+  inset: 14px 4px;
+  transform: rotate(22deg);
+}
+.chat-orbit-two {
+  inset: 5px 22px;
+  border-color: #e7cb8d38;
+  transform: rotate(-31deg);
 }
 .chat-welcome h3 {
   font-family: Georgia, serif;
   font-size: 21px;
   font-weight: 400;
   color: #e4d5fa;
-  margin: 8px 0;
+  margin: 2px 0 8px;
 }
 .chat-private {
   font-size: 10px;

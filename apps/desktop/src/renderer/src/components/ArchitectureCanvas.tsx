@@ -42,6 +42,7 @@ import {
   type ArchitectureTrace,
 } from "../../../shared/architecture-navigation";
 import { projectSourceNeighborhood } from "../../../shared/architecture-projection";
+import constellationAtmosphere from "../assets/witch-constellation-atmosphere.png";
 import "@xyflow/react/dist/style.css";
 import "./architecture.css";
 
@@ -408,23 +409,37 @@ export function ArchitectureCanvas({
       )}
       {!graph ? (
         <div className="empty-state">
-          <Network size={52} className="constellation-mark" />
-          <span className="eyebrow">A map grounded in your source</span>
-          <h1>See how the pieces connect</h1>
-          <p>
-            Open a project to map its modules, imports and components. Bring any
-            component into the conversation to explore or change it.
-          </p>
-          <button
-            className="primary-action"
-            onClick={onAnalyze}
-            disabled={busy}
-          >
-            {busy ? "Reading the source…" : "Generate architecture"}
-          </button>
+          <img
+            className="architecture-atmosphere architecture-atmosphere-empty"
+            src={constellationAtmosphere}
+            alt=""
+            aria-hidden="true"
+          />
+          <div className="architecture-empty-copy">
+            <Network size={52} className="constellation-mark" />
+            <span className="eyebrow">A map grounded in your source</span>
+            <h1>See how the pieces connect</h1>
+            <p>
+              Open a project to map its modules, imports and components. Bring
+              any component into the conversation to explore or change it.
+            </p>
+            <button
+              className="primary-action"
+              onClick={onAnalyze}
+              disabled={busy}
+            >
+              {busy ? "Reading the source…" : "Generate architecture"}
+            </button>
+          </div>
         </div>
       ) : (
         <div className="graph-stage">
+          <img
+            className="architecture-atmosphere architecture-atmosphere-canvas"
+            src={constellationAtmosphere}
+            alt=""
+            aria-hidden="true"
+          />
           {scope === "focus" && projection && (
             <div className="source-focus-banner" role="status">
               <LocateFixed size={14} />

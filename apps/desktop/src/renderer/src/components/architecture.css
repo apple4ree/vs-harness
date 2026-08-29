@@ -6,6 +6,36 @@
   min-height: 0;
   background: #100b18;
 }
+.architecture-workspace > .empty-state {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+}
+.architecture-empty-copy {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  justify-items: center;
+}
+.architecture-atmosphere {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+  user-select: none;
+}
+.architecture-atmosphere-empty {
+  z-index: 0;
+  opacity: 0.38;
+  filter: saturate(0.8) brightness(0.72);
+}
+.architecture-atmosphere-canvas {
+  z-index: 1;
+  opacity: 0.1;
+  filter: saturate(0.7) brightness(0.75);
+}
 .graph-arrange {
   display: flex;
   align-items: center;
@@ -106,6 +136,14 @@
   position: relative;
   flex: 1;
   min-height: 200px;
+  isolation: isolate;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 45%, #28183955, transparent 46%), #100b18;
+}
+.graph-stage > .react-flow {
+  position: relative;
+  z-index: 2;
 }
 .source-focus-banner {
   position: absolute;

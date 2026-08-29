@@ -13,6 +13,7 @@ import {
   type ComponentContext,
 } from "../../../shared/architecture";
 import type { AgentMode, AgentRun } from "../../../shared/agent";
+import astralObservatory from "../assets/witch-astral-observatory.png";
 import { ReviewDialog } from "./ReviewDialog";
 import "./chat.css";
 
@@ -198,7 +199,11 @@ export function ChatPanel({
       >
         {!runs.length && (
           <div className="chat-welcome">
-            <span className="chat-sigil">✧</span>
+            <div className="chat-observatory" aria-hidden="true">
+              <span className="chat-orbit chat-orbit-one" />
+              <span className="chat-orbit chat-orbit-two" />
+              <img src={astralObservatory} alt="" />
+            </div>
             <h3>Understand, then shape.</h3>
             <p>
               Drag a component from the map into this conversation. Ask about

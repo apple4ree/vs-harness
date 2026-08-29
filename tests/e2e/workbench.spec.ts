@@ -193,6 +193,20 @@ test("a second process sharing the same profile exits without creating another w
 });
 
 test("architecture edges and drag-to-chat source context work in Electron", async () => {
+  const companionArtwork = page.locator(".chat-observatory img");
+  await expect(companionArtwork).toBeVisible();
+  expect(
+    await companionArtwork.evaluate((image: HTMLImageElement) =>
+      image.complete ? image.naturalWidth : 0,
+    ),
+  ).toBeGreaterThan(0);
+  const architectureArtwork = page.locator(".architecture-atmosphere-canvas");
+  await expect(architectureArtwork).toBeAttached();
+  expect(
+    await architectureArtwork.evaluate((image: HTMLImageElement) =>
+      image.complete ? image.naturalWidth : 0,
+    ),
+  ).toBeGreaterThan(0);
   await expect(page.locator(".react-flow__edge")).toHaveCount(1);
   const edgePoint = await page
     .locator(".react-flow__edge-interaction")
