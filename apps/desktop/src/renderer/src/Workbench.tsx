@@ -41,6 +41,7 @@ import type {
 import "./styles.css";
 import "./workbench.css";
 import "./themes.css";
+import "./astral-theme.css";
 
 function errorText(reason: unknown) {
   return reason instanceof Error ? reason.message : String(reason);
