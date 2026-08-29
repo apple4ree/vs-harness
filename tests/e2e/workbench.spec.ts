@@ -268,11 +268,14 @@ test("architecture edges and drag-to-chat source context work in Electron", asyn
   await expect(page.getByLabel("Agent mode")).toHaveValue("change");
   await expect(page.getByRole("tree")).toContainText("empty-folder");
   await page.screenshot({ path: "test-results/witch-architecture.png" });
-  const node = page.locator('.react-flow__node[data-id="module:src/api"]');
+  const movedNode = sourceModule;
+  const changedNode = page.locator(
+    '.react-flow__node[data-id="module:src/api"]',
+  );
   const position = () =>
-    node.evaluate((element) => (element as HTMLElement).style.transform);
+    movedNode.evaluate((element) => (element as HTMLElement).style.transform);
   const before = await position();
-  const label = await node.locator("strong").boundingBox();
+  const label = await movedNode.locator("strong").boundingBox();
   if (!label) throw new Error("Graph node was not rendered");
   await page.mouse.move(label.x + 20, label.y + 6);
   await page.mouse.down();
@@ -284,7 +287,9 @@ test("architecture edges and drag-to-chat source context work in Electron", asyn
     path.join(fixture, "src/api/client.ts"),
     "export function greet(name: string) { return `Greetings ${name}` }\n",
   );
-  await expect(node.locator(".architecture-card")).toHaveClass(/has-changed/);
+  await expect(changedNode.locator(".architecture-card")).toHaveClass(
+    /has-changed/,
+  );
   expect(await position()).toBe(moved);
   await page
     .getByRole("button", { name: /^Compare reading/ })
