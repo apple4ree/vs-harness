@@ -24,11 +24,13 @@ Archify 원칙을 Witch core로 옮긴 commit `1d05558` 이후 구조 시점 비
 | `npm test`                                                                             | 57개 통과 | 검증된 IR, source-neighborhood, route/reach, 정확한 delta, script-safe export를 포함한 서비스·안전성 회귀 |
 | `npm run build`                                                                        | 통과      | main/preload/renderer 프로덕션 번들                                                                       |
 | `npm run test:e2e`                                                                     | 21개 통과 | 실제 Electron에서 Source→Focus 왕복, 구조 비교·HTML/JSON 저장과 IDE 핵심 UI 흐름                          |
-| [GitHub Actions #16](https://github.com/apple4ree/vs-harness/actions/runs/33258497296) | 양쪽 통과 | commit `0c23594`, Windows x64와 macOS universal의 source/package/packaged-app 전체 체인                   |
+| [GitHub Actions #17](https://github.com/apple4ree/vs-harness/actions/runs/33259915987) | 양쪽 통과 | commit `12dd22d`, Windows x64와 macOS universal의 source/package/packaged-app 전체 체인                   |
 
 구조 비교는 저장된 reading을 다시 검증한 뒤 현재 reading과 비교합니다. HTML과 JSON 내보내기는 검증된 graph만 허용하며, HTML은 외부 리소스 없이 동작하고 authored text를 HTML로 주입하지 않습니다. 활성 소스의 Focus 투영은 canonical graph를 다시 검증한 뒤 직접 연결된 authored import와 evidence line만 표시하며, Electron E2E에서 Source→Constellation→evidence panel 흐름과 화면을 확인했습니다.
 
 Actions #16의 첫 Windows 시도는 기존 interactive terminal 출력의 10초 대기에서 한 번 시간 초과가 났습니다. 같은 commit의 실패 job만 재실행한 attempt 2에서는 source E2E 21개, NSIS 패키징, 패키지 검증, packaged-app E2E와 artifact 업로드가 모두 통과했습니다. macOS는 source E2E, universal DMG/ZIP, Mach-O/ASAR 검증, packaged-app E2E를 첫 시도에 모두 통과했습니다. Actions artifact ZIP digest는 Windows `6c094154801bc7d86324083a524a64f3d21278ba7efaef60999fd670e50b8c6c`, macOS `5fb116e6a075ae2a6c4b1a7d6bc110b681e494f59a930792391b2c1133615671`입니다. 이 artifact는 v0.2.0 Release asset을 교체하지 않습니다.
+
+Actions #17은 Focus 투영 commit `12dd22d`를 검증했습니다. Windows는 첫 시도에 전체 체인을 통과했습니다. macOS 첫 시도는 기존 auto-import completion E2E가 suggestion의 `Loading…` 중에 선택되는 타이밍 경합으로 실패했고, 같은 commit의 실패 job만 재실행한 attempt 2에서는 source E2E 21개, universal 패키징, Mach-O/ASAR 검증, packaged-app E2E와 artifact 업로드가 모두 통과했습니다. 최종 artifact ZIP digest는 Windows `5635c75fc0d5ec55445c3795a1b183906044599c875b4946d31889e7aaa9d31e`, macOS `9bb3c352d1e7936debfc35bb04714854fc7e0dc420e0e15f5f2ad143b593224e`입니다. 이 artifact도 새 Release를 생성하거나 v0.2.0 asset을 교체하지 않습니다.
 
 ## v0.2.0에서 실행한 검증
 
@@ -106,7 +108,7 @@ npm run verify:package -- release/mac-universal/Witch.app
 WITCH_PACKAGED_EXECUTABLE=release/mac-universal/Witch.app/Contents/MacOS/Witch npm run test:e2e
 ```
 
-GitHub 재검증은 `.github/workflows/package-desktop.yml`을 수동 실행합니다. 구조 비교·내보내기를 포함한 commit `0c23594`는 Windows/macOS 전체 CI를 통과했지만 아직 v0.2.0 Release에는 포함되지 않았습니다.
+GitHub 재검증은 `.github/workflows/package-desktop.yml`을 수동 실행합니다. Focus·구조 비교·내보내기를 포함한 commit `12dd22d`는 Windows/macOS 전체 CI를 통과했지만 아직 v0.2.0 Release에는 포함되지 않았습니다.
 
 ## 주요 기능 경계
 
