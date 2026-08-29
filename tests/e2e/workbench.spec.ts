@@ -908,13 +908,14 @@ test("accepting a TypeScript auto-import completion changes the editor buffer be
   await editor.click({ position: { x: 220, y: 40 } });
   await page.keyboard.press(`${mod}+a`);
   await page.keyboard.insertText("const value = welco");
-  await expect
-    .poll(async () => {
-      await page.keyboard.press("Control+Space");
-      return page.locator(".suggest-widget.visible").allTextContents();
-    })
-    .toContainEqual(expect.stringContaining("welcome"));
-  await page.keyboard.press("Tab");
+  await page.keyboard.press("Control+Space");
+  const suggestions = page.locator(".suggest-widget.visible");
+  const welcome = suggestions
+    .locator(".monaco-list-row")
+    .filter({ hasText: "welcome" })
+    .first();
+  await expect(welcome).toBeVisible();
+  await welcome.click();
   await expect(editor).toContainText("import { welcome }");
   expect(await fs.readFile(path.join(fixture, relative), "utf8")).toBe(
     "export {};\n",
