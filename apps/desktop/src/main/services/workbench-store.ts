@@ -2,6 +2,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import type { ArchitectureGraph } from "../../shared/architecture";
+import { finalizeArchitectureGraph } from "../../shared/architecture-ir";
 import type { SnapshotMetadata, WorkbenchState } from "../../shared/history";
 
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
@@ -260,5 +261,38 @@ export class WorkbenchStore {
       }
     });
     return metadata;
+  }
+
+  async loadSnapshot(id: string, workspaceRoot: string) {
+    if (!UUID.test(id)) throw new Error("Invalid architecture snapshot id");
+    await this.writes.catch(() => undefined);
+    const state = await this.load();
+    const metadata = state.snapshots.find(
+      (item) => item.id === id && item.workspaceRoot === workspaceRoot,
+    );
+    if (!metadata) throw new Error("Architecture snapshot was not found");
+    const target = path.join(this.directory, "snapshots", id + ".json");
+    const stat = await fs.lstat(target);
+    if (!stat.isFile() || stat.size > 150_000_000)
+      throw new Error("Architecture snapshot is invalid or too large");
+    const stored = JSON.parse(await fs.readFile(target, "utf8"));
+    if (
+      !stored ||
+      stored.workspaceRoot !== workspaceRoot ||
+      stored.revision !== metadata.revision
+    )
+      throw new Error("Architecture snapshot metadata does not match its IR");
+    const {
+      validation: _validation,
+      id: _id,
+      workspaceName: _workspaceName,
+      commit: _commit,
+      createdAt: _createdAt,
+      ...draft
+    } = stored;
+    return finalizeArchitectureGraph({
+      ...draft,
+      diagramKind: draft.diagramKind || "architecture",
+    });
   }
 }

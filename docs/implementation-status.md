@@ -7,6 +7,8 @@ This is an early desktop preview, not feature parity with VS Code.
 - Independent Electron host, React renderer, narrow preload bridge. Witch does not depend on Orca at runtime.
 - TypeScript AST produces a `witch.architecture/v1` typed IR with stable file IDs, source hashes and import-line evidence. A deterministic validation receipt checks unique identities, edge endpoints and evidence path/hash integrity before the IR reaches history or the renderer; invalid topology fails closed. React Flow/Dagre renders modules and files. Unsupported language relations remain unasserted.
 - Constellation reach and route probes traverse only authored directed relations. Upstream/downstream and shortest A→B paths reuse the same validated edge IDs and never infer runtime impact or missing topology.
+- Historical readings are loaded through the same fail-closed IR validator before comparison. Before/Delta/After reports exact added, changed and removed nodes and relations with bounded previews and exact totals; they do not infer risk, blast radius or runtime impact.
+- A validated reading can be exported as canonical JSON or a self-contained interactive HTML explorer. Exports are written by fsynced same-directory temporary replacement. The HTML has no external resources and renders authored strings as text rather than HTML.
 - Attached components carry a graph revision. The main process resolves their paths from its authoritative graph and rejects stale or foreign context.
 - Codex App Server runs behind a service boundary. User requests are streamed to the renderer; actual staged file contents, not the AI's description, produce review diffs.
 - Agent edits use a filtered workspace copy and immutable baseline outside its writable directory. Selected changes pass baseline-hash checks and write recovery journals before applying.
@@ -57,9 +59,9 @@ The following repositories informed the separation of concerns; Witch does not e
 
 ## Regression checks
 
-`npm test` covers IR canonicalization, fail-closed evidence validation, deterministic route/reach traversal, source evidence and aliases, path traversal/junction refusal, ignored files, UTF-8 and BOM handling, concurrent saves, immutable review baselines, selective apply and conflict rejection, RPC framing, real TypeScript language-server operations, the real Node debugger, settings and extension validation.
+`npm test` covers IR canonicalization, fail-closed evidence validation, deterministic route/reach traversal, exact snapshot deltas, portable script-safe exports, source evidence and aliases, path traversal/junction refusal, ignored files, UTF-8 and BOM handling, concurrent saves, immutable review baselines, selective apply and conflict rejection, RPC framing, real TypeScript language-server operations, the real Node debugger, settings and extension validation.
 
-`npm run test:e2e` launches Electron using disposable project/profile folders. Native dialogs are overridden only inside the test harness. The application/preload/services are real. Scenarios cover validated graph route/reach tracing, graph-to-chat drag, file CRUD/save/watch conflicts, multi-file rename review, two interactive shells, Node debugging, task execution, settings, shortcut remapping, auto save, snippet insertion and restart persistence.
+`npm run test:e2e` launches Electron using disposable project/profile folders. Native dialogs are overridden only inside the test harness. The application/preload/services are real. Scenarios cover validated graph route/reach tracing, Before/Delta/After comparison, HTML/JSON export, graph-to-chat drag, file CRUD/save/watch conflicts, multi-file rename review, two interactive shells, Node debugging, task execution, settings, shortcut remapping, auto save, snippet insertion and restart persistence.
 
 The chat E2E fixture replaces only the external Codex protocol process. It tests an actual mouse drag into chat, UI submission, isolation, canceled native approval, selected diff application, graph revision updates, read-only mode, interruption, explicit review archiving and retained history. This is distinct from the live-provider smoke test below.
 

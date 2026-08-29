@@ -15,6 +15,7 @@ let application: ElectronApplication;
 let page: Page;
 let fixture: string;
 let profile: string;
+let exportTargets: { html: string; json: string };
 const errors: string[] = [];
 const mod = process.platform === "darwin" ? "Meta" : "Control";
 const documentStart =
@@ -33,6 +34,10 @@ test.beforeAll(async () => {
   profile = await fs.realpath(
     await fs.mkdtemp(path.join(os.tmpdir(), "witch-ui-profile-")),
   );
+  exportTargets = {
+    html: path.join(profile, "witch-architecture.html"),
+    json: path.join(profile, "witch-architecture.json"),
+  };
   await fs.mkdir(path.join(fixture, "src/api"), { recursive: true });
   await fs.mkdir(path.join(fixture, "src/ui"), { recursive: true });
   await fs.mkdir(path.join(fixture, "empty-folder"));
@@ -66,16 +71,26 @@ test.beforeAll(async () => {
     cwd: process.cwd(),
     env,
   });
-  await application.evaluate(({ dialog }, root) => {
-    dialog.showOpenDialog = async () => ({
-      canceled: false,
-      filePaths: [root],
-    });
-    dialog.showMessageBox = async () => ({
-      response: 1,
-      checkboxChecked: false,
-    });
-  }, fixture);
+  await application.evaluate(
+    ({ dialog }, options) => {
+      dialog.showOpenDialog = async () => ({
+        canceled: false,
+        filePaths: [options.root],
+      });
+      dialog.showMessageBox = async () => ({
+        response: 1,
+        checkboxChecked: false,
+      });
+      dialog.showSaveDialog = async (...args: any[]) => {
+        const settings = args.at(-1);
+        const format = String(settings?.defaultPath).endsWith(".html")
+          ? "html"
+          : "json";
+        return { canceled: false, filePath: options.exportTargets[format] };
+      };
+    },
+    { root: fixture, exportTargets },
+  );
   page = await application.firstWindow();
   page.on("pageerror", (error) => {
     errors.push(error.message);
@@ -267,6 +282,38 @@ test("architecture edges and drag-to-chat source context work in Electron", asyn
   );
   await expect(node.locator(".architecture-card")).toHaveClass(/has-changed/);
   expect(await position()).toBe(moved);
+  await page
+    .getByRole("button", { name: /^Compare reading/ })
+    .first()
+    .click();
+  const delta = page.getByRole("dialog", { name: "Architecture delta" });
+  await expect(delta).toContainText("Before · Delta · After");
+  await expect(delta).toContainText("~1 nodes");
+  await expect(delta).toContainText("src/api/client.ts");
+  await expect(delta).toContainText("Changed hash");
+  await page.screenshot({ path: "test-results/witch-architecture-delta.png" });
+  await page
+    .getByRole("button", { name: "Close architecture delta", exact: true })
+    .click();
+  await page.getByLabel("Export architecture").selectOption("html");
+  await expect(page.getByRole("status")).toContainText(
+    "Architecture HTML exported",
+  );
+  const exportedHtml = await fs.readFile(exportTargets.html, "utf8");
+  expect(exportedHtml).toContain("witch.architecture/v1");
+  expect(exportedHtml).toContain("src/api/client.ts");
+  expect(exportedHtml).not.toMatch(/https?:\/\//);
+  await page.getByLabel("Export architecture").selectOption("json");
+  await expect(page.getByRole("status")).toContainText(
+    "Architecture JSON exported",
+  );
+  const exportedJson = JSON.parse(
+    await fs.readFile(exportTargets.json, "utf8"),
+  );
+  expect(exportedJson.validation.valid).toBe(true);
+  expect(exportedJson.revision).toBe(
+    (await page.evaluate(() => window.witch.analysis.current()))?.revision,
+  );
   await page
     .getByRole("button", { name: "Arrange graph", exact: true })
     .click();

@@ -25,6 +25,8 @@ declare global {
   type GraphEdge = import("../../shared/architecture").ArchitectureEdge;
   type ArchitectureGraph =
     import("../../shared/architecture").ArchitectureGraph;
+  type ArchitectureDelta =
+    import("../../shared/architecture-delta").ArchitectureDelta;
   type WorkspaceEntry =
     import("../../main/services/workspace-files").WorkspaceEntry;
   type Snapshot = import("../../shared/history").SnapshotMetadata;
@@ -176,6 +178,8 @@ declare global {
         start(): Promise<ArchitectureGraph & { snapshot: Snapshot }>;
         snapshots(): Promise<Snapshot[]>;
         current(): Promise<ArchitectureGraph | null>;
+        delta(snapshotId: string): Promise<ArchitectureDelta>;
+        export(format: "json" | "html"): Promise<string | null>;
         onUpdated(listener: (graph: ArchitectureGraph) => void): () => void;
         onError(listener: (error: string) => void): () => void;
       };

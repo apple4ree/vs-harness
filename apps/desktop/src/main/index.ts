@@ -12,6 +12,7 @@ import {
   spawnSync,
 } from "node:child_process";
 import { promises as fs } from "node:fs";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import pty, { IPty } from "node-pty";
@@ -63,6 +64,11 @@ import type {
 } from "../shared/architecture";
 import type { Range, SignatureContext } from "../shared/language";
 import type { AgentRequest } from "../shared/agent";
+import { compareArchitectureGraphs } from "../shared/architecture-delta";
+import {
+  renderArchitectureHtml,
+  serializeArchitectureJson,
+} from "../shared/architecture-export";
 
 // Explicit profile override allows development and packaged smoke tests without touching a real profile.
 if (process.env.WITCH_USER_DATA_DIR) {
@@ -229,6 +235,26 @@ function getHistoryStore() {
   return historyStore;
 }
 const loadWitchState = () => getHistoryStore().get();
+
+async function atomicWriteText(target: string, contents: string) {
+  await fs.mkdir(path.dirname(target), { recursive: true });
+  const temporary = path.join(
+    path.dirname(target),
+    `.${path.basename(target)}.${randomUUID()}.tmp`,
+  );
+  const handle = await fs.open(temporary, "wx", 0o600);
+  try {
+    try {
+      await handle.writeFile(contents, "utf8");
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    await fs.rename(temporary, target);
+  } finally {
+    await fs.unlink(temporary).catch(() => undefined);
+  }
+}
 
 async function recordProjectOpen(workspace: Workspace) {
   const now = new Date().toISOString();
@@ -1461,6 +1487,53 @@ app.whenReady().then(() => {
     listSnapshots(currentWorkspace?.root),
   );
   handleDesktop("analysis:current", () => latestGraph);
+  handleDesktop("analysis:delta", async (_event, snapshotId: string) => {
+    if (!currentWorkspace || !latestGraph)
+      throw new Error("Open and analyze a repository first");
+    const workspaceRoot = currentWorkspace.root;
+    const head = latestGraph;
+    const base = await getHistoryStore().loadSnapshot(
+      snapshotId,
+      workspaceRoot,
+    );
+    if (
+      currentWorkspace?.root !== workspaceRoot ||
+      head.workspaceRoot !== workspaceRoot
+    )
+      throw new Error("The active architecture reading is stale");
+    return compareArchitectureGraphs(base, head);
+  });
+  handleDesktop("analysis:export", async (_event, format: "json" | "html") => {
+    if (!currentWorkspace || !latestGraph)
+      throw new Error("Open and analyze a repository first");
+    if (!(["json", "html"] as const).includes(format))
+      throw new Error("Unsupported architecture export format");
+    if (latestGraph.workspaceRoot !== currentWorkspace.root)
+      throw new Error("The active architecture reading is stale");
+    const graph = latestGraph;
+    const workspace = currentWorkspace;
+    const extension = format;
+    const suggested = `${workspace.name.replace(/[^a-z0-9._-]+/gi, "-") || "witch"}-architecture.${extension}`;
+    const result = await dialog.showSaveDialog(applicationWindow!, {
+      title: `Export Witch architecture ${format.toUpperCase()}`,
+      defaultPath: path.join(app.getPath("documents"), suggested),
+      filters: [
+        {
+          name: format === "html" ? "Self-contained HTML" : "Witch IR JSON",
+          extensions: [extension],
+        },
+      ],
+    });
+    if (result.canceled || !result.filePath) return null;
+    if (currentWorkspace?.root !== workspace.root)
+      throw new Error("The active workspace changed before export");
+    const contents =
+      format === "html"
+        ? renderArchitectureHtml(graph)
+        : serializeArchitectureJson(graph);
+    await atomicWriteText(result.filePath, contents);
+    return result.filePath;
+  });
   handleDesktop("agent:list", async () =>
     currentWorkspace ? getAgentService().list(currentWorkspace.root) : [],
   );

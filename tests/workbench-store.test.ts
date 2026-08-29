@@ -67,12 +67,33 @@ test("workbench index stays small, serializes updates and retains full immutable
     "fixture",
     "none",
   );
+  const loaded = await store.loadSnapshot(snapshot.id, directory);
+  assert.equal(loaded.validation.valid, true);
+  assert.equal(loaded.revision, "fixture");
+  await assert.rejects(
+    store.loadSnapshot(randomUUID(), directory),
+    /not found/,
+  );
   assert.equal(snapshot.nodeCount, 200);
   assert(!("nodes" in snapshot));
   const index = await fs.readFile(path.join(directory, "witch-state.json"));
   const stored = await fs.readFile(
     path.join(directory, "snapshots", snapshot.id + ".json"),
   );
+  const damaged = JSON.parse(stored.toString());
+  damaged.nodes[0].evidence[0].hash = "tampered";
+  const snapshotPath = path.join(directory, "snapshots", snapshot.id + ".json");
+  await fs.writeFile(snapshotPath, JSON.stringify(damaged));
+  await assert.rejects(
+    store.loadSnapshot(snapshot.id, directory),
+    /IR validation failed/,
+  );
+  assert.equal(
+    JSON.parse(await fs.readFile(snapshotPath, "utf8")).nodes[0].evidence[0]
+      .hash,
+    "tampered",
+  );
+  await fs.writeFile(snapshotPath, stored);
   assert(index.length < stored.length / 4);
   assert.equal(JSON.parse(stored.toString()).nodes.length, 200);
   const reopened = new WorkbenchStore(directory);

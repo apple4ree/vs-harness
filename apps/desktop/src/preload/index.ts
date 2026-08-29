@@ -95,6 +95,10 @@ contextBridge.exposeInMainWorld("witch", {
     start: () => ipcRenderer.invoke("analysis:start"),
     snapshots: () => ipcRenderer.invoke("analysis:snapshots"),
     current: () => ipcRenderer.invoke("analysis:current"),
+    delta: (snapshotId: string) =>
+      ipcRenderer.invoke("analysis:delta", snapshotId),
+    export: (format: "json" | "html") =>
+      ipcRenderer.invoke("analysis:export", format),
     onUpdated: (listener: (graph: ArchitectureGraph) => void) =>
       subscribe("analysis:updated", listener),
     onError: (listener: (error: string) => void) =>

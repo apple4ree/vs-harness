@@ -6,6 +6,7 @@ import { ProjectExplorer } from "./components/ProjectExplorer";
 import { TerminalPanel } from "./components/TerminalPanel";
 import { DebugPanel } from "./components/DebugPanel";
 import { PanelDivider } from "./components/PanelDivider";
+import { ArchitectureDeltaDialog } from "./components/ArchitectureDeltaDialog";
 import {
   DEFAULT_LAYOUT,
   fitLayout,
@@ -62,6 +63,8 @@ export function Workbench() {
   const [contexts, setContexts] = useState<ComponentContext[]>([]);
   const [recentProjects, setRecentProjects] = useState<ProjectRecord[]>([]);
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
+  const [delta, setDelta] = useState<ArchitectureDelta | null>(null);
+  const [deltaBusy, setDeltaBusy] = useState<string | null>(null);
   const [legacyTasks, setLegacyTasks] = useState<TaskRecord[]>([]);
   const [legacySummary, setLegacySummary] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -359,6 +362,38 @@ export function Workbench() {
       if (root === rootRef.current) setGraphBusy(false);
     }
   }
+  async function compareSnapshot(snapshot: Snapshot) {
+    const root = rootRef.current;
+    if (!root || deltaBusy) return;
+    setDeltaBusy(snapshot.id);
+    try {
+      const comparison = await window.witch.analysis.delta(snapshot.id);
+      if (root !== rootRef.current) return;
+      setDelta(comparison);
+      setView("architecture");
+      const total = Object.values(comparison.summary).reduce(
+        (sum, count) => sum + count,
+        0,
+      );
+      setStatus(
+        `Architecture delta: ${total} exact authored change${total === 1 ? "" : "s"}.`,
+      );
+    } catch (reason) {
+      if (root === rootRef.current)
+        setStatus(`Architecture delta: ${errorText(reason)}`);
+    } finally {
+      if (root === rootRef.current) setDeltaBusy(null);
+    }
+  }
+  async function exportArchitecture(format: "json" | "html") {
+    try {
+      const target = await window.witch.analysis.export(format);
+      if (target)
+        setStatus(`Architecture ${format.toUpperCase()} exported to ${target}`);
+    } catch (reason) {
+      setStatus(`Architecture export: ${errorText(reason)}`);
+    }
+  }
   async function loadWorkspace(next: Workspace) {
     const changedRoot = next.root !== rootRef.current;
     if (changedRoot) {
@@ -371,6 +406,8 @@ export function Workbench() {
       setSelectedFile(null);
       setExplorerSelection(null);
       setGraph(null);
+      setDelta(null);
+      setDeltaBusy(null);
       setContexts([]);
       setDiagnostics({});
       setLocations(null);
@@ -1221,6 +1258,23 @@ export function Workbench() {
                 ? `${snapshots.length} saved readings · latest ${new Date(snapshots[0].createdAt).toLocaleTimeString()}`
                 : "A snapshot is saved with each manual reading."}
             </p>
+            {snapshots
+              .filter((snapshot) => snapshot.revision !== graph?.revision)
+              .slice(0, 3)
+              .map((snapshot) => (
+                <button
+                  className="nav-item"
+                  key={snapshot.id}
+                  disabled={Boolean(deltaBusy)}
+                  onClick={() => void compareSnapshot(snapshot)}
+                >
+                  {deltaBusy === snapshot.id ? "Comparing…" : "Compare reading"}
+                  <small>
+                    {new Date(snapshot.createdAt).toLocaleString()} ·{" "}
+                    {snapshot.revision.slice(0, 8)}
+                  </small>
+                </button>
+              ))}
           </section>
           {!!legacyTasks.length && (
             <section>
@@ -1296,6 +1350,7 @@ export function Workbench() {
                 onAnalyze={() => void analyze()}
                 onOpenFile={(path, line) => void selectFile(path, line)}
                 onAttach={attach}
+                onExport={(format) => void exportArchitecture(format)}
               />
             </div>
             <div className="workbench-view" hidden={view !== "source"}>
@@ -1602,6 +1657,16 @@ export function Workbench() {
                   : tab,
               ),
             );
+          }}
+        />
+      )}
+      {delta && (
+        <ArchitectureDeltaDialog
+          delta={delta}
+          onClose={() => setDelta(null)}
+          onOpenFile={(path) => {
+            setDelta(null);
+            void selectFile(path);
           }}
         />
       )}

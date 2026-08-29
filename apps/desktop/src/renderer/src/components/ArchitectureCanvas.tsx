@@ -100,12 +100,14 @@ export function ArchitectureCanvas({
   onAnalyze,
   onOpenFile,
   onAttach,
+  onExport,
 }: {
   graph: ArchitectureGraph | null;
   busy: boolean;
   onAnalyze: () => void;
   onOpenFile: (path: string, line?: number) => void;
   onAttach: (context: ComponentContext) => void;
+  onExport: (format: "json" | "html") => void;
 }) {
   const [scope, setScope] = useState<"modules" | "files">("modules");
   const [module, setModule] = useState<string | null>(null);
@@ -280,6 +282,20 @@ export function ArchitectureCanvas({
           />{" "}
           Dependencies
         </label>
+        <select
+          className="graph-export"
+          aria-label="Export architecture"
+          value=""
+          disabled={!graph}
+          onChange={(event) => {
+            const format = event.target.value;
+            if (format === "json" || format === "html") onExport(format);
+          }}
+        >
+          <option value="">Export…</option>
+          <option value="html">Interactive HTML</option>
+          <option value="json">Validated IR JSON</option>
+        </select>
         <button
           className="graph-arrange"
           disabled={!graph}

@@ -72,6 +72,15 @@
 .external-toggle input {
   accent-color: #ac7bed;
 }
+.graph-export {
+  max-width: 125px;
+  border: 1px solid #513965;
+  border-radius: 5px;
+  padding: 5px 6px;
+  background: #1d1328;
+  color: #c9b2df;
+  font-size: 9px;
+}
 .graph-breadcrumb {
   display: flex;
   align-items: center;
@@ -403,4 +412,186 @@
 }
 .graph-warnings div {
   margin-top: 5px;
+}
+.architecture-delta-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 28px;
+  background: #09060dc7;
+  backdrop-filter: blur(7px);
+}
+.architecture-delta-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(1060px, 92vw);
+  max-height: 88vh;
+  overflow: auto;
+  border: 1px solid #735591;
+  border-radius: 13px;
+  background: #140d1ded;
+  box-shadow: 0 25px 90px #000a;
+  color: #e8ddf3;
+}
+.architecture-delta-dialog > header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 18px 20px;
+  border-bottom: 1px solid #382548;
+}
+.architecture-delta-dialog h2 {
+  margin: 4px 0 0;
+  font-family: Georgia, serif;
+  font-weight: 500;
+}
+.architecture-delta-dialog > header button {
+  border: 0;
+  background: transparent;
+  color: #bda2d5;
+  font-size: 22px;
+}
+.delta-timeline {
+  display: grid;
+  grid-template-columns: 1fr 1.15fr 1fr;
+  gap: 1px;
+  margin: 14px 20px;
+  overflow: hidden;
+  border: 1px solid #412e51;
+  border-radius: 8px;
+  background: #412e51;
+}
+.delta-timeline section {
+  display: grid;
+  gap: 4px;
+  padding: 13px;
+  background: #1d1426;
+}
+.delta-timeline .delta-center {
+  background: #2b1939;
+  text-align: center;
+}
+.delta-timeline span,
+.delta-section h3 {
+  color: #a98bc4;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.delta-timeline small {
+  color: #8e7d9e;
+  font-size: 9px;
+}
+.delta-summary {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 6px;
+  padding: 0 20px 14px;
+}
+.delta-summary span {
+  border: 1px solid #49335b;
+  border-radius: 6px;
+  padding: 7px;
+  background: #1d1427;
+  color: #cbb7de;
+  text-align: center;
+  font-size: 9px;
+}
+.delta-node-grid,
+.delta-edge-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  padding: 0 20px 16px;
+}
+.delta-section {
+  min-width: 0;
+  border: 1px solid #392849;
+  border-radius: 8px;
+  background: #171020;
+}
+.delta-section h3 {
+  display: flex;
+  justify-content: space-between;
+  margin: 0;
+  padding: 9px 11px;
+  border-bottom: 1px solid #392849;
+}
+.delta-added h3 {
+  color: #85c7a1;
+}
+.delta-changed h3 {
+  color: #d5b472;
+}
+.delta-removed h3 {
+  color: #cf8995;
+}
+.delta-list {
+  max-height: 230px;
+  overflow: auto;
+}
+.delta-list button {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid #30213d;
+  padding: 8px 10px;
+  background: transparent;
+  color: #dbcce8;
+  text-align: left;
+}
+.delta-list button:disabled {
+  cursor: default;
+}
+.delta-list strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font:
+    10px "Cascadia Code",
+    monospace;
+}
+.delta-list small,
+.delta-list p,
+.delta-edge-section small,
+.delta-edge-section p {
+  color: #8f7e9e;
+  font-size: 8px;
+}
+.delta-list p {
+  padding: 0 10px;
+}
+.delta-edge-section {
+  border: 1px solid #392849;
+  border-radius: 7px;
+  padding: 9px;
+  background: #171020;
+  color: #bca6ce;
+  font-size: 9px;
+}
+.delta-edge-section summary {
+  cursor: pointer;
+  color: #cdb6e1;
+}
+.delta-edge-section div {
+  display: grid;
+  gap: 3px;
+  padding: 7px 0;
+  border-bottom: 1px solid #30213d;
+}
+.delta-edge-section code {
+  overflow-wrap: anywhere;
+  color: #c2afd3;
+  font-size: 8px;
+}
+@media (max-width: 900px) {
+  .delta-summary {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .delta-node-grid,
+  .delta-edge-grid {
+    grid-template-columns: 1fr;
+  }
 }

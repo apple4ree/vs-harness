@@ -9,6 +9,11 @@ import {
   traceArchitectureReach,
   traceArchitectureRoute,
 } from "../apps/desktop/src/shared/architecture-navigation";
+import { compareArchitectureGraphs } from "../apps/desktop/src/shared/architecture-delta";
+import {
+  renderArchitectureHtml,
+  serializeArchitectureJson,
+} from "../apps/desktop/src/shared/architecture-export";
 
 function draft(): ArchitectureGraphDraft {
   return {
@@ -120,4 +125,74 @@ test("reach and route traces reuse only authored directed relations", () => {
     edgeIds: ["e-a", "e-b"],
   });
   assert.equal(traceArchitectureRoute(relations, "missing", "d"), null);
+});
+
+test("architecture delta reports only exact authored snapshot changes", () => {
+  const base = finalizeArchitectureGraph(draft());
+  const next = draft();
+  next.revision = "revision-2";
+  next.generatedAt = "2026-01-02T00:00:00.000Z";
+  next.nodes[0].hash = "hash-b-2";
+  next.nodes[0].evidence[0].hash = "hash-b-2";
+  next.edges[0].evidence[0].excerpt = 'import "./b.js"';
+  next.nodes.push({
+    id: "src/c.ts",
+    label: "c.ts",
+    kind: "file",
+    path: "src/c.ts",
+    module: "src",
+    language: "ts",
+    count: 1,
+    hash: "hash-c",
+    symbols: [],
+    evidence: [{ path: "src/c.ts", line: 1, hash: "hash-c" }],
+  });
+  next.edges.push({
+    id: "src/b.ts:imports:src/c.ts",
+    from: "src/b.ts",
+    to: "src/c.ts",
+    kind: "imports",
+    count: 1,
+    evidence: [{ path: "src/b.ts", line: 1, hash: "hash-b-2" }],
+  });
+  const delta = compareArchitectureGraphs(
+    base,
+    finalizeArchitectureGraph(next),
+  );
+  assert.deepEqual(delta.summary, {
+    addedNodes: 1,
+    removedNodes: 0,
+    changedNodes: 1,
+    addedEdges: 1,
+    removedEdges: 0,
+    changedEdges: 1,
+  });
+  assert.equal(delta.nodes.added.items[0].id, "src/c.ts");
+  assert.deepEqual(delta.nodes.changed.items[0].fields, ["hash"]);
+  assert.equal(delta.edges.added.items[0].id, "src/b.ts:imports:src/c.ts");
+  assert.deepEqual(delta.edges.changed.items[0].fields, [
+    "evidenceFingerprint",
+  ]);
+  assert.deepEqual(compareArchitectureGraphs(base, base).summary, {
+    addedNodes: 0,
+    removedNodes: 0,
+    changedNodes: 0,
+    addedEdges: 0,
+    removedEdges: 0,
+    changedEdges: 0,
+  });
+});
+
+test("validated architecture exports are deterministic, portable and script-safe", () => {
+  const source = draft();
+  source.nodes[0].label = '</script><script>alert("witch")</script>';
+  const graph = finalizeArchitectureGraph(source);
+  const json = serializeArchitectureJson(graph);
+  assert.deepEqual(JSON.parse(json), graph);
+  const html = renderArchitectureHtml(graph);
+  assert.equal(renderArchitectureHtml(graph), html);
+  assert(html.startsWith("<!doctype html>"));
+  assert(html.includes("witch.architecture/v1"));
+  assert(!html.includes('</script><script>alert("witch")</script>'));
+  assert(!/https?:\/\//.test(html));
 });

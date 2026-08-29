@@ -1,25 +1,38 @@
 # Witch 0.2.0 — 검증 기록
 
-검증일: 2026-08-28. 실행 환경: Windows 11 x64, Node.js 22.14.0, npm 10.9.2, Electron 44.0.0.
+최근 검증일: 2026-08-29. 로컬 실행 환경: Windows 11 x64, Node.js 22.14.0, npm 10.9.2, Electron 44.0.0.
 
 이 문서는 실제로 실행한 검증과 아직 실행하지 못한 검증을 구분합니다. VS Code 기능 전체 또는 모든 저장소에 대한 호환성을 보증하지 않습니다.
 
-## Windows 산출물
+## 공개 프리뷰 산출물
 
-- 설치 파일: `release/Witch-0.2.0-win-x64.exe`
-- 설치 없이 테스트한 실행 파일: `release/win-unpacked/Witch.exe`
-- 설치 파일 크기: 138,353,395 bytes
-- SHA-256: `44C94FF139225124198AB286657AC6F41FE7B9CE5DDC919A1D32C67B0598DB0E`
+- GitHub Release: [Witch v0.2.0](https://github.com/apple4ree/vs-harness/releases/tag/v0.2.0), 기준 commit `2709677`
+- Windows x64 EXE: 138,806,211 bytes, SHA-256 `5F00F2C938B930F80C4B766847EBB9CBD9D40BC96E73F5C8FD2AA97431CEEDF5`
+- macOS universal DMG: 261,899,404 bytes, SHA-256 `1676AF070A10D6A437FF641061BAC188325ED5F2A04ADFC751AA35880989476B`
+- macOS universal ZIP: 261,587,503 bytes, SHA-256 `B495D6B28F677EA0F682070414D64D803586758AAD36F3BC68C21F04AB66AF6D`
 - Authenticode 상태: `NotSigned`. 개인 테스트용 미서명 프리뷰입니다. 정식 서명·자동 업데이트는 구성하지 않았습니다.
 
-설치 프로그램 자체를 사용자의 시스템에 설치·제거하는 테스트는 하지 않았습니다. 패키지에 포함된 실제 실행 파일을 임시 프로필로 실행했습니다. 소스를 바꾸면 이미 만든 설치 파일에는 반영되지 않으므로 다시 패키징해야 합니다.
+Windows와 macOS GitHub Actions job은 source E2E, 패키징, 패키지 내용 검증, packaged-app E2E를 모두 통과했습니다. 설치 프로그램 자체를 사용자의 시스템에 설치·제거하는 테스트는 하지 않았습니다. 소스를 바꾸면 이미 만든 v0.2.0 설치 파일에는 반영되지 않으므로 다시 패키징해야 합니다.
 
-## 실행한 검증
+## 현재 main — v0.2.0 이후
+
+Archify 원칙을 Witch core로 옮긴 commit `1d05558` 이후 구조 시점 비교와 오프라인 내보내기는 아직 새 Release에 포함되지 않은 작업입니다. 현재 로컬 검증 결과는 다음과 같습니다.
+
+| 검증                                              | 결과      | 범위                                                                                 |
+| ------------------------------------------------- | --------- | ------------------------------------------------------------------------------------ |
+| `npm run typecheck`                               | 통과      | 현재 TypeScript 소스                                                                 |
+| `npm test`                                        | 55개 통과 | 검증된 IR, route/reach, 정확한 delta, script-safe export를 포함한 서비스·안전성 회귀 |
+| `npm run build`                                   | 통과      | main/preload/renderer 프로덕션 번들                                                  |
+| `npx playwright test tests/e2e/workbench.spec.ts` | 16개 통과 | 실제 Electron에서 구조 비교·HTML/JSON 저장과 IDE 핵심 UI 흐름                        |
+
+구조 비교는 저장된 reading을 다시 검증한 뒤 현재 reading과 비교합니다. HTML과 JSON 내보내기는 검증된 graph만 허용하며, HTML은 외부 리소스 없이 동작하고 authored text를 HTML로 주입하지 않습니다.
+
+## v0.2.0에서 실행한 검증
 
 | 검증                                             | 결과                    | 범위                                                                                |
 | ------------------------------------------------ | ----------------------- | ----------------------------------------------------------------------------------- |
 | `npm run typecheck`                              | 통과                    | 현재 TypeScript 소스                                                                |
-| `npm test`                                       | 49개 통과               | 파일 안전성, 분석, 검색, 언어 서버, 디버그, 기록, 검토, 키 저장, 플랫폼 바이너리 등 |
+| `npm test`                                       | 당시 전체 통과          | 파일 안전성, 분석, 검색, 언어 서버, 디버그, 기록, 검토, 키 저장, 플랫폼 바이너리 등 |
 | `npm run test:e2e`                               | 21개 통과               | 개발 실행에서 실제 Electron UI·IPC·서비스                                           |
 | Windows 패키지 E2E                               | 20개 통과, 1개 제외     | 개발 서버 전용 테스트만 의도적으로 제외                                             |
 | `npm run package:win`                            | 통과                    | x64 NSIS 설치 파일 생성                                                             |
@@ -71,17 +84,15 @@ E2E는 임시 프로젝트와 별도 앱 데이터에서 실행했습니다. 파
 
 캐시가 있어도 파일 읽기는 수행합니다. 즉시 재분석이나 실제 대형 저장소에서 같은 시간을 보장하지 않습니다. RSS는 벤치마크 프로세스 값으로, 전체 Electron 앱의 메모리 사용량이 아닙니다. 화면 제한과 원본 분석 결과의 크기도 구분합니다.
 
-## macOS — 남은 검증
+## macOS 검증 경계
 
-Windows에서 macOS 앱을 실행하거나 DMG/ZIP을 생성한 것은 아닙니다.
+GitHub hosted macOS runner에서 macOS 13+ universal DMG/ZIP 패키징과 source/packaged-app E2E를 실행해 통과했습니다. 패키지 검증은 universal 앱 실행 파일의 양쪽 CPU slice와 아키텍처별 PTY·spawn-helper Mach-O 헤더를 확인합니다.
 
-- 준비됨: macOS 13+ universal DMG/ZIP 빌드 설정, ICNS, entitlements, Intel/Apple Silicon PTY 파일, macOS 전용 CI job.
 - macOS 프리뷰는 `identity: "-"`로 로컬 ad-hoc 서명을 명시합니다. `notarize: false`로 자동 Apple 업로드는 하지 않습니다. 인증된 배포 서명을 뜻하지 않습니다.
-- 로컬에서 확인함: 설치된 두 아키텍처의 PTY·spawn-helper 파일의 실제 Mach-O CPU 헤더. Universal 헤더 검사기는 합성 파일로 정상·손상 사례를 검증했습니다.
-- 미실행: 실제 macOS 패키징, macOS UI/터미널/언어 서버/디버거 E2E, Intel·Apple Silicon 실기 검증, Apple 서명·공증.
-- 현재 저장소에는 Git remote가 없으며 CI를 실행하거나 외부 저장소로 업로드하지 않았습니다.
+- CI 통과는 여러 Intel·Apple Silicon 실기에서의 장시간 사용 검증을 대신하지 않습니다.
+- 미실행: Apple Developer ID 서명·공증, Gatekeeper 정식 배포 검증, 사용자의 실제 Intel/Apple Silicon 장치별 설치·제거 시험.
 
-macOS 환경에서 다음을 실행해야 합니다.
+별도 macOS 환경에서 재현하려면 다음을 실행합니다.
 
 ```sh
 npm ci
@@ -92,7 +103,7 @@ npm run verify:package -- release/mac-universal/Witch.app
 WITCH_PACKAGED_EXECUTABLE=release/mac-universal/Witch.app/Contents/MacOS/Witch npm run test:e2e
 ```
 
-GitHub에서 실행하려면 사용자가 지정한 저장소에 코드를 반영한 뒤 `.github/workflows/package-desktop.yml`을 수동 실행합니다. 저장소 생성·공개·push·워크플로 실행은 이번 작업에서 수행하지 않았습니다.
+GitHub 재검증은 `.github/workflows/package-desktop.yml`을 수동 실행합니다. 현재 main의 구조 비교·내보내기는 새 release 전에 이 CI를 다시 통과해야 합니다.
 
 ## 주요 기능 경계
 
