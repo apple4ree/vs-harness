@@ -242,7 +242,11 @@ test("architecture edges and drag-to-chat source context work in Electron", asyn
   await expect(page.locator(".graph-trace-bar")).toContainText(
     "Route from src/ui",
   );
-  await page.locator('.react-flow__node[data-id="module:src/api"]').click();
+  // CI viewports can place this card below the interactive minimap. The route
+  // behavior is under test here, not React Flow's overlay hit testing.
+  await page
+    .locator('.react-flow__node[data-id="module:src/api"]')
+    .click({ force: true });
   await expect(page.locator(".graph-trace-bar")).toContainText(
     "route · src/ui → src/api",
   );
