@@ -1,0 +1,38 @@
+# Reference policy for Witch's initial CUA integration.
+# The app writes the same policy to its private app-data directory before launch.
+version: 3
+expires_after: 1h
+idle_timeout: 10m
+resources: {}
+allow:
+  tools:
+    - check_permissions
+    - get_accessibility_tree
+    - get_config
+    - get_cursor_position
+    - get_screen_size
+    - get_window_state
+    - health_report
+    - list_apps
+    - list_windows
+deny:
+  tools:
+    - browser_click
+    - browser_download
+    - browser_navigate
+    - browser_pointer
+    - browser_set_input_files
+    - browser_type
+    - click
+    - clipboard_read
+    - clipboard_write
+    - double_click
+    - drag
+    - hotkey
+    - kill_app
+    - launch_app
+    - move_cursor
+    - press_key
+    - right_click
+    - scroll
+    - type_text

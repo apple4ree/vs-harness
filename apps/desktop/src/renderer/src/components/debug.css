@@ -1,0 +1,174 @@
+.debug-panel {
+  font-size: 10px;
+  color: #bca7cd;
+}
+.debug-config {
+  display: flex;
+  gap: 4px;
+}
+.debug-config select {
+  min-width: 0;
+  flex: 1;
+  border: 1px solid #52376b;
+  border-radius: 5px;
+  background: #180f23;
+  color: #ccb6df;
+  padding: 6px 4px;
+  font-size: 10px;
+}
+.debug-config > button {
+  display: grid;
+  place-items: center;
+  border: 0;
+  color: #b895d5;
+  background: transparent;
+}
+.debug-controls {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+.debug-controls button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 6px;
+  border: 1px solid #553870;
+  border-radius: 5px;
+  background: #2c1b3b;
+  color: #d8bdec;
+  font-size: 10px;
+}
+.debug-status {
+  margin: 7px 0;
+  color: #ceadda;
+  font-size: 10px;
+  text-transform: capitalize;
+}
+.debug-panel h3 {
+  margin: 12px 0 6px;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #b7a0c9;
+}
+.debug-stack {
+  max-height: 150px;
+  overflow: auto;
+}
+.debug-stack button {
+  display: block;
+  width: 100%;
+  border: 0;
+  border-left: 2px solid transparent;
+  background: transparent;
+  padding: 5px 6px;
+  color: #c1accc;
+  text-align: left;
+  font-size: 10px;
+}
+.debug-stack button.selected {
+  border-left-color: #d7b578;
+  background: #2f2139;
+}
+.debug-stack strong,
+.debug-stack span {
+  display: block;
+  font-weight: 400;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.debug-stack span {
+  font-size: 9px;
+  color: #8e769f;
+  margin-top: 2px;
+}
+.debug-scope {
+  margin: 5px 0;
+}
+.debug-scope summary {
+  cursor: pointer;
+  color: #a18ab5;
+}
+.debug-variables {
+  padding-left: 5px;
+  max-height: 180px;
+  overflow: auto;
+}
+.debug-variables button {
+  padding: 4px 2px;
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 7px;
+  align-items: baseline;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  font-size: 10px;
+  color: #ccb7de;
+  width: 100%;
+}
+.debug-variables button:disabled {
+  opacity: 1;
+}
+.debug-variables code {
+  color: #a8d5b8;
+  font-size: 10px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.debug-variables .debug-variables {
+  border-left: 1px solid #493253;
+  margin-left: 4px;
+}
+.debug-error {
+  font-size: 10px;
+  color: #ffbccd;
+  overflow-wrap: anywhere;
+}
+.debug-warnings p {
+  overflow-wrap: anywhere;
+  color: #c3a785;
+}
+.debug-console {
+  margin-top: 10px;
+}
+.debug-console summary {
+  cursor: pointer;
+}
+.debug-console pre {
+  max-height: 180px;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-size: 9px;
+  color: #9e86b4;
+}
+.monaco-editor .witch-breakpoint {
+  background: #c074a5;
+  width: 10px !important;
+  height: 10px !important;
+  margin: 4px;
+  border-radius: 50%;
+}
+.monaco-editor .witch-breakpoint.pending {
+  background: transparent;
+  border: 2px solid #c074a5;
+}
+.monaco-editor .witch-debug-line {
+  background: #b18b2730;
+}
+.monaco-editor .witch-debug-position {
+  border-left: 3px solid #f0c777;
+  margin-left: 3px;
+}
+.task-picker {
+  max-width: 160px;
+  border: 1px solid #4a335e;
+  border-radius: 4px;
+  background: #1c1228;
+  color: #b99bcd;
+  font-size: 10px;
+  padding: 3px;
+}

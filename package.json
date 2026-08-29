@@ -1,0 +1,112 @@
+{
+  "name": "witch-desktop",
+  "version": "0.2.0",
+  "private": true,
+  "overrides": {
+    "dompurify": "3.4.14"
+  },
+  "author": "Witch contributors",
+  "description": "A local-first AI-native development environment",
+  "main": "out/main/index.js",
+  "scripts": {
+    "test": "tsx --test tests/*.test.ts",
+    "test:e2e": "playwright test",
+    "test:all": "npm run typecheck && npm test && npm run build && npm run test:e2e",
+    "verify:package": "tsx scripts/verify-package.ts",
+    "icons": "electron scripts/generate-icons.cjs",
+    "benchmark": "tsx scripts/benchmark-architecture.ts",
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "package:win": "npm run build && electron-builder --win nsis --x64 --publish never",
+    "package:mac": "npm run build && electron-builder --mac dmg zip --universal --publish never"
+  },
+  "dependencies": {
+    "@dagrejs/dagre": "^3.1.1",
+    "@monaco-editor/react": "^4.7.0",
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/xterm": "^5.5.0",
+    "@xyflow/react": "^12.11.5",
+    "chokidar": "^4.0.3",
+    "ignore": "^7.0.6",
+    "lucide-react": "^1.35.0",
+    "monaco-editor": "0.56.0",
+    "node-pty": "^1.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "typescript": "5.9.3",
+    "typescript-language-server": "^5.3.0"
+  },
+  "devDependencies": {
+    "@electron/asar": "3.4.1",
+    "@playwright/test": "^1.62.1",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "44.0.0",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^3.0.0",
+    "prettier": "^3.9.6",
+    "tsx": "^4.23.12",
+    "vite": "^6.0.0"
+  },
+  "build": {
+    "appId": "com.witch.codeobservatory",
+    "productName": "Witch",
+    "artifactName": "Witch-${version}-${os}-${arch}.${ext}",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "build/icon.png",
+        "to": "icon.png"
+      }
+    ],
+    "asar": true,
+    "asarUnpack": [
+      "**/*.node",
+      "node_modules/node-pty/**/*",
+      "node_modules/typescript/**/*",
+      "node_modules/typescript-language-server/**/*"
+    ],
+    "npmRebuild": false,
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Witch"
+    },
+    "mac": {
+      "icon": "build/icon.icns",
+      "identity": "-",
+      "notarize": false,
+      "minimumSystemVersion": "13.0.0",
+      "x64ArchFiles": "**/node_modules/node-pty/prebuilds/darwin-{x64,arm64}/**",
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.developer-tools",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist"
+    },
+    "dmg": {
+      "title": "Witch ${version}"
+    }
+  }
+}

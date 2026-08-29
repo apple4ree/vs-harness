@@ -1,0 +1,114 @@
+.review-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 160;
+  background: #08050ed9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 30px;
+}
+.review-dialog {
+  width: min(1400px, 96vw);
+  height: 85vh;
+  min-height: 420px;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #70528c;
+  border-radius: 12px;
+  background: #1a1127;
+  box-shadow: 0 24px 90px #0009;
+  overflow: hidden;
+}
+.review-dialog > header,
+.review-dialog > footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px;
+  flex: none;
+}
+.review-dialog h2 {
+  margin: 4px 0 0;
+  font-size: 18px;
+}
+.review-dialog > header > button {
+  border: 0;
+  background: transparent;
+  color: #d9c3f5;
+  font-size: 24px;
+}
+.review-dialog > p {
+  margin: 0;
+  padding: 0 20px 14px;
+  font-size: 12px;
+  color: #b3a5c3;
+}
+.review-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  border-block: 1px solid #3c2c50;
+}
+.review-body > nav {
+  overflow: auto;
+  padding: 8px;
+  background: #130d1d;
+  border-right: 1px solid #3c2c50;
+}
+.review-file {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  padding: 7px 4px;
+  border-radius: 5px;
+}
+.review-file.selected {
+  background: #39244f;
+}
+.review-file > button {
+  display: flex;
+  gap: 7px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #e0d5ed;
+  text-align: left;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.review-file b {
+  color: #b995ef;
+}
+.review-diff {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: #120d1b;
+}
+.review-diff > section {
+  flex: 1;
+  min-height: 0;
+}
+.diff-caption {
+  padding: 7px 12px;
+  font:
+    11px "Cascadia Code",
+    monospace;
+  color: #c3aedb;
+}
+.review-dialog > footer > span {
+  color: #b8a7ca;
+  font-size: 12px;
+}
+.inline-error {
+  padding: 9px 12px;
+  background: #452333;
+  color: #ffd2de;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}

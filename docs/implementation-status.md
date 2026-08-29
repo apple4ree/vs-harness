@@ -1,0 +1,93 @@
+# Witch 0.2 implementation status
+
+This is an early desktop preview, not feature parity with VS Code.
+
+## Architecture decisions
+
+- Independent Electron host, React renderer, narrow preload bridge. Witch does not depend on Orca at runtime.
+- TypeScript AST produces a typed source graph with stable file IDs, source hashes and import-line evidence. React Flow/Dagre renders modules and files. Unsupported language relations remain unasserted.
+- Attached components carry a graph revision. The main process resolves their paths from its authoritative graph and rejects stale or foreign context.
+- Codex App Server runs behind a service boundary. User requests are streamed to the renderer; actual staged file contents, not the AI's description, produce review diffs.
+- Agent edits use a filtered workspace copy and immutable baseline outside its writable directory. Selected changes pass baseline-hash checks and write recovery journals before applying.
+- Built-in TS/JS LSP, Node inspector debugger, PTY tasks, settings, and declarative snippets are separate services. No Git management UI is added in this milestone.
+- A single-instance profile lock prevents two desktop processes from overwriting shared history. Project switching and disk mutations are mutually exclusive; file requests carry their originating project where appropriate.
+- Graph readings are stored separately from their compact history index. Version-1 embedded snapshots migrate with an exact backup of the original index. Complete index saves use atomic replacement and a previous-save fallback; unreadable history is never silently replaced with an empty history.
+
+## Scale and recovery boundaries
+
+- Source enumeration: 20,000 entries; analysis reads at most 64 MB of source per pass, with a 1.5 MB per-text-file limit. The byte limit is checked during reads as well as before them.
+- AST results reuse source hashes. Watcher bursts are serialized/coalesced; a project change cancels obsolete analysis. Unchanged files still incur filesystem reads, so cached analysis is not claimed to be instant.
+- Canvas: at most 220 cards and 600 connections. Aggregated connections retain their individual import evidence. Manual node positions survive content-only refreshes; changing scope or arranging resets layout.
+- Explorer: expanded trees above 400 rows render a viewport plus a small overscan. Keyboard selection and quick-open reveal off-screen rows. ARIA level/sibling metadata is retained. The right-hand file list explicitly identifies its 150-result display bound.
+- Component attachment previews: up to 80 paths / 24,000 path characters. The main process resolves the full selected module using its node ID; the limited preview does not narrow the requested component silently.
+- Editor recovery: up to 100 tabs, 16 MB of drafts, 250 ms debounce. Recovered drafts require explicit save and are not auto-saved over disk changes. Explicit discard removes drafts. Last-moment keystrokes may not have reached the journal.
+- Existing PTYs reattach after a renderer reload, with a bounded 160,000-character replay buffer. Full application quit terminates them. Panel dimensions and JavaScript breakpoints persist across restarts.
+- A quit request during an exclusive file operation resumes when that operation settles. Normal quit awaits language/agent cleanup and accepted profile writes; canceling the native close prompt does not stop running tools.
+- Isolated work is capped at 250 MB; review is capped at 200 changed files / 12 MB. Known credential filenames and private-key locations are omitted; arbitrary secrets embedded in source are not detectable by filename rules.
+- Stopping an agent waits for its owned process tree before producing a review. Incomplete modifications can be reviewed with an explicit partial-work warning.
+- Explicitly archiving a pending review saves a full fsynced diff snapshot before clearing pending changes from the active history. Original and staged files are unchanged. Canceling the native confirmation leaves the review active; UI restoration of archived reviews is not yet implemented.
+- CLI detection is filesystem-only, including common macOS Finder/Homebrew/nvm installation paths. A detected executable is not a claim that authentication succeeded. `WITCH_CODEX_PATH` supports an explicit absolute executable path.
+- Windows shell/cleanup helpers resolve to an absolute System32 executable, not an executable in the opened project or PATH. POSIX debug launches own a process group so explicit Stop terminates ordinary child workers too. Deliberately detached/daemonized processes are outside this lifecycle guarantee.
+- Workspace search shares the explorer's ignore and safe-read rules, supports ordinary text files beyond the former 1,500-file boundary, and caps source reads at 64 MB / 1.5 MB per file and results at 150 per section. It reports actual scanned/eligible counts and skipped-file/limit warnings. TS/JS symbols come from declarations in the syntax tree; Python results are explicitly labeled patterns. New queries and project changes cancel superseded searches.
+- Encrypted provider-key updates are serialized and atomically replaced after fsync. Malformed/oversized existing stores are preserved, not silently emptied. Key removal leaves no old-key backup file; this does not claim secure erasure of filesystem history.
+- Witch file/folder move and trash operations update saved breakpoint paths. A running debugger must be stopped first. A breakpoint-metadata failure is reported separately from an already completed filesystem operation.
+
+## References
+
+The following repositories informed the separation of concerns; Witch does not embed their applications:
+
+- [Archify](https://github.com/tt-a1i/archify): source-grounded architecture representations and deterministic visualization.
+- [Orca](https://github.com/stablyai/orca): desktop agent workflows, existing provider subscriptions, terminals and isolated work.
+- [Claude–Obsidian](https://github.com/AgriciDaniel/claude-obsidian): preserving source material and reviewing agent-proposed changes.
+- [VS Code debugger configuration](https://code.visualstudio.com/docs/debugtest/debugging-configuration): familiar launch/tasks conventions, with explicit warnings for unsupported fields.
+- [Node inspector](https://nodejs.org/api/inspector.html): actual local breakpoint, frame and variable operations.
+
+## Important implementation limits
+
+| Area         | Implemented                                                                                                                           | Not claimed                                                                       |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| AI           | Local signed-in Codex, read-only questions and isolated edits, streaming, stop, history, selected apply                               | Claude/direct API inference, arbitrary MCP tools, autonomous computer control     |
+| Isolation    | Workspace copy, scoped write policy, immutable baseline, review and recovery copies                                                   | VM/container isolation, read denial across the OS, Git worktree management        |
+| Languages    | Real TS/JS completion/auto-import, hover/signature help, diagnostics, definition/reference, rename and text-edit code-action previews | All-language LSP support, side-effectful server commands                          |
+| Debug        | Node JavaScript launch, breakpoints, step, stack and local variables                                                                  | Source maps, attach, arbitrary DAP adapters                                       |
+| Extensions   | Validated local JSON snippets, install/enable/disable/remove                                                                          | VSIX or executable extension host                                                 |
+| Files        | Atomic replacement, conflict checks, watcher updates, trash deletion                                                                  | Full filesystem transaction isolation against concurrent external programs        |
+| Distribution | Windows x64 and macOS universal build definitions, packaged-resource checks and E2E gates                                             | Apple signing/notarization or a macOS runtime test performed on this Windows host |
+
+## Regression checks
+
+`npm test` covers source evidence and aliases, path traversal/junction refusal, ignored files, UTF-8 and BOM handling, concurrent saves, immutable review baselines, selective apply and conflict rejection, RPC framing, real TypeScript language-server operations, the real Node debugger, settings and extension validation.
+
+`npm run test:e2e` launches Electron using disposable project/profile folders. Native dialogs are overridden only inside the test harness. The application/preload/services are real. Scenarios cover graph-to-chat drag, file CRUD/save/watch conflicts, multi-file rename review, two interactive shells, Node debugging, task execution, settings, shortcut remapping, auto save, snippet insertion and restart persistence.
+
+The chat E2E fixture replaces only the external Codex protocol process. It tests an actual mouse drag into chat, UI submission, isolation, canceled native approval, selected diff application, graph revision updates, read-only mode, interruption, explicit review archiving and retained history. This is distinct from the live-provider smoke test below.
+
+Additional regressions cover IPC sender validation, duplicate-process profile ownership, project/file-operation exclusion, draft changes during native deletion confirmation, native icon contents, history migration/corruption recovery and bounded file reads. Package verification compares every current compiled output to its archived bytes, rather than checking only a version number.
+
+The expanded-folder E2E uses 1,200 real files and verifies bounded DOM rows, off-screen keyboard focus, quick-open reveal, and accessibility metadata. The shutdown E2E delays a fixture file's atomic rename, requests quit during the save, and verifies the saved file and profile after normal process exit. Language safety tests reject executable code-action commands and verify that a project-local TypeScript plugin is not loaded. Hover/signature and completion edits are also exercised in the real editor.
+
+An opt-in Codex smoke script uses a synthetic repository and a real signed-in CLI, verifies the original stays unchanged during execution, applies a reviewed change and checks that the graph revision changes. It is excluded from default tests because it consumes provider usage.
+
+## Dependency notes
+
+- Electron 44 updates the bundled Chromium/Node runtime; macOS 13+ is required. [Release notes](https://releases.electronjs.org/release/v44.0.0).
+- Monaco is pinned to 0.56.0. Its global hover factory can retain a disposed diff-editor service ([upstream issue](https://github.com/microsoft/monaco-editor/issues/4612)). The integration resets this factory to the standalone root service after editor creation. This intentionally uses three pinned internal imports; remove the workaround once the upstream lifecycle fix is verified. The E2E sequence closes a diff and then uses completion to protect this boundary.
+- Review dialogs retain their displayed file snapshot while live run events arrive. Diff-editor disposal clears its reference immediately, so a subsequent dialog cleanup never calls an already disposed instance.
+- Completion details and auto-import edits are tied to the current document version. Hover/signature results ignore stale responses; documentation is untrusted Markdown without HTML support. Refactors check the document/project snapshot and have file/size limits.
+- Only the bundled `_typescript.organizeImports` command is allowed for a command-based preview. Some other bundled language-server commands create files or invoke TypeScript code-action commands before `workspace/applyEdit`, so they are deliberately blocked. Direct text-edit actions and rename previews remain available; no server command can bypass the review requirement through this path.
+- The unused legacy Codex IPC execution path was removed. Historical analysis summaries remain readable; provider connection/running status now comes from the active agent service.
+- DOMPurify is overridden to 3.4.14 rather than retaining Monaco's older pinned transitive version.
+- node-pty prebuilds and spawn helpers are unpacked from ASAR. macOS universal merging retains architecture-specific terminal prebuilds; runtime selects the matching architecture.
+- macOS preview packaging explicitly requests local ad-hoc signing (`identity: "-"`) and disables automatic notarization. This avoids silently skipping the signing step when no Developer ID exists; it is not an Apple-trusted distribution signature. Runtime verification still requires macOS.
+- The package verifier reads Mach-O headers to require both CPUs in a macOS universal executable and the correct CPU in each terminal prebuild/helper. The installed native Mac binaries and synthetic universal-header cases are checked on Windows; this is not a macOS execution test. Header definitions follow [LLVM MachO.h](https://github.com/llvm/llvm-project/blob/main/llvm/include/llvm/BinaryFormat/MachO.h).
+- TypeScript and typescript-language-server runtime files are unpacked so the bundled Node runtime can execute them in packaged apps.
+
+## Data locations
+
+Application settings, recent projects, encrypted provider credentials, structure snapshots, agent history, staging copies and recovery data live under Electron's per-user application-data directory, not in the opened repository. These files may contain private source code. The app does not automatically delete them. The explicit `WITCH_USER_DATA_DIR` override supports separate test profiles.
+
+The visible graph-reading index retains up to 25 readings per project / 750 overall. Older full snapshot files and migration backups remain on disk; this is an index bound, not automatic deletion of private source records. Agent history currently retains the newest 100 records in its index; staging and recovery directories are not automatically removed.
+
+The generated installer is a snapshot of the last package build. Editing source does not update an already installed copy; rebuild and reinstall to update it. Automatic distribution updates are not configured.
+
+The initial v0 product/UX/architecture documents remain as design history, not as proof of implemented capabilities. In particular, source analysis currently runs as a bounded asynchronous main-process service; a separate analysis worker, SQLite migration and Git worktree manager remain future work.

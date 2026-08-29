@@ -1,0 +1,158 @@
+:root {
+  --witch-base: #100b18;
+  --witch-panel: #160f20;
+  --witch-raised: #24192f;
+  --witch-input: #120d1b;
+  --witch-selected: #38224f;
+  --witch-border: #534063;
+  --witch-text: #e8def4;
+  --witch-muted: #b4a0c8;
+  --witch-accent: #c899ff;
+}
+:root[data-theme="twilight"] {
+  --witch-base: #201728;
+  --witch-panel: #2b1f38;
+  --witch-raised: #352742;
+  --witch-input: #251b34;
+  --witch-selected: #503767;
+  --witch-border: #715580;
+  --witch-text: #f0e4fa;
+  --witch-muted: #c7b2d8;
+  --witch-accent: #e3bfff;
+}
+:root[data-theme="contrast"] {
+  --witch-base: #08060c;
+  --witch-panel: #0c0912;
+  --witch-raised: #191021;
+  --witch-input: #08060c;
+  --witch-selected: #54356e;
+  --witch-border: #c1a3db;
+  --witch-text: #ffffff;
+  --witch-muted: #d9c8eb;
+  --witch-accent: #e8bdff;
+}
+html:not([data-theme="night"])
+  :is(
+    body,
+    .witch-app,
+    .architecture-workspace,
+    .source-editor,
+    .graph-stage,
+    .surface
+  ) {
+  background: var(--witch-base);
+  color: var(--witch-text);
+}
+html:not([data-theme="night"])
+  :is(
+    .titlebar,
+    .left-rail,
+    .right-rail,
+    .pane-toolbar,
+    .chat-panel,
+    .architecture-toolbar,
+    .source-tabs,
+    .source-breadcrumb,
+    .terminal-tabs,
+    .terminal-header,
+    .status-line,
+    .graph-details,
+    .settings-dialog,
+    .command-palette,
+    .compact-dialog,
+    .provider-dialog,
+    .review-dialog
+  ) {
+  background: var(--witch-panel);
+  border-color: var(--witch-border);
+  color: var(--witch-text);
+}
+html:not([data-theme="night"])
+  :is(.architecture-card, .chat-user, .extension-card) {
+  background: var(--witch-raised);
+  color: var(--witch-text);
+  border-color: var(--witch-border);
+}
+html:not([data-theme="night"])
+  :is(
+    .project-tree-row.selected,
+    .editor-tab.active,
+    .graph-scope button.active,
+    .settings-dialog > nav button.selected,
+    .command-palette [role="option"].selected,
+    .nav-item.active,
+    .right-rail .file-list button.selected-file
+  ) {
+  background: var(--witch-selected);
+  color: var(--witch-text);
+}
+html:not([data-theme="night"])
+  :is(
+    .settings-content input:not([type="checkbox"]),
+    .settings-content select,
+    .command-palette > input,
+    .chat-composer textarea,
+    .file-filter input,
+    .debug-config select,
+    .task-select
+  ) {
+  background: var(--witch-input);
+  color: var(--witch-text);
+  border-color: var(--witch-border);
+}
+html:not([data-theme="night"])
+  :is(
+    .rail-note,
+    .setting-help,
+    .title-project,
+    .project-name small,
+    .architecture-card > small,
+    .architecture-card footer,
+    .chat-private,
+    .chat-welcome,
+    .source-breadcrumb,
+    .nav-item small,
+    .settings-content label,
+    .context-history button,
+    .command-palette kbd,
+    .project-tree-row,
+    .right-rail .file-list button
+  ) {
+  color: var(--witch-muted);
+}
+html[data-theme="contrast"]
+  :is(
+    .workbench,
+    .left-rail,
+    .right-rail,
+    .chat-panel > header,
+    .chat-composer,
+    .pane-toolbar,
+    .graph-breadcrumb,
+    .source-tabs,
+    .editor-tab,
+    .terminal-tabs,
+    .debug-config
+  ) {
+  border-color: var(--witch-border);
+}
+html[data-theme="contrast"]
+  :is(
+    button,
+    h2,
+    .chat-engine,
+    .architecture-card-top > span,
+    .external-toggle,
+    .graph-search,
+    .debug-frame,
+    .debug-variable,
+    .brand em,
+    .extension-card small,
+    .settings-dialog button
+  ) {
+  color: var(--witch-text);
+}
+:is(button, input, textarea, select):focus-visible {
+  outline: 2px solid var(--witch-accent);
+  outline-offset: 2px;
+}

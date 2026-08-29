@@ -1,0 +1,15 @@
+{
+  "id": "witch.typescript-starters",
+  "name": "TypeScript starters",
+  "version": "1.0.0",
+  "description": "A minimal example of a non-executable Witch extension.",
+  "snippets": [
+    {
+      "name": "Export a function",
+      "language": "typescript",
+      "prefix": "wfn",
+      "body": "export function ${1:name}(${2:input}: ${3:string}) {\n  ${0:return input;}\n}",
+      "description": "Create an exported, typed function."
+    }
+  ]
+}

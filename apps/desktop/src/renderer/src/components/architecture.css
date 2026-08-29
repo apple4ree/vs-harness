@@ -1,0 +1,359 @@
+.architecture-workspace {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: #100b18;
+}
+.graph-arrange {
+  display: flex;
+  align-items: center;
+  padding: 5px;
+  color: #c9aee5;
+  background: transparent;
+  border: 1px solid #513965;
+  border-radius: 5px;
+}
+.architecture-toolbar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  min-height: 47px;
+  padding: 8px 14px;
+  background: #130d1d;
+  border-bottom: 1px solid #30213f;
+}
+.graph-scope {
+  display: flex;
+  border: 1px solid #3c2b4f;
+  border-radius: 7px;
+  padding: 2px;
+}
+.graph-scope button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #91849f;
+  padding: 5px 7px;
+  font-size: 10px;
+}
+.graph-scope button.active {
+  background: #362447;
+  color: #eee3fc;
+}
+.graph-search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 1;
+  min-width: 80px;
+  color: #a797b9;
+}
+.graph-search input {
+  width: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #e5dbee;
+  font-size: 11px;
+}
+.external-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: #9d8eae;
+  white-space: nowrap;
+  font-size: 10px;
+}
+.external-toggle input {
+  accent-color: #ac7bed;
+}
+.graph-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 14px;
+  border-bottom: 1px solid #30213f;
+  color: #c6aedf;
+  font-size: 10px;
+}
+.graph-breadcrumb button {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  background: transparent;
+  border: 0;
+  color: #9783ad;
+}
+.graph-stage {
+  position: relative;
+  flex: 1;
+  min-height: 200px;
+}
+.architecture-card {
+  width: 222px;
+  min-height: 117px;
+  border: 1px solid #534063;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #24192f, #17101f);
+  padding: 11px 13px;
+  box-shadow: 0 5px 20px #0004;
+  color: #e8def4;
+}
+.architecture-card.is-selected {
+  border-color: #c899ff;
+  box-shadow:
+    0 0 0 2px #af7cf133,
+    0 10px 30px #0006;
+}
+.architecture-card.has-changed {
+  border-color: #78ba9a;
+}
+.architecture-card.is-dimmed {
+  opacity: 0.3;
+}
+.architecture-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 9px;
+}
+.architecture-card-top > span {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #b292d7;
+}
+.architecture-card strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+}
+.architecture-card > small {
+  display: block;
+  margin-top: 4px;
+  color: #8e7e9e;
+  font-size: 9px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.architecture-card footer {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 10px;
+  font-size: 9px;
+  color: #aa97bd;
+}
+.architecture-card footer span {
+  color: #91d5af;
+}
+.context-drag {
+  display: flex;
+  align-items: center;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: #9581ac;
+  cursor: grab;
+}
+.context-drag:hover {
+  color: #d8b3ff;
+}
+.react-flow__handle {
+  background: #a883d2 !important;
+  width: 5px !important;
+  height: 5px !important;
+  border: 0 !important;
+}
+.react-flow__controls {
+  box-shadow: 0 3px 20px #0004 !important;
+}
+.react-flow__controls-button {
+  background: #21162e !important;
+  color: #cbb2e5 !important;
+  border-color: #3b2a4f !important;
+}
+.react-flow__controls-button svg {
+  fill: currentColor !important;
+}
+.react-flow__minimap {
+  background: #160e20 !important;
+  border: 1px solid #3b2a4f;
+  border-radius: 7px;
+  width: 135px;
+  height: 85px;
+}
+.graph-metrics {
+  position: absolute;
+  bottom: 12px;
+  left: 50px;
+  right: 155px;
+  color: #9d8ead;
+  font:
+    9px "Cascadia Code",
+    monospace;
+  pointer-events: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.live-dot {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-right: 4px;
+  border-radius: 50%;
+  background: #85c9a4;
+  box-shadow: 0 0 6px #85c9a466;
+}
+.component-details {
+  position: absolute;
+  top: 57px;
+  right: 12px;
+  bottom: 44px;
+  width: 285px;
+  z-index: 5;
+  overflow: auto;
+  border: 1px solid #694d82;
+  border-radius: 10px;
+  padding: 14px;
+  background: #17101ff5;
+  box-shadow: 0 12px 45px #0008;
+}
+.component-details header {
+  display: flex;
+  justify-content: space-between;
+  gap: 5px;
+}
+.component-details h3 {
+  font-size: 16px;
+  margin: 5px 0 10px;
+  color: #eadbf8;
+  overflow-wrap: anywhere;
+}
+.component-details header button {
+  align-self: flex-start;
+  border: 0;
+  background: none;
+  color: #ae95c3;
+  font-size: 20px;
+}
+.component-details p {
+  font-size: 10px;
+  color: #9d8daf;
+}
+.attach-component {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  border: 1px solid #775591;
+  border-radius: 6px;
+  padding: 8px;
+  background: #382349;
+  color: #e0c6f3;
+  font-size: 11px;
+}
+.component-source-list section {
+  margin: 8px 0;
+  padding-bottom: 7px;
+  border-bottom: 1px solid #30203f;
+}
+.component-source-list button {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  width: 100%;
+  padding: 5px 0;
+  border: 0;
+  background: transparent;
+  color: #d9c8e7;
+  text-align: left;
+  font:
+    10px "Cascadia Code",
+    monospace;
+}
+.component-source-list button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+.component-source-list .component-symbol {
+  padding-left: 10px;
+  color: #b8a1cd;
+  font-size: 9px;
+}
+.component-symbol > span {
+  flex: 0 0 auto !important;
+  max-width: 55px;
+  color: #806f91;
+  font-size: 8px;
+}
+.component-symbol small {
+  margin-left: auto;
+  color: #776783;
+}
+.component-details h4 {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #b59acb;
+}
+.component-relations button {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid #2d203b;
+  padding: 7px 0;
+  background: transparent;
+  text-align: left;
+  color: #c2aed5;
+  font-size: 10px;
+}
+.component-relations small {
+  color: #80718e;
+  font-size: 8px;
+  overflow-wrap: anywhere;
+}
+.component-relations code {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  color: #b6a0ce;
+  font-size: 10px;
+  padding: 6px;
+  background: #130d1e;
+  border-radius: 4px;
+}
+.relationship-details .component-relations span {
+  overflow-wrap: anywhere;
+}
+.graph-warnings {
+  border-top: 1px solid #3a2a48;
+  padding: 6px 12px;
+  max-height: 100px;
+  overflow: auto;
+  font-size: 9px;
+  color: #ac9abc;
+  background: #160e1f;
+}
+.graph-warnings summary {
+  cursor: pointer;
+  color: #c6a986;
+}
+.graph-warnings div {
+  margin-top: 5px;
+}

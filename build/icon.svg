@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="night" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#38204e"/><stop offset=".6" stop-color="#191023"/><stop offset="1" stop-color="#100b18"/></linearGradient>
+    <linearGradient id="moon" x1="0" y1="0" x2=".9" y2="1"><stop stop-color="#fbf2ff"/><stop offset=".5" stop-color="#e4ceff"/><stop offset="1" stop-color="#ae83eb"/></linearGradient>
+    <mask id="crescent"><rect width="1024" height="1024" fill="black"/><circle cx="456" cy="503" r="235" fill="white"/><circle cx="570" cy="399" r="230" fill="black"/></mask>
+    <filter id="glow" x="-.6" y="-.6" width="2.2" height="2.2"><feGaussianBlur stdDeviation="28"/></filter>
+  </defs>
+  <rect x="48" y="48" width="928" height="928" rx="218" fill="url(#night)"/>
+  <rect x="50" y="50" width="924" height="924" rx="216" fill="none" stroke="#73548f" stroke-width="4"/>
+  <circle cx="456" cy="503" r="235" fill="#b789fb" mask="url(#crescent)" opacity=".45" filter="url(#glow)"/>
+  <circle cx="456" cy="503" r="235" fill="url(#moon)" mask="url(#crescent)"/>
+  <path d="M713 246C723 304 744 325 802 335C744 345 723 366 713 424C703 366 682 345 624 335C682 325 703 304 713 246Z" fill="#efe0ff"/>
+  <path d="M753 659L763 686L790 696L763 706L753 733L743 706L716 696L743 686Z" fill="#b496d5"/>
+  <circle cx="257" cy="300" r="10" fill="#bba1d4"/>
+</svg>

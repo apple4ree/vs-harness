@@ -1,0 +1,66 @@
+name: Package Witch desktop apps
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: Windows installer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run package:win
+      - run: npm run test:e2e
+      - run: npm run verify:package -- release/win-unpacked
+      - run: npm run test:e2e
+        env:
+          WITCH_PACKAGED_EXECUTABLE: release/win-unpacked/Witch.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: witch-windows-x64
+          path: release/*-win-x64.exe
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: witch-windows-test-evidence
+          path: test-results/
+
+  macos:
+    name: macOS universal artifacts
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run package:mac
+      - run: npm run test:e2e
+      - run: npm run verify:package -- release/mac-universal/Witch.app
+      - run: npm run test:e2e
+        env:
+          WITCH_PACKAGED_EXECUTABLE: release/mac-universal/Witch.app/Contents/MacOS/Witch
+      - uses: actions/upload-artifact@v4
+        with:
+          name: witch-macos-universal-preview
+          path: |
+            release/*-mac-universal.dmg
+            release/*-mac-universal.zip
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: witch-macos-test-evidence
+          path: test-results/
