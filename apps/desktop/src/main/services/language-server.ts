@@ -87,6 +87,14 @@ export function applyTextEdits(
   return bom + content;
 }
 
+function canonicalPath(value: string) {
+  try {
+    return realpathSync.native(value);
+  } catch {
+    return path.resolve(value);
+  }
+}
+
 export class LanguageServer extends EventEmitter {
   private root: string | null = null;
   private rpc: JsonRpcProcess | null = null;
@@ -111,13 +119,7 @@ export class LanguageServer extends EventEmitter {
   }
   setWorkspace(root: string | null) {
     let canonicalRoot = root;
-    if (root) {
-      try {
-        canonicalRoot = realpathSync(root);
-      } catch {
-        canonicalRoot = path.resolve(root);
-      }
-    }
+    if (root) canonicalRoot = canonicalPath(root);
     if (this.root !== canonicalRoot) {
       void this.stop().catch((error) =>
         this.emit("log", `Language-server cleanup: ${error}`),
@@ -143,7 +145,9 @@ export class LanguageServer extends EventEmitter {
   private relative(uri: string): string | null {
     if (!this.root || !uri.startsWith("file:")) return null;
     try {
-      return normalizedRelative(path.relative(this.root, fileURLToPath(uri)));
+      return normalizedRelative(
+        path.relative(this.root, canonicalPath(fileURLToPath(uri))),
+      );
     } catch {
       return null;
     }
