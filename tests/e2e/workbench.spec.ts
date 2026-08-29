@@ -355,7 +355,13 @@ test("language server diagnostics, rename review and multiple terminal sessions 
     .poll(() => fs.readFile(path.join(fixture, "src/ui/view.ts"), "utf8"))
     .toContain("welcome");
   await page.getByRole("button", { name: "New terminal", exact: true }).click();
+  await expect
+    .poll(() => page.evaluate(() => window.witch.terminal.list()))
+    .toHaveLength(1);
   await page.getByRole("button", { name: "New terminal", exact: true }).click();
+  await expect
+    .poll(() => page.evaluate(() => window.witch.terminal.list()))
+    .toHaveLength(2);
   await expect(page.locator(".terminal-tab")).toHaveCount(2);
   await expect(page.locator(".terminal-tab.selected")).toContainText(
     process.platform === "win32" ? "powershell" : "sh",
