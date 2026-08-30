@@ -18,6 +18,7 @@ import {
   type CardData,
   type CardNode,
   type ArchitectureScope,
+  type SemanticLens,
 } from "./architecture-view";
 import {
   Box,
@@ -73,8 +74,8 @@ function ComponentCard({ data, selected }: NodeProps<CardNode>) {
           <button
             className="nodrag context-drag"
             draggable
-            title="Drag this component into the chat"
-            aria-label={`Drag ${data.label} to chat`}
+            title="Drag this source-backed context into the Agent conversation"
+            aria-label={`Drag ${data.label} context to chat`}
             onDragStart={(event) => {
               event.dataTransfer.setData(
                 COMPONENT_DRAG_TYPE,
@@ -127,6 +128,7 @@ export function ArchitectureCanvas({
   revealRequest?: number;
 }) {
   const [scope, setScope] = useState<ArchitectureScope>("modules");
+  const [semanticLens, setSemanticLens] = useState<SemanticLens>("overview");
   const [module, setModule] = useState<string | null>(null);
   const [external, setExternal] = useState(false);
   const [query, setQuery] = useState("");
@@ -143,7 +145,7 @@ export function ArchitectureCanvas({
         : null,
     [graph?.revision, graph?.workspaceRoot, activeFile, external],
   );
-  const layoutKey = `${graph?.workspaceRoot}|${scope}|${module}|${external}|${query}|${scope === "focus" ? projection?.focus.id || "missing" : ""}`;
+  const layoutKey = `${graph?.workspaceRoot}|${scope}|${semanticLens}|${module}|${external}|${query}|${scope === "focus" ? projection?.focus.id || "missing" : ""}`;
   const previousLayout = useRef("");
   const previous = useRef<ArchitectureGraph | null>(null);
   const changed = useMemo(() => {
@@ -165,6 +167,7 @@ export function ArchitectureCanvas({
   }, [graph?.revision, graph?.workspaceRoot]);
   useEffect(() => {
     setScope("modules");
+    setSemanticLens("overview");
     setModule(null);
     setQuery("");
     setSelection(null);
@@ -192,7 +195,16 @@ export function ArchitectureCanvas({
   const view = useMemo(
     () =>
       graph
-        ? buildView(graph, scope, module, external, query, changed, projection)
+        ? buildView(
+            graph,
+            scope,
+            module,
+            external,
+            query,
+            changed,
+            projection,
+            semanticLens,
+          )
         : { nodes: [], edges: [], total: 0, totalEdges: 0 },
     [
       graph?.revision,
@@ -203,6 +215,7 @@ export function ArchitectureCanvas({
       query,
       changed,
       projection,
+      semanticLens,
     ],
   );
   const [nodes, setNodes, onNodesChange] = useNodesState<CardNode>([]);
@@ -305,6 +318,13 @@ export function ArchitectureCanvas({
         (question) => question.subjectId === selectedSemanticNode.id,
       ) || []
     : [];
+  const selectedSemanticRelations = selectedSemanticNode
+    ? graph?.semantic?.relations.filter(
+        (relation) =>
+          relation.from === selectedSemanticNode.id ||
+          relation.to === selectedSemanticNode.id,
+      ) || []
+    : [];
   const selectedSemanticRelation = relationSelection
     ? graph?.semantic?.relations.find(
         (relation) => relation.id === relationSelection.id,
@@ -387,6 +407,22 @@ export function ArchitectureCanvas({
             disabled={scope === "focus"}
           />
         </label>
+        {scope === "semantics" && (
+          <select
+            className="semantic-lens"
+            aria-label="Meaning lens"
+            value={semanticLens}
+            onChange={(event) =>
+              setSemanticLens(event.target.value as SemanticLens)
+            }
+          >
+            <option value="overview">Meaning · Overview</option>
+            <option value="components">Components · Boundaries</option>
+            <option value="workflows">Workflows · Execution</option>
+            <option value="questions">Questions · Conflicts</option>
+            <option value="verified">Verified / Authored</option>
+          </select>
+        )}
         <label className="external-toggle">
           <input
             type="checkbox"
@@ -634,7 +670,7 @@ export function ArchitectureCanvas({
               className="attach-component"
               onClick={() => onAttach(selection.data.context)}
             >
-              <GripVertical size={14} /> Add component to chat
+              <GripVertical size={14} /> Add to Agent context
             </button>
           )}
           <div className="trace-actions">
@@ -691,6 +727,51 @@ export function ArchitectureCanvas({
               </div>
               {selectedSemanticNode.description && (
                 <p>{selectedSemanticNode.description}</p>
+              )}
+              {selectedSemanticNode.stepKind && (
+                <p className="semantic-step-kind">
+                  Workflow step · {selectedSemanticNode.stepKind}
+                </p>
+              )}
+              {selectedSemanticRelations.length > 0 && (
+                <>
+                  <h4>
+                    Reasoning links{" "}
+                    <span>{selectedSemanticRelations.length}</span>
+                  </h4>
+                  <div className="component-relations semantic-reasoning">
+                    {selectedSemanticRelations.slice(0, 30).map((relation) => {
+                      const outgoing =
+                        relation.from === selectedSemanticNode.id;
+                      const peer = outgoing ? relation.to : relation.from;
+                      const evidence = relation.evidence[0];
+                      return (
+                        <button
+                          key={relation.id}
+                          disabled={!evidence}
+                          onClick={() =>
+                            evidence && onOpenFile(evidence.path, evidence.line)
+                          }
+                        >
+                          <span>
+                            {outgoing ? "→" : "←"} {relation.kind} ·{" "}
+                            {semanticLabels.get(peer) || peer}
+                          </span>
+                          <small>
+                            {relation.trust} · {relation.status} ·{" "}
+                            {Math.round(relation.confidence * 100)}%
+                          </small>
+                          {evidence && (
+                            <code>
+                              {evidence.path}:{evidence.line}
+                              {evidence.excerpt ? ` · ${evidence.excerpt}` : ""}
+                            </code>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
               )}
               {selectedSemanticClaims.length > 0 && (
                 <>

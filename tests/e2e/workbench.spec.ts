@@ -278,6 +278,7 @@ test("architecture edges and drag-to-chat source context work in Electron", asyn
   await page.screenshot({ path: "test-results/witch-architecture-route.png" });
   await page.getByRole("button", { name: "Clear trace", exact: true }).click();
   await page.getByRole("button", { name: "Meaning", exact: true }).click();
+  await expect(page.getByLabel("Meaning lens")).toHaveValue("overview");
   await expect(
     page.locator('.react-flow__node[data-id="semantic:system:workspace"]'),
   ).toBeVisible();
@@ -292,10 +293,17 @@ test("architecture edges and drag-to-chat source context work in Electron", asyn
     "Semantic claims",
   );
   await expect(page.locator(".graph-metrics")).toContainText("verified");
+  await page.getByLabel("Meaning lens").selectOption("components");
+  await expect(semanticComponent).toBeVisible();
+  await semanticComponent.click();
+  await page
+    .getByRole("button", { name: "Add to Agent context", exact: true })
+    .click();
+  await expect(page.locator(".context-chip")).toHaveCount(1);
   await page.screenshot({ path: "test-results/witch-semantic-meaning.png" });
   await page.getByRole("button", { name: "Modules", exact: true }).click();
   const handle = page.getByRole("button", {
-    name: "Drag src/api to chat",
+    name: "Drag src/api context to chat",
     exact: true,
   });
   const transfer = await page.evaluateHandle(() => new DataTransfer());
@@ -303,7 +311,11 @@ test("architecture edges and drag-to-chat source context work in Electron", asyn
   await page
     .getByRole("region", { name: "Component chat" })
     .dispatchEvent("drop", { dataTransfer: transfer });
-  await expect(page.locator(".context-chip")).toContainText("src/api");
+  await expect(page.locator(".context-chip")).toHaveCount(2);
+  await expect(page.locator(".context-chip")).toContainText([
+    "src/api",
+    "src/api",
+  ]);
   await expect(page.getByLabel("Agent mode")).toHaveValue("ask");
   await page.getByLabel("Agent mode").selectOption("change");
   await expect(page.getByLabel("Agent mode")).toHaveValue("change");

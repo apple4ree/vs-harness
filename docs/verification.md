@@ -4,16 +4,31 @@
 
 이 문서는 실제로 실행한 검증과 아직 실행하지 못한 검증을 구분합니다. VS Code 기능 전체 또는 모든 저장소에 대한 호환성을 보증하지 않습니다.
 
+## Toolchain · Python debug · Meaning/Agent 연속 구현
+
+`feature/python-rust-language-intelligence`의 현재 HEAD에서 프로젝트별 Python 환경 선택, Python/Rust Task, Python/debugpy DAP, Meaning 렌즈와 semantic Agent dossier를 함께 검증한 결과입니다.
+
+| 검증                                                                 | 결과       | 범위                                                                                                                     |
+| -------------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `npm run typecheck`                                                  | 통과       | toolchain/debug/semantic main·preload·renderer 계약                                                                      |
+| `npm test`                                                           | 78개 통과  | 환경 탐지·저장, 생성 Task, fake/실제 protocol debug, semantic lens와 authoritative Agent dossier를 포함한 전체 단위 회귀 |
+| `npm run build`                                                      | 통과       | main 34개, preload 2개, renderer 3,273개 module의 production bundle                                                      |
+| `npm run test:e2e`                                                   | 23개 통과  | 실제 Electron에서 Pyright, Node debug/task, Meaning 렌즈·Agent 첨부와 기존 ADE 전체 흐름                                 |
+| `npm run smoke:python-debug -- <temporary-venv-python> <fixture.py>` | 통과       | 임시 venv의 debugpy 1.8.21로 production DAP 경로의 breakpoint, frame, `price`/`symbol` 변수 확인                         |
+| `npm audit --json`                                                   | 취약점 0건 | 현재 lockfile의 505개 production/dev/optional/peer dependency                                                            |
+
+Python smoke용 임시 venv는 검증 뒤 제거했습니다. Python 환경 탐색은 후보를 실행하지 않으며 debugpy를 자동 설치하지 않습니다. Rust는 이 PC에 rust-analyzer/debug adapter가 없어 실제 연결·디버깅을 주장하지 않습니다. 이번 검증은 Windows source build이며, 현재 변경을 포함하는 Windows/macOS package와 GitHub Actions 결과는 아직 만들지 않았습니다.
+
 ## Workspace Intelligence v0 — 기능 브랜치
 
 `feature/python-rust-language-intelligence`에서 공통 LSP 라우터, 번들 Pyright, 선택적 시스템 rust-analyzer, provider별 상태, Python/Rust 편집기 기능과 Outline을 추가한 뒤 Windows 11 x64에서 실행한 결과입니다.
 
-| 검증                | 결과      | 범위                                                                                              |
-| ------------------- | --------- | ------------------------------------------------------------------------------------------------- |
-| `npm run typecheck` | 통과      | main/preload/renderer의 공통 언어 provider와 document-symbol 계약                                |
-| `npm test`          | 72개 통과 | 실제 Pyright 진단·정의·참조·Outline·rename preview, Rust 도구 탐색·명령 차단, 기존 전체 회귀       |
-| `npm run build`     | 통과      | main 31개, preload 2개, renderer 3,273개 module의 production bundle                              |
-| `npm run test:e2e`  | 23개 통과 | 실제 Electron에서 Pyright 연결, Python 오류 표시, 정의 이동, Outline과 기존 ADE 전체 흐름         |
+| 검증                | 결과      | 범위                                                                                         |
+| ------------------- | --------- | -------------------------------------------------------------------------------------------- |
+| `npm run typecheck` | 통과      | main/preload/renderer의 공통 언어 provider와 document-symbol 계약                            |
+| `npm test`          | 72개 통과 | 실제 Pyright 진단·정의·참조·Outline·rename preview, Rust 도구 탐색·명령 차단, 기존 전체 회귀 |
+| `npm run build`     | 통과      | main 31개, preload 2개, renderer 3,273개 module의 production bundle                          |
+| `npm run test:e2e`  | 23개 통과 | 실제 Electron에서 Pyright 연결, Python 오류 표시, 정의 이동, Outline과 기존 ADE 전체 흐름    |
 
 Pyright 검증은 번들된 실제 서버 프로세스를 사용했고 원본 파일이 rename preview 중 변경되지 않는 것을 확인했습니다. 이 개발 PC에는 rust-analyzer가 설치되어 있지 않아 Rust 실제 서버 연결은 실행하지 못했습니다. 대신 절대 경로만 허용하는 검색 규칙과 임의 명령 차단은 독립 회귀 테스트로 검증했습니다. macOS와 packaged application에서 Pyright가 ASAR 밖에서 실행되는지는 기능 브랜치가 원격 CI에 올라간 뒤 별도로 확인해야 합니다.
 

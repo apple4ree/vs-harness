@@ -5,7 +5,7 @@
 - 결정일: 2026-08-30
 - 상태: v1 공통 IR·정적 추출·Meaning UI 구현, 심층 adapter는 진행 중
 - 범위: 구조 분석, Workflow, Inferred/Authored 대조, 자동 승인과 이력
-- 현재 구현: `witch.semantic/v1`, Python/Rust/TS 심볼, 확인된 containment/import/export, provisional Component/Workflow, Authored 충돌 질문, revision delta
+- 현재 구현: `witch.semantic/v1`, Python/Rust/TS 심볼, 확인된 containment/import/export, provisional Component/Workflow, Authored 충돌 질문, revision delta, Meaning 렌즈, 검증된 Agent dossier
 - 다음 범위: compiler/LSP call resolution, framework adapter, multi-step ordering, runtime trace, GUI question resolution
 
 ## 1. 결정 요약
@@ -454,6 +454,24 @@ Before
 
 필터는 출처를 숨길 수 있지만 canonical data를 변경하지 않는다. 모든 Workflow step에서 `왜 이 순서인가?`, `어떤 코드가 수행하는가?`, `반대 근거가 있는가?`를 열 수 있어야 한다.
 
+현재 UI는 한 화면에 모든 의미 노드를 섞지 않고 다음 읽기 렌즈를 제공한다.
+
+| 렌즈                | 표시 목적                                               |
+| ------------------- | ------------------------------------------------------- |
+| Overview            | System, Component, Workflow, WorkflowStep의 고수준 지도 |
+| Components          | System→Component→File 경계와 소스 범위                  |
+| Workflows           | Workflow/Step과 직접 연결된 실행 주체·근거              |
+| Questions           | open question의 subject와 인접 근거                     |
+| Verified / Authored | inferred-only 항목을 제외한 확인·선언 계층              |
+
+선택 노드 inspector는 인접 reasoning relation의 방향, kind, trust, status, confidence와 첫 source evidence를 표시한다. 이는 관계를 설명하는 UI이며 정적 관계를 런타임 순서로 승격하지 않는다.
+
+### 9.1 Agent context 계약
+
+Meaning 카드를 Agent에 첨부할 때 renderer의 drag payload는 권한 있는 데이터로 취급하지 않는다. 메인 프로세스는 현재 source revision과 semantic validation receipt를 다시 확인하고, node ID를 기준으로 label과 source path를 재구성한다. stale/invalid semantic graph는 거부한다.
+
+Agent에는 선택한 의미 노드와 제한된 인접 노드·relation·claim·open question·evidence만 `witch.semantic/v1` dossier로 전달한다. `Verified`, `Inferred`, `Authored`와 `accepted`, `provisional`, `conflicting` 상태를 유지하고, provisional workflow order가 runtime proof가 아니라는 boundary 문구를 포함한다. 따라서 Agent가 의미 계층을 활용할 수는 있지만 불확실성을 검증 사실처럼 전달받지는 않는다.
+
 ## 10. 사용자 정의 규칙 방향
 
 현재 첫 계약은 의존성을 늘리지 않는 `.witch/analysis.json`의 Authored claim이다.
@@ -513,7 +531,8 @@ inference:
 - Python/Rust/TypeScript 최소 정적 fixture
 - Inferred/Authored 대조와 추천 우선 OpenQuestion
 - 동일 분석 중복을 만들지 않는 부모 revision/delta 기록
-- Meaning 그래프와 claim/evidence inspector
+- 5개 Meaning 렌즈와 claim/evidence/reasoning inspector
+- 검증된 Meaning 선택을 source 범위와 semantic dossier로 Agent에 전달
 
 다음 심층 단계에는 아래 항목이 필요하다.
 

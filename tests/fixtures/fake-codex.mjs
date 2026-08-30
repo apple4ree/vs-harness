@@ -36,6 +36,13 @@ createInterface({ input: process.stdin }).on("line", async (line) => {
   } else if (message.method === "turn/start") {
     assert.equal(params.approvalPolicy, "never");
     assert.equal(params.sandboxPolicy.networkAccess, false);
+    if (params.input[0].text.includes("SEMANTIC_CONTEXT")) {
+      assert(params.input[0].text.includes('"contract": "witch.semantic/v1"'));
+      assert(params.input[0].text.includes('"kind": "workflow"'));
+      assert(params.input[0].text.includes('"trust": "inferred"'));
+      assert(params.input[0].text.includes('"boundary"'));
+      assert(!params.input[0].text.includes("untrusted semantic path"));
+    }
     send({
       id: message.id,
       result: { turn: { id: "fixture-turn", status: "inProgress" } },

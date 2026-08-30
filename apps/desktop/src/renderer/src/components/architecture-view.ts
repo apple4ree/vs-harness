@@ -11,6 +11,8 @@ import type { SourceNeighborhoodProjection } from "../../../shared/architecture-
 import type { SemanticNode } from "../../../shared/semantic";
 
 export type ArchitectureScope = "modules" | "files" | "focus" | "semantics";
+export type SemanticLens =
+  "overview" | "components" | "workflows" | "questions" | "verified";
 export type CardKind =
   | "module"
   | "file"
@@ -50,9 +52,10 @@ export function buildView(
   query: string,
   changed: Set<string>,
   projection: SourceNeighborhoodProjection | null = null,
+  semanticLens: SemanticLens = "overview",
 ) {
   if (scope === "semantics")
-    return buildSemanticView(graph, external, query, changed);
+    return buildSemanticView(graph, external, query, changed, semanticLens);
   const projectedIds = new Set(projection?.nodes.map((node) => node.id) || []);
   const candidates = graph.nodes
     .filter(
@@ -204,29 +207,64 @@ export function buildSemanticView(
   external: boolean,
   query: string,
   changed: Set<string>,
+  lens: SemanticLens = "overview",
 ) {
   const semantic = graph.semantic;
   if (!semantic) return { nodes: [], edges: [], total: 0, totalEdges: 0 };
   const normalized = query.toLowerCase();
-  const candidates = semantic.nodes.filter(
+  const available = semantic.nodes.filter(
+    (node) => external || node.kind !== "external-system",
+  );
+  const allowed = new Set<string>();
+  if (lens === "overview")
+    available
+      .filter((node) =>
+        ["system", "component", "workflow", "workflow-step"].includes(
+          node.kind,
+        ),
+      )
+      .forEach((node) => allowed.add(node.id));
+  if (lens === "components")
+    available
+      .filter((node) => ["system", "component", "file"].includes(node.kind))
+      .forEach((node) => allowed.add(node.id));
+  if (lens === "workflows") {
+    available
+      .filter((node) => ["workflow", "workflow-step"].includes(node.kind))
+      .forEach((node) => allowed.add(node.id));
+    for (const relation of semantic.relations)
+      if (allowed.has(relation.from) || allowed.has(relation.to)) {
+        allowed.add(relation.from);
+        allowed.add(relation.to);
+      }
+  }
+  if (lens === "questions") {
+    semantic.questions
+      .filter((question) => question.status === "open")
+      .forEach((question) => allowed.add(question.subjectId));
+    for (const relation of semantic.relations)
+      if (allowed.has(relation.from) || allowed.has(relation.to)) {
+        allowed.add(relation.from);
+        allowed.add(relation.to);
+      }
+  }
+  if (lens === "verified") {
+    available
+      .filter((node) => node.trust !== "inferred")
+      .forEach((node) => allowed.add(node.id));
+    semantic.claims
+      .filter((claim) => claim.trust === "authored")
+      .forEach((claim) => allowed.add(claim.subjectId));
+  }
+  const candidates = available.filter(
     (node) =>
-      (external || node.kind !== "external-system") &&
+      allowed.has(node.id) &&
       (!normalized ||
         `${node.label} ${node.kind} ${node.description || ""} ${node.path || ""}`
           .toLowerCase()
           .includes(normalized)),
   );
-  const preferred = [
-    ...candidates.filter((node) =>
-      ["system", "component", "workflow", "workflow-step"].includes(node.kind),
-    ),
-    ...candidates.filter(
-      (node) =>
-        !["system", "component", "workflow", "workflow-step"].includes(
-          node.kind,
-        ),
-    ),
-  ].slice(0, 220);
+  const preferred = candidates.slice(0, 220);
   const visible = new Set(preferred.map((node) => node.id));
   const nodes: CardNode[] = preferred.map((node) => {
     const paths = semanticPaths(graph, node);
@@ -249,6 +287,12 @@ export function buildSemanticView(
           paths,
           graph.revision,
           node.evidence[0]?.line,
+          {
+            kind: node.kind,
+            trust: node.trust,
+            status: node.status,
+            confidence: node.confidence,
+          },
         ),
         changed: paths.some((path) => changed.has(path)),
         dimmed: false,
@@ -270,30 +314,28 @@ export function buildSemanticView(
     inferred: "#a477d3",
     authored: "#c6a56b",
   };
-  const edges: Edge[] = semantic.relations
-    .filter(
-      (relation) => visible.has(relation.from) && visible.has(relation.to),
-    )
-    .slice(0, 600)
-    .map((relation) => ({
-      id: relation.id,
-      source: relation.from,
-      target: relation.to,
-      type: "smoothstep",
-      markerEnd: {
-        type: MarkerType.ArrowClosed,
-        color: trustColor[relation.trust],
-      },
-      label: relation.kind,
-      data: { count: 1, semantic: true },
-      style: {
-        stroke: trustColor[relation.trust],
-        strokeWidth: relation.status === "conflicting" ? 2.2 : 1.35,
-        strokeDasharray: relation.trust === "inferred" ? "5 4" : undefined,
-      },
-      labelStyle: { fill: "#d4c2e9", fontSize: 9 },
-      labelBgStyle: { fill: "#21162d" },
-    }));
+  const relevantRelations = semantic.relations.filter(
+    (relation) => visible.has(relation.from) && visible.has(relation.to),
+  );
+  const edges: Edge[] = relevantRelations.slice(0, 600).map((relation) => ({
+    id: relation.id,
+    source: relation.from,
+    target: relation.to,
+    type: "smoothstep",
+    markerEnd: {
+      type: MarkerType.ArrowClosed,
+      color: trustColor[relation.trust],
+    },
+    label: relation.kind,
+    data: { count: 1, semantic: true },
+    style: {
+      stroke: trustColor[relation.trust],
+      strokeWidth: relation.status === "conflicting" ? 2.2 : 1.35,
+      strokeDasharray: relation.trust === "inferred" ? "5 4" : undefined,
+    },
+    labelStyle: { fill: "#d4c2e9", fontSize: 9 },
+    labelBgStyle: { fill: "#21162d" },
+  }));
   const layout = new dagre.graphlib.Graph()
     .setDefaultEdgeLabel(() => ({}))
     .setGraph({
@@ -314,7 +356,7 @@ export function buildSemanticView(
     nodes,
     edges,
     total: candidates.length,
-    totalEdges: semantic.relations.length,
+    totalEdges: relevantRelations.length,
   };
 }
 

@@ -77,7 +77,7 @@ test("component chat runs isolated edits, honors canceled approval, applies diff
     // The chat region's default drop point overlaps this artwork on macOS.
     // Keeping it inert lets the enclosing Component chat handler receive it.
     await page
-      .getByRole("button", { name: "Drag root to chat", exact: true })
+      .getByRole("button", { name: "Drag root context to chat", exact: true })
       .dragTo(page.getByRole("region", { name: "Component chat" }));
     await expect(page.locator(".context-chip")).toContainText("root");
     await page.getByLabel("Agent mode").selectOption("change");

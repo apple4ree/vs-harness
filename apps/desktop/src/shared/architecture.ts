@@ -1,4 +1,9 @@
-import type { SemanticGraph } from "./semantic";
+import type {
+  SemanticGraph,
+  SemanticNodeKind,
+  SemanticStatus,
+  SemanticTrust,
+} from "./semantic";
 
 export type SourceEvidence = {
   path: string;
@@ -103,6 +108,13 @@ export type ComponentContext = {
   totalPaths?: number;
   symbol?: string;
   line?: number;
+  /** Meaning contexts keep their trust boundary visible in Agent history/UI. */
+  semantic?: {
+    kind: SemanticNodeKind;
+    trust: SemanticTrust;
+    status: SemanticStatus;
+    confidence: number;
+  };
   revision: string;
 };
 
@@ -114,6 +126,7 @@ export function componentContext(
   paths: string[],
   revision: string,
   line?: number,
+  semantic?: ComponentContext["semantic"],
 ): ComponentContext {
   const preview: string[] = [];
   let characters = 0;
@@ -128,6 +141,7 @@ export function componentContext(
     paths: preview,
     totalPaths: paths.length,
     revision,
+    ...(semantic ? { semantic } : {}),
     ...(Number.isSafeInteger(line) && line! > 0 && line! <= 1_000_000
       ? { line }
       : {}),

@@ -157,7 +157,18 @@ export class AgentService extends EventEmitter {
       const nodes = context.nodeId.startsWith("module:")
         ? graph.nodes.filter((node) => node.module === context.nodeId.slice(7))
         : graph.nodes.filter((node) => node.id === context.nodeId);
-      const paths = nodes.flatMap((node) => (node.path ? [node.path] : []));
+      const semantic = graph.semantic?.nodes.find(
+        (node) => node.id === context.nodeId,
+      );
+      if (
+        semantic &&
+        (graph.semantic?.validation.valid !== true ||
+          graph.semantic.sourceRevision !== graph.revision)
+      )
+        throw new Error("The attached semantic context is not validated");
+      const paths = semantic
+        ? this.semanticPaths(graph, semantic.id)
+        : nodes.flatMap((node) => (node.path ? [node.path] : []));
       if (!paths.length)
         throw new Error(
           "This component is not present in the current workspace graph",
@@ -166,12 +177,135 @@ export class AgentService extends EventEmitter {
         context.nodeId,
         context.nodeId.startsWith("module:")
           ? context.nodeId.slice(7)
-          : nodes[0].label,
+          : semantic?.label || nodes[0].label,
         paths,
         graph.revision,
-        context.line,
+        semantic?.evidence[0]?.line || context.line,
+        semantic
+          ? {
+              kind: semantic.kind,
+              trust: semantic.trust,
+              status: semantic.status,
+              confidence: semantic.confidence,
+            }
+          : undefined,
       );
     });
+  }
+  private semanticPaths(graph: ArchitectureGraph, semanticId: string) {
+    const semantic = graph.semantic;
+    if (!semantic) return [];
+    const selected = semantic.nodes.find((node) => node.id === semanticId);
+    if (!selected) return [];
+    if (selected.kind === "system")
+      return graph.nodes.flatMap((node) => (node.path ? [node.path] : []));
+    if (selected.kind === "component")
+      return graph.nodes
+        .filter((node) => node.module === selected.label && node.path)
+        .map((node) => node.path!);
+    const ids = new Set([semanticId]);
+    for (let depth = 0; depth < 3; depth++)
+      for (const relation of semantic.relations)
+        if (
+          ids.has(relation.from) &&
+          ["contains", "executes", "defines"].includes(relation.kind)
+        )
+          ids.add(relation.to);
+    const sourceIds = new Set<string>();
+    const paths = new Set<string>();
+    for (const node of semantic.nodes)
+      if (ids.has(node.id)) {
+        if (node.sourceNodeId) sourceIds.add(node.sourceNodeId);
+        if (node.path) paths.add(node.path);
+        node.evidence.forEach((item) => paths.add(item.path));
+      }
+    for (const node of graph.nodes)
+      if (sourceIds.has(node.id) && node.path) paths.add(node.path);
+    const existing = new Set(
+      graph.nodes.flatMap((node) => (node.path ? [node.path] : [])),
+    );
+    return [...paths].filter((file) => existing.has(file)).sort();
+  }
+  private semanticDossier(
+    contexts: ComponentContext[],
+    graph: ArchitectureGraph,
+  ) {
+    const semantic = graph.semantic;
+    if (!semantic) return null;
+    const selected = new Set(
+      contexts
+        .map((context) => context.nodeId)
+        .filter((id) => semantic.nodes.some((node) => node.id === id)),
+    );
+    if (!selected.size) return null;
+    const included = new Set(selected);
+    for (let depth = 0; depth < 2; depth++)
+      for (const relation of semantic.relations)
+        if (included.has(relation.from)) included.add(relation.to);
+        else if (included.has(relation.to)) included.add(relation.from);
+    const nodes = semantic.nodes
+      .filter((node) => included.has(node.id))
+      .slice(0, 100)
+      .map((node) => ({
+        id: node.id,
+        label: node.label,
+        kind: node.kind,
+        trust: node.trust,
+        status: node.status,
+        confidence: node.confidence,
+        ...(node.stepKind ? { stepKind: node.stepKind } : {}),
+        ...(node.description ? { description: node.description } : {}),
+        evidence: node.evidence.slice(0, 4),
+      }));
+    const visible = new Set(nodes.map((node) => node.id));
+    return {
+      contract: semantic.contract,
+      revision: semantic.revision,
+      sourceRevision: semantic.sourceRevision,
+      boundary:
+        "Verified, inferred, and authored items remain distinct. Provisional workflow order is not runtime proof.",
+      selected: [...selected],
+      nodes,
+      relations: semantic.relations
+        .filter(
+          (relation) => visible.has(relation.from) && visible.has(relation.to),
+        )
+        .slice(0, 160)
+        .map((relation) => ({
+          from: relation.from,
+          to: relation.to,
+          kind: relation.kind,
+          trust: relation.trust,
+          status: relation.status,
+          confidence: relation.confidence,
+          evidence: relation.evidence.slice(0, 3),
+        })),
+      claims: semantic.claims
+        .filter((claim) => selected.has(claim.subjectId))
+        .slice(0, 60)
+        .map((claim) => ({
+          subjectId: claim.subjectId,
+          key: claim.key,
+          value: claim.value,
+          trust: claim.trust,
+          status: claim.status,
+          reason: claim.reason,
+          evidence: claim.evidence.slice(0, 3),
+        })),
+      openQuestions: semantic.questions
+        .filter(
+          (question) =>
+            selected.has(question.subjectId) && question.status === "open",
+        )
+        .slice(0, 30)
+        .map((question) => ({
+          subjectId: question.subjectId,
+          prompt: question.prompt,
+          recommendation: question.recommendation,
+          options: question.options,
+          evidence: question.evidence.slice(0, 3),
+        })),
+    };
   }
   async start(
     root: string,
@@ -383,11 +517,16 @@ export class AgentService extends EventEmitter {
       const selectedNodes = new Set(
         run.contexts.map((context) => context.nodeId),
       );
+      const selectedContextPaths = new Set(
+        run.contexts.flatMap((context) => context.paths),
+      );
       const selectedFiles = new Set(
         graph.nodes
           .filter(
             (node) =>
-              selectedModules.has(node.module) || selectedNodes.has(node.id),
+              selectedModules.has(node.module) ||
+              selectedNodes.has(node.id) ||
+              selectedContextPaths.has(node.id),
           )
           .map((node) => node.id),
       );
@@ -402,6 +541,7 @@ export class AgentService extends EventEmitter {
           scopeNote:
             "A module nodeId selects the entire module. Path lists are previews (at most 80 paths / 24,000 characters each); totalPaths is the full file count. Inspect the workspace for additional files when needed.",
           components: run.contexts,
+          semantic: this.semanticDossier(run.contexts, graph),
           relations: related.map((edge) => ({
             from: edge.from,
             to: edge.to,

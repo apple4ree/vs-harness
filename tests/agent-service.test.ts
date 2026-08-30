@@ -149,6 +149,56 @@ test("corrupt agent history is reported and never overwritten by a new run", asy
   assert.deepEqual(await service.list(dataDirectory), []);
 });
 
+test("validated semantic workflows become authoritative Agent dossiers", async (t) => {
+  const directory = await fs.mkdtemp(
+    path.join(os.tmpdir(), "witch-semantic-agent-"),
+  );
+  t.after(() =>
+    fs.rm(directory, { recursive: true, force: true, maxRetries: 5 }),
+  );
+  const root = path.join(directory, "project");
+  await fs.mkdir(root);
+  await fs.writeFile(
+    path.join(root, "agent.py"),
+    "@agent.command()\nasync def run_agent():\n    return True\n",
+  );
+  const graph = await analyzeRepository(root);
+  const workflow = graph.semantic!.nodes.find(
+    (node) => node.kind === "workflow",
+  )!;
+  assert(workflow);
+  const service = new AgentService({
+    dataDirectory: path.join(directory, "runs"),
+    command: () => process.execPath,
+    version: "test",
+    serverArguments: [path.resolve("tests/fixtures/fake-codex.mjs")],
+  });
+  t.after(() => service.stop());
+  const completed = until(service, (run) => run.status === "completed");
+  const started = await service.start(root, graph, {
+    mode: "ask",
+    prompt: "SEMANTIC_CONTEXT explain this workflow",
+    contexts: [
+      {
+        nodeId: workflow.id,
+        label: "untrusted label",
+        paths: ["untrusted semantic path"],
+        revision: graph.revision,
+      },
+    ],
+  });
+  assert.equal(started.contexts[0].label, workflow.label);
+  assert.deepEqual(started.contexts[0].paths, ["agent.py"]);
+  assert.deepEqual(started.contexts[0].semantic, {
+    kind: "workflow",
+    trust: "inferred",
+    status: "provisional",
+    confidence: workflow.confidence,
+  });
+  const result = await completed;
+  assert.equal(result.status, "completed", result.error);
+});
+
 test("archiving a review preserves source, staged files and the full pending diff", async (t) => {
   const directory = await fs.mkdtemp(
     path.join(os.tmpdir(), "witch-archive-test-"),

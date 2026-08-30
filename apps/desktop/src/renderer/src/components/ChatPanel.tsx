@@ -234,6 +234,11 @@ export function ChatPanel({
                     >
                       <Paperclip size={10} />
                       {context.label}
+                      {context.semantic && (
+                        <small>
+                          {context.semantic.kind} · {context.semantic.trust}
+                        </small>
+                      )}
                     </button>
                   ))}
                 </div>
@@ -335,7 +340,11 @@ export function ChatPanel({
             >
               <Paperclip size={11} />
               {context.label}
-              <small>{context.totalPaths ?? context.paths.length}</small>
+              <small>
+                {context.semantic
+                  ? `${context.semantic.kind} · ${context.semantic.trust}`
+                  : (context.totalPaths ?? context.paths.length)}
+              </small>
               <button
                 onClick={() =>
                   onAttachments(

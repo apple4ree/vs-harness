@@ -203,4 +203,17 @@ test("meaning view exposes trust, workflow hierarchy, and source context", async
     ),
   );
   assert(view.edges.some((edge) => edge.label === "contains"));
+  assert(
+    view.nodes.every((node) =>
+      ["system", "component", "workflow", "workflow-step"].includes(
+        node.data.kind,
+      ),
+    ),
+  );
+  const workflows = buildSemanticView(graph, false, "", new Set(), "workflows");
+  assert(workflows.nodes.some((node) => node.data.kind === "workflow-step"));
+  assert(workflows.nodes.some((node) => node.data.kind === "symbol"));
+  assert(workflows.edges.some((edge) => edge.label === "executes"));
+  const questions = buildSemanticView(graph, false, "", new Set(), "questions");
+  assert(questions.nodes.some((node) => node.data.questions));
 });
