@@ -8,30 +8,51 @@ import type {
 } from "../../../shared/architecture";
 import { componentContext } from "../../../shared/architecture";
 import type { SourceNeighborhoodProjection } from "../../../shared/architecture-projection";
+import type { SemanticNode } from "../../../shared/semantic";
+
+export type ArchitectureScope = "modules" | "files" | "focus" | "semantics";
+export type CardKind =
+  | "module"
+  | "file"
+  | "external"
+  | "system"
+  | "component"
+  | "workflow"
+  | "workflow-step"
+  | "symbol"
+  | "external-system";
 
 export type CardData = {
   label: string;
   subtitle: string;
   paths: string[];
-  kind: "module" | "file" | "external";
+  kind: CardKind;
   count: number;
   symbols: number;
   context: ComponentContext;
   changed: boolean;
   dimmed: boolean;
   traced: boolean;
+  semanticId?: string;
+  trust?: "verified" | "inferred" | "authored";
+  status?: string;
+  confidence?: number;
+  description?: string;
+  questions?: number;
 } & Record<string, unknown>;
 export type CardNode = Node<CardData, "component">;
 
 export function buildView(
   graph: ArchitectureGraph,
-  scope: "modules" | "files" | "focus",
+  scope: ArchitectureScope,
   module: string | null,
   external: boolean,
   query: string,
   changed: Set<string>,
   projection: SourceNeighborhoodProjection | null = null,
 ) {
+  if (scope === "semantics")
+    return buildSemanticView(graph, external, query, changed);
   const projectedIds = new Set(projection?.nodes.map((node) => node.id) || []);
   const candidates = graph.nodes
     .filter(
@@ -165,6 +186,135 @@ export function buildView(
       scope === "focus" && projection
         ? projection.edgeIds.length
         : edgesByPair.size,
+  };
+}
+
+function semanticPaths(graph: ArchitectureGraph, node: SemanticNode) {
+  if (node.kind === "system")
+    return graph.nodes.flatMap((item) => (item.path ? [item.path] : []));
+  if (node.kind === "component")
+    return graph.nodes
+      .filter((item) => item.module === node.label && item.path)
+      .map((item) => item.path!);
+  return [...new Set(node.evidence.map((item) => item.path))];
+}
+
+export function buildSemanticView(
+  graph: ArchitectureGraph,
+  external: boolean,
+  query: string,
+  changed: Set<string>,
+) {
+  const semantic = graph.semantic;
+  if (!semantic) return { nodes: [], edges: [], total: 0, totalEdges: 0 };
+  const normalized = query.toLowerCase();
+  const candidates = semantic.nodes.filter(
+    (node) =>
+      (external || node.kind !== "external-system") &&
+      (!normalized ||
+        `${node.label} ${node.kind} ${node.description || ""} ${node.path || ""}`
+          .toLowerCase()
+          .includes(normalized)),
+  );
+  const preferred = [
+    ...candidates.filter((node) =>
+      ["system", "component", "workflow", "workflow-step"].includes(node.kind),
+    ),
+    ...candidates.filter(
+      (node) =>
+        !["system", "component", "workflow", "workflow-step"].includes(
+          node.kind,
+        ),
+    ),
+  ].slice(0, 220);
+  const visible = new Set(preferred.map((node) => node.id));
+  const nodes: CardNode[] = preferred.map((node) => {
+    const paths = semanticPaths(graph, node);
+    return {
+      id: node.id,
+      type: "component",
+      position: { x: 0, y: 0 },
+      data: {
+        label: node.label,
+        subtitle: node.description || node.path || node.kind,
+        paths,
+        kind: node.kind as CardKind,
+        count: semantic.relations.filter(
+          (relation) => relation.from === node.id || relation.to === node.id,
+        ).length,
+        symbols: node.kind === "symbol" ? 1 : 0,
+        context: componentContext(
+          node.id,
+          node.label,
+          paths,
+          graph.revision,
+          node.evidence[0]?.line,
+        ),
+        changed: paths.some((path) => changed.has(path)),
+        dimmed: false,
+        traced: false,
+        semanticId: node.id,
+        trust: node.trust,
+        status: node.status,
+        confidence: node.confidence,
+        description: node.description,
+        questions: semantic.questions.filter(
+          (question) =>
+            question.subjectId === node.id && question.status === "open",
+        ).length,
+      },
+    };
+  });
+  const trustColor = {
+    verified: "#78ba9a",
+    inferred: "#a477d3",
+    authored: "#c6a56b",
+  };
+  const edges: Edge[] = semantic.relations
+    .filter(
+      (relation) => visible.has(relation.from) && visible.has(relation.to),
+    )
+    .slice(0, 600)
+    .map((relation) => ({
+      id: relation.id,
+      source: relation.from,
+      target: relation.to,
+      type: "smoothstep",
+      markerEnd: {
+        type: MarkerType.ArrowClosed,
+        color: trustColor[relation.trust],
+      },
+      label: relation.kind,
+      data: { count: 1, semantic: true },
+      style: {
+        stroke: trustColor[relation.trust],
+        strokeWidth: relation.status === "conflicting" ? 2.2 : 1.35,
+        strokeDasharray: relation.trust === "inferred" ? "5 4" : undefined,
+      },
+      labelStyle: { fill: "#d4c2e9", fontSize: 9 },
+      labelBgStyle: { fill: "#21162d" },
+    }));
+  const layout = new dagre.graphlib.Graph()
+    .setDefaultEdgeLabel(() => ({}))
+    .setGraph({
+      rankdir: "LR",
+      ranksep: 110,
+      nodesep: 52,
+      marginx: 45,
+      marginy: 45,
+    });
+  nodes.forEach((node) => layout.setNode(node.id, { width: 222, height: 132 }));
+  edges.forEach((edge) => layout.setEdge(edge.source, edge.target));
+  dagre.layout(layout);
+  nodes.forEach((node) => {
+    const position = layout.node(node.id);
+    node.position = { x: position.x - 111, y: position.y - 66 };
+  });
+  return {
+    nodes,
+    edges,
+    total: candidates.length,
+    totalEdges: semantic.relations.length,
   };
 }
 

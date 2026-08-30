@@ -17,11 +17,13 @@
     "icons": "electron scripts/generate-icons.cjs",
     "benchmark": "tsx scripts/benchmark-architecture.ts",
     "dev": "electron-vite dev",
-    "build": "electron-vite build",
+    "build": "node scripts/build-desktop.cjs",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "package:win": "npm run build && electron-builder --win nsis --x64 --publish never",
-    "package:mac": "npm run build && electron-builder --mac dmg zip --universal --publish never"
+    "package:win": "npm run build && npm run package:win:built",
+    "package:win:built": "electron-builder --win nsis --x64 --publish never",
+    "package:mac": "npm run build && npm run package:mac:built",
+    "package:mac:built": "electron-builder --mac dmg zip --universal --publish never"
   },
   "dependencies": {
     "@dagrejs/dagre": "^3.1.1",

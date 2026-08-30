@@ -3,6 +3,7 @@ import type {
   ArchitectureGraph,
   ArchitectureValidationReceipt,
 } from "./architecture";
+import { finalizeSemanticGraph, validateSemanticGraph } from "./semantic-ir";
 
 export type ArchitectureGraphDraft = Omit<ArchitectureGraph, "validation">;
 
@@ -227,6 +228,34 @@ export function validateArchitectureGraph(
     if (edge.evidence.length) sourceBackedEdges++;
   }
 
+  if (graph.semantic) {
+    if (graph.semantic.workspaceRoot !== graph.workspaceRoot)
+      diagnostic(
+        diagnostics,
+        "IR_SEMANTIC_ROOT_MISMATCH",
+        "error",
+        "semantic",
+        "The semantic graph belongs to a different workspace",
+      );
+    if (graph.semantic.sourceRevision !== graph.revision)
+      diagnostic(
+        diagnostics,
+        "IR_SEMANTIC_REVISION_MISMATCH",
+        "error",
+        "semantic",
+        "The semantic graph was not produced from this source revision",
+      );
+    const semantic = validateSemanticGraph(graph.semantic, graph.nodes);
+    for (const item of semantic.diagnostics)
+      diagnostic(
+        diagnostics,
+        `IR_${item.code}`,
+        item.severity,
+        `semantic:${item.subject}`,
+        item.message,
+      );
+  }
+
   diagnostics.sort(
     (a, b) =>
       a.severity.localeCompare(b.severity) ||
@@ -274,6 +303,10 @@ export function finalizeArchitectureGraph(
       })),
     warnings: [...new Set(draft.warnings)].sort((a, b) => a.localeCompare(b)),
   };
+  if (graph.semantic) {
+    const { validation: _validation, ...semanticDraft } = graph.semantic;
+    graph.semantic = finalizeSemanticGraph(semanticDraft, graph.nodes);
+  }
   const validation = validateArchitectureGraph(graph);
   if (!validation.valid) {
     const details = validation.diagnostics

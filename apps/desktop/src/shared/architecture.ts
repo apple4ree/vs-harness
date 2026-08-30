@@ -1,3 +1,5 @@
+import type { SemanticGraph } from "./semantic";
+
 export type SourceEvidence = {
   path: string;
   line: number;
@@ -9,10 +11,28 @@ export type SourceEvidence = {
 export type CodeSymbol = {
   id: string;
   name: string;
-  kind: "function" | "class" | "interface" | "type" | "variable" | "component";
+  kind:
+    | "function"
+    | "method"
+    | "class"
+    | "interface"
+    | "type"
+    | "variable"
+    | "component"
+    | "struct"
+    | "enum"
+    | "trait"
+    | "implementation"
+    | "module";
   line: number;
   endLine: number;
   exported: boolean;
+  qualifiedName?: string;
+  containerId?: string;
+  async?: boolean;
+  decorators?: string[];
+  signature?: string;
+  visibility?: "public" | "private" | "protected" | "internal";
 };
 
 export type ArchitectureNode = {
@@ -70,6 +90,8 @@ export type ArchitectureGraph = {
   totalFiles: number;
   truncated: boolean;
   warnings: string[];
+  /** Optional, separately validated meaning layer. Old source-only snapshots remain valid. */
+  semantic?: SemanticGraph;
   validation: ArchitectureValidationReceipt;
 };
 

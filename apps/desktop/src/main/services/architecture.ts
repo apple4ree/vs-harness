@@ -1,4 +1,3 @@
-import { promises as fs } from "node:fs";
 import path from "node:path";
 import ts from "typescript";
 import type {
@@ -7,6 +6,7 @@ import type {
   ArchitectureEdge,
   CodeSymbol,
 } from "../../shared/architecture";
+import type { SemanticGraph } from "../../shared/semantic";
 import { finalizeArchitectureGraph } from "../../shared/architecture-ir";
 import {
   listWorkspace,
@@ -14,6 +14,7 @@ import {
   readWorkspaceText,
   TEXT_LIMIT,
 } from "./workspace-files";
+import { buildSemanticGraph } from "./semantic-analysis";
 
 const SOURCE_EXTENSIONS = new Set([
   ".ts",
@@ -59,6 +60,7 @@ export type AnalysisOptions = {
   cache?: ArchitectureCache;
   signal?: AbortSignal;
   byteBudget?: number;
+  previousSemantic?: SemanticGraph | null;
 };
 
 export function moduleFor(file: string): string {
@@ -99,18 +101,48 @@ function tsSymbolsAndImports(file: string, content: string) {
     name: string,
     kind: CodeSymbol["kind"],
     isExported: boolean,
+    containerId?: string,
   ) {
     const line = lineAt(node);
+    const id = `${file}#${name}:${line}`;
+    const modifiers = ts.canHaveModifiers(node)
+      ? ts.getModifiers(node) || []
+      : [];
+    const decorators = ts.canHaveDecorators(node)
+      ? (ts.getDecorators(node) || []).map((item) => item.getText(source))
+      : [];
+    const container = containerId
+      ? symbols.find((item) => item.id === containerId)
+      : null;
     symbols.push({
-      id: `${file}#${name}:${line}`,
+      id,
       name,
       kind,
       line,
       endLine: source.getLineAndCharacterOfPosition(node.getEnd()).line + 1,
       exported: isExported,
+      qualifiedName: container
+        ? `${container.qualifiedName || container.name}.${name}`
+        : name,
+      containerId,
+      async: modifiers.some(
+        (modifier) => modifier.kind === ts.SyntaxKind.AsyncKeyword,
+      ),
+      decorators,
+      signature: node.getText(source).split("{")[0].trim().slice(0, 500),
+      visibility: modifiers.some(
+        (modifier) => modifier.kind === ts.SyntaxKind.PrivateKeyword,
+      )
+        ? "private"
+        : modifiers.some(
+              (modifier) => modifier.kind === ts.SyntaxKind.ProtectedKeyword,
+            )
+          ? "protected"
+          : "public",
     });
+    return id;
   }
-  function visit(node: ts.Node) {
+  function visit(node: ts.Node, containerId?: string) {
     if (
       ts.isImportDeclaration(node) &&
       ts.isStringLiteral(node.moduleSpecifier)
@@ -154,24 +186,49 @@ function tsSymbolsAndImports(file: string, content: string) {
         line: lineAt(node),
         kind: "imports",
       });
+    let childContainer = containerId;
     if (ts.isFunctionDeclaration(node) && node.name)
-      symbol(
+      childContainer = symbol(
         node,
         node.name.text,
         hasJsx(node) ? "component" : "function",
         exported(node),
+        containerId,
       );
     if (ts.isClassDeclaration(node) && node.name)
-      symbol(node, node.name.text, "class", exported(node));
+      childContainer = symbol(
+        node,
+        node.name.text,
+        "class",
+        exported(node),
+        containerId,
+      );
     if (ts.isInterfaceDeclaration(node))
-      symbol(node, node.name.text, "interface", exported(node));
+      childContainer = symbol(
+        node,
+        node.name.text,
+        "interface",
+        exported(node),
+        containerId,
+      );
     if (ts.isTypeAliasDeclaration(node) || ts.isEnumDeclaration(node))
-      symbol(node, node.name.text, "type", exported(node));
+      symbol(node, node.name.text, "type", exported(node), containerId);
+    if (
+      (ts.isMethodDeclaration(node) || ts.isMethodSignature(node)) &&
+      node.name
+    )
+      childContainer = symbol(
+        node,
+        node.name.getText(source),
+        "method",
+        true,
+        containerId,
+      );
     if (ts.isVariableStatement(node) && node.parent === source) {
       for (const declaration of node.declarationList.declarations)
         if (ts.isIdentifier(declaration.name)) {
           const init = declaration.initializer;
-          symbol(
+          const id = symbol(
             declaration,
             declaration.name.text,
             init && (ts.isArrowFunction(init) || ts.isFunctionExpression(init))
@@ -180,10 +237,16 @@ function tsSymbolsAndImports(file: string, content: string) {
                 : "function"
               : "variable",
             exported(node),
+            containerId,
           );
+          if (
+            init &&
+            (ts.isArrowFunction(init) || ts.isFunctionExpression(init))
+          )
+            childContainer = id;
         }
     }
-    ts.forEachChild(node, visit);
+    ts.forEachChild(node, (child) => visit(child, childContainer));
   }
   visit(source);
   return { symbols, imports };
@@ -192,17 +255,63 @@ function tsSymbolsAndImports(file: string, content: string) {
 function pythonSymbolsAndImports(file: string, content: string) {
   const symbols: CodeSymbol[] = [];
   const imports: ImportRecord[] = [];
-  content.split(/\r?\n/).forEach((text, index) => {
-    const definition = text.match(/^\s*(?:async\s+)?(def|class)\s+([\w]+)/);
-    if (definition)
-      symbols.push({
-        id: `${file}#${definition[2]}:${index + 1}`,
-        name: definition[2],
-        kind: definition[1] === "def" ? "function" : "class",
+  const lines = content.split(/\r?\n/);
+  const stack: Array<{ indent: number; symbol: CodeSymbol }> = [];
+  let decorators: Array<{ indent: number; text: string }> = [];
+  const indentation = (text: string) =>
+    (text.match(/^\s*/)?.[0] || "").replaceAll("\t", "    ").length;
+  lines.forEach((text, index) => {
+    const trimmed = text.trim();
+    const indent = indentation(text);
+    if (trimmed && !trimmed.startsWith("#")) {
+      while (stack.length && indent <= stack.at(-1)!.indent) {
+        stack.at(-1)!.symbol.endLine = Math.max(
+          stack.at(-1)!.symbol.line,
+          index,
+        );
+        stack.pop();
+      }
+    }
+    const decorator = text.match(/^\s*@(.+)/);
+    if (decorator) {
+      decorators = decorators.filter((item) => item.indent === indent);
+      decorators.push({ indent, text: decorator[1].trim().slice(0, 300) });
+    }
+    const definition = text.match(
+      /^\s*(async\s+)?(def|class)\s+([A-Za-z_]\w*)\s*(.*)$/,
+    );
+    if (definition) {
+      const container = [...stack]
+        .reverse()
+        .find(
+          (item) => item.indent < indent && item.symbol.kind === "class",
+        )?.symbol;
+      const kind: CodeSymbol["kind"] =
+        definition[2] === "class" ? "class" : container ? "method" : "function";
+      const symbol: CodeSymbol = {
+        id: `${file}#${definition[3]}:${index + 1}`,
+        name: definition[3],
+        kind,
         line: index + 1,
         endLine: index + 1,
-        exported: !definition[2].startsWith("_"),
-      });
+        exported: !definition[3].startsWith("_"),
+        qualifiedName: container
+          ? `${container.qualifiedName || container.name}.${definition[3]}`
+          : definition[3],
+        containerId: container?.id,
+        async: Boolean(definition[1]),
+        decorators: decorators
+          .filter((item) => item.indent === indent)
+          .map((item) => item.text),
+        signature: trimmed.slice(0, 500),
+        visibility: definition[3].startsWith("_") ? "private" : "public",
+      };
+      symbols.push(symbol);
+      stack.push({ indent, symbol });
+      decorators = [];
+    } else if (trimmed && !decorator && !trimmed.startsWith("#")) {
+      decorators = [];
+    }
     const from = text.match(/^\s*from\s+([.\w]+)\s+import\s+/);
     if (from)
       imports.push({ specifier: from[1], line: index + 1, kind: "imports" });
@@ -220,6 +329,144 @@ function pythonSymbolsAndImports(file: string, content: string) {
         );
     }
   });
+  while (stack.length) {
+    stack.at(-1)!.symbol.endLine = Math.max(
+      stack.at(-1)!.symbol.line,
+      lines.length,
+    );
+    stack.pop();
+  }
+  return { symbols, imports };
+}
+
+function rustSymbolsAndImports(file: string, content: string) {
+  const symbols: CodeSymbol[] = [];
+  const imports: ImportRecord[] = [];
+  const lines = content.split(/\r?\n/);
+  let depth = 0;
+  let attributes: string[] = [];
+  const active: Array<{
+    depth: number;
+    symbol: CodeSymbol;
+    body: boolean;
+  }> = [];
+  const closeFinished = (line: number) => {
+    while (
+      active.length &&
+      (!active.at(-1)!.body || depth <= active.at(-1)!.depth)
+    ) {
+      active.at(-1)!.symbol.endLine = Math.max(
+        active.at(-1)!.symbol.line,
+        line,
+      );
+      active.pop();
+    }
+  };
+  lines.forEach((text, index) => {
+    const line = index + 1;
+    const trimmed = text.trim();
+    const attribute = trimmed.match(/^#!?\[(.+)\]$/);
+    if (attribute) attributes.push(attribute[1].slice(0, 300));
+
+    const imported = trimmed.match(/^(pub\s+)?use\s+([^;]+);/);
+    if (imported) {
+      const specifier = imported[2]
+        .replace(/^::/, "")
+        .replace(/\{.*$/, "")
+        .replace(/::$/, "")
+        .trim();
+      if (specifier)
+        imports.push({
+          specifier,
+          line,
+          kind: imported[1] ? "exports" : "imports",
+        });
+    }
+    const moduleDeclaration = trimmed.match(
+      /^(?:pub(?:\([^)]*\))?\s+)?mod\s+([A-Za-z_]\w*)\s*;/,
+    );
+    if (moduleDeclaration)
+      imports.push({
+        specifier: `self::${moduleDeclaration[1]}`,
+        line,
+        kind: "imports",
+      });
+
+    const definition = trimmed.match(
+      /^(pub(?:\([^)]*\))?\s+)?(?:(async)\s+)?(fn|struct|enum|trait|type|mod)\s+([A-Za-z_]\w*)/,
+    );
+    const implementation = trimmed.match(
+      /^impl(?:<[^>]*>)?\s+([^\{]+?)(?:\s+where\s+[^\{]+)?\s*\{/,
+    );
+    const container = [...active]
+      .reverse()
+      .find((item) =>
+        ["implementation", "trait"].includes(item.symbol.kind),
+      )?.symbol;
+    let symbol: CodeSymbol | null = null;
+    if (definition) {
+      const rawKind = definition[3];
+      const kind: CodeSymbol["kind"] =
+        rawKind === "fn"
+          ? container
+            ? "method"
+            : "function"
+          : rawKind === "struct"
+            ? "struct"
+            : rawKind === "enum"
+              ? "enum"
+              : rawKind === "trait"
+                ? "trait"
+                : rawKind === "mod"
+                  ? "module"
+                  : "type";
+      symbol = {
+        id: `${file}#${definition[4]}:${line}`,
+        name: definition[4],
+        kind,
+        line,
+        endLine: line,
+        exported: Boolean(definition[1]),
+        qualifiedName: container
+          ? `${container.qualifiedName || container.name}::${definition[4]}`
+          : definition[4],
+        containerId: container?.id,
+        async: Boolean(definition[2]),
+        decorators: attributes,
+        signature: trimmed.split("{")[0].trim().slice(0, 500),
+        visibility: definition[1] ? "public" : "private",
+      };
+    } else if (implementation) {
+      const name = `impl ${implementation[1].trim()}`;
+      symbol = {
+        id: `${file}#${name}:${line}`,
+        name,
+        kind: "implementation",
+        line,
+        endLine: line,
+        exported: false,
+        qualifiedName: name,
+        decorators: attributes,
+        signature: trimmed.split("{")[0].trim().slice(0, 500),
+        visibility: "internal",
+      };
+    }
+    if (symbol) {
+      symbols.push(symbol);
+      const opens = (text.match(/\{/g) || []).length;
+      const closes = (text.match(/\}/g) || []).length;
+      active.push({ depth, symbol, body: opens > closes });
+      attributes = [];
+    } else if (trimmed && !attribute && !trimmed.startsWith("//")) {
+      attributes = [];
+    }
+
+    depth += (text.match(/\{/g) || []).length;
+    depth -= (text.match(/\}/g) || []).length;
+    closeFinished(line);
+  });
+  depth = -1;
+  closeFinished(lines.length);
   return { symbols, imports };
 }
 
@@ -257,6 +504,7 @@ export async function analyzeRepository(
   }
   const warnings = [...listing.warnings];
   const contents = new Map<string, string[]>();
+  let authoredContent: string | null = null;
   let bytesRead = 0;
   let budgetReached = false;
   const activeFiles = new Set(sourceFiles.map((file) => file.path));
@@ -278,6 +526,8 @@ export async function analyzeRepository(
       continue;
     }
     const hash = contentHash(content);
+    if (file.path.replaceAll("\\", "/") === ".witch/analysis.json")
+      authoredContent = content;
     bytesRead += Buffer.byteLength(content);
     const cached = options.cache?.get(file.path);
     const parsed =
@@ -287,7 +537,9 @@ export async function analyzeRepository(
           ? tsSymbolsAndImports(file.path, content)
           : file.extension === ".py"
             ? pythonSymbolsAndImports(file.path, content)
-            : { symbols: [], imports: [] };
+            : file.extension === ".rs"
+              ? rustSymbolsAndImports(file.path, content)
+              : { symbols: [], imports: [] };
     options.cache?.set(file.path, { hash, ...parsed });
     nodes.push({
       id: file.path,
@@ -373,6 +625,44 @@ export async function analyzeRepository(
         if (found && nodeIds.has(found)) return found;
       }
       return dots ? null : `external:${spec.split(".")[0]}`;
+    }
+    if (file.endsWith(".rs")) {
+      const parts = spec
+        .replace(/\s+as\s+\w+$/, "")
+        .split("::")
+        .filter(Boolean);
+      const first = parts[0];
+      if (!first) return null;
+      let base: string;
+      let moduleParts: string[];
+      if (first === "crate") {
+        base = path.join(root, "src");
+        moduleParts = parts.slice(1);
+      } else if (first === "self") {
+        base = path.dirname(path.join(root, file));
+        moduleParts = parts.slice(1);
+      } else if (first === "super") {
+        let levels = 0;
+        while (parts[levels] === "super") levels++;
+        base = path.resolve(
+          path.dirname(path.join(root, file)),
+          ...Array(levels).fill(".."),
+        );
+        moduleParts = parts.slice(levels);
+      } else {
+        return `external:${first}`;
+      }
+      for (let length = moduleParts.length; length > 0; length--) {
+        const candidate = path.join(base, ...moduleParts.slice(0, length));
+        for (const target of [
+          candidate + ".rs",
+          path.join(candidate, "mod.rs"),
+        ]) {
+          const found = findFile(target);
+          if (found && nodeIds.has(found)) return found;
+        }
+      }
+      return null;
     }
     const compiler = compilerOptions(file);
     if (!resolutionCaches.has(compiler))
@@ -485,18 +775,30 @@ export async function analyzeRepository(
       .map((node) => `${node.id}:${node.hash}`)
       .join("\n"),
   );
+  const generatedAt = new Date().toISOString();
+  const semantic = buildSemanticGraph({
+    workspaceRoot: root,
+    sourceRevision: revision,
+    generatedAt,
+    nodes,
+    edges,
+    previous: options.previousSemantic,
+    authoredContent,
+  });
+  warnings.push(...semantic.warnings);
   return finalizeArchitectureGraph({
     schemaVersion: 1,
     diagramKind: "architecture",
-    analyzerVersion: "typescript-ast-v2",
+    analyzerVersion: "polyglot-static-v3",
     workspaceRoot: root,
     revision,
-    generatedAt: new Date().toISOString(),
+    generatedAt,
     nodes,
     edges,
     scannedFiles: contents.size,
     totalFiles: files.length,
     truncated: listing.truncated || budgetReached,
     warnings: warnings.slice(0, 100),
+    semantic: semantic.graph,
   });
 }

@@ -53,6 +53,8 @@
   height: 136px;
   margin: 0 auto 4px;
   place-items: center;
+  pointer-events: none;
+  user-select: none;
 }
 .chat-observatory::after {
   position: absolute;
@@ -70,6 +72,8 @@
   height: 124px;
   object-fit: contain;
   filter: drop-shadow(0 12px 19px #09050dc7);
+  pointer-events: none;
+  user-select: none;
 }
 .chat-orbit {
   position: absolute;

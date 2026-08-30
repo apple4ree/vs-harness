@@ -4,6 +4,29 @@
 
 이 문서는 실제로 실행한 검증과 아직 실행하지 못한 검증을 구분합니다. VS Code 기능 전체 또는 모든 저장소에 대한 호환성을 보증하지 않습니다.
 
+## QA 차단 항목 보완 — 현재 로컬 작업 트리
+
+독립 QA가 commit `7bae0e3`에서 확인한 macOS graph-to-chat drag 회귀, 기본 build 메모리 재현성, 자동 CI 부재를 다음처럼 보완했습니다.
+
+- 채팅의 장식 이미지는 `draggable={false}`이며 container와 image 모두 `pointer-events: none`, `user-select: none`이다.
+- `agent-workflow` E2E는 장식 이미지의 실제 draggable/pointer 상태를 확인한 뒤 기본 chat 중앙으로 실제 마우스 drag/drop을 수행한다.
+- `npm run build`는 `scripts/build-desktop.cjs`를 통해 현재 Node 실행 파일과 `--max-old-space-size=4096`을 직접 사용한다. shell별 환경변수 문법에 의존하지 않는다.
+- standalone package 명령은 build를 포함하고, 수동 package workflow는 이미 만든 최신 bundle을 재사용해 중복 build를 피한다.
+- `.github/workflows/quality.yml`은 pull request와 `main` push마다 Node 22의 Windows/macOS matrix에서 typecheck, unit tests, build, 전체 개발 E2E를 실행하고 실패 trace를 보관한다.
+- 기존 수동 Windows/macOS package workflow도 Node 22와 동일 build entry point를 사용한다.
+
+2026-08-30 Windows 11 x64, Node 22.14.0에서 새 production bundle을 만든 뒤 실행한 결과:
+
+| 검증                      | 결과      | 근거                                                                      |
+| ------------------------- | --------- | ------------------------------------------------------------------------- |
+| `npm run typecheck`       | 통과      | 현재 TypeScript와 새 workflow/build 계약 test                             |
+| `npm test`                | 63개 통과 | semantic IR 4개, build wrapper, CI trigger 회귀 포함                      |
+| `npm run build`           | 통과      | ambient `NODE_OPTIONS` 없이 새 Node wrapper 사용, renderer 3,272 modules  |
+| targeted `agent-workflow` | 통과      | 장식 이미지 위 hit 영역이 inert이고 context chip·격리 변경·승인 적용 정상 |
+| `npm run test:e2e`        | 21개 통과 | 실제 Electron 개발 bundle 전체 흐름, 약 1.3분                             |
+
+이 결과는 Windows 로컬 source build 검증이다. 새 workflow는 GitHub에 push된 뒤에만 macOS runner 결과를 만들 수 있고, branch protection에서 해당 check를 필수로 지정하는 작업은 저장소 설정에서 별도로 해야 한다. 현재 변경으로 Windows installer나 macOS universal package를 다시 생성·검증하지 않았으며, macOS source/package/packaged-app E2E가 통과하기 전에는 새 cross-platform Release를 GO로 판정하지 않는다.
+
 ## 공개 프리뷰 산출물
 
 - GitHub Release: [Witch v0.2.0](https://github.com/apple4ree/vs-harness/releases/tag/v0.2.0), 기준 commit `2709677`
@@ -18,13 +41,13 @@ Windows와 macOS GitHub Actions job은 source E2E, 패키징, 패키지 내용 �
 
 Archify 원칙을 Witch core로 옮긴 commit `1d05558` 이후 구조 시점 비교와 오프라인 내보내기는 아직 새 Release에 포함되지 않은 작업입니다. 현재 로컬 검증 결과는 다음과 같습니다.
 
-| 검증                                                                                   | 결과      | 범위                                                                                                      |
-| -------------------------------------------------------------------------------------- | --------- | --------------------------------------------------------------------------------------------------------- |
-| `npm run typecheck`                                                                    | 통과      | 현재 TypeScript 소스                                                                                      |
-| `npm test`                                                                             | 57개 통과 | 검증된 IR, source-neighborhood, route/reach, 정확한 delta, script-safe export를 포함한 서비스·안전성 회귀 |
-| `npm run build`                                                                        | 통과      | main/preload/renderer 프로덕션 번들                                                                       |
-| `npm run test:e2e`                                                                     | 21개 통과 | 실제 Electron에서 Source→Focus 왕복, 구조 비교·HTML/JSON 저장과 IDE 핵심 UI 흐름                          |
-| [GitHub Actions #17](https://github.com/apple4ree/vs-harness/actions/runs/33259915987) | 양쪽 통과 | commit `12dd22d`, Windows x64와 macOS universal의 source/package/packaged-app 전체 체인                   |
+| 검증                                                                                   | 결과      | 범위                                                                                                  |
+| -------------------------------------------------------------------------------------- | --------- | ----------------------------------------------------------------------------------------------------- |
+| `npm run typecheck`                                                                    | 통과      | 현재 TypeScript 소스                                                                                  |
+| `npm test`                                                                             | 63개 통과 | source/semantic IR, build/CI gate, source-neighborhood, route/reach, delta, script-safe export 회귀   |
+| `npm run build`                                                                        | 통과      | 4 GB Node wrapper를 통한 main/preload/renderer 프로덕션 번들                                          |
+| `npm run test:e2e`                                                                     | 21개 통과 | 실제 Electron에서 drag regression, Meaning, Source→Focus, 구조 비교·HTML/JSON 저장과 IDE 핵심 UI 흐름 |
+| [GitHub Actions #17](https://github.com/apple4ree/vs-harness/actions/runs/33259915987) | 양쪽 통과 | commit `12dd22d`, Windows x64와 macOS universal의 source/package/packaged-app 전체 체인               |
 
 구조 비교는 저장된 reading을 다시 검증한 뒤 현재 reading과 비교합니다. HTML과 JSON 내보내기는 검증된 graph만 허용하며, HTML은 외부 리소스 없이 동작하고 authored text를 HTML로 주입하지 않습니다. 활성 소스의 Focus 투영은 canonical graph를 다시 검증한 뒤 직접 연결된 authored import와 evidence line만 표시하며, Electron E2E에서 Source→Constellation→evidence panel 흐름과 화면을 확인했습니다.
 
@@ -108,7 +131,7 @@ npm run verify:package -- release/mac-universal/Witch.app
 WITCH_PACKAGED_EXECUTABLE=release/mac-universal/Witch.app/Contents/MacOS/Witch npm run test:e2e
 ```
 
-GitHub 재검증은 `.github/workflows/package-desktop.yml`을 수동 실행합니다. Focus·구조 비교·내보내기를 포함한 commit `12dd22d`는 Windows/macOS 전체 CI를 통과했지만 아직 v0.2.0 Release에는 포함되지 않았습니다.
+일반 pull request와 `main` push의 source 재검증은 `.github/workflows/quality.yml`, package/packaged-app 재검증은 `.github/workflows/package-desktop.yml`을 사용합니다. Focus·구조 비교·내보내기를 포함한 commit `12dd22d`는 과거 Windows/macOS 전체 CI를 통과했지만 아직 v0.2.0 Release에는 포함되지 않았습니다.
 
 ## 주요 기능 경계
 

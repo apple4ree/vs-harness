@@ -11,24 +11,28 @@ npm ci
 npm run dev
 ```
 
+`npm run build`는 운영체제나 shell과 관계없이 프로젝트의 Node build wrapper를 사용하고 renderer 번들에 4 GB heap 한도를 적용합니다. 별도의 `NODE_OPTIONS` 설정은 필요하지 않습니다. Pull request와 `main` push는 Windows와 macOS에서 typecheck, unit tests, production build, 전체 개발 Electron E2E를 자동 실행합니다.
+
 **Open repository**로 로컬 프로젝트 폴더를 선택합니다. 구조 분석은 로컬에서 실행되며, AI 없이도 편집기·검색·그래프·터미널을 사용할 수 있습니다.
 
 처음에는 [작은 체험 프로젝트](examples/playground/README.md)를 열어 그래프·드래그 첨부·검토 흐름을 확인할 수 있습니다. 별도의 npm 의존성 설치는 필요하지 않습니다.
 
 ## 현재 기능
 
-| 영역            | 구현 범위                                                                                                                              |
-| --------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| 프로젝트 / 파일 | 폴더 열기, 최근 프로젝트, 빈 폴더 탐색, 새 파일·폴더, 이름 변경·이동·휴지통 삭제                                                       |
-| 편집기          | Monaco, 여러 파일 탭, 문법 강조, 저장·모두 저장, 파일 내 검색, 미저장 표시, UTF-8/BOM 보존                                             |
-| 검색 / 언어     | 빠른 파일 열기, 프로젝트 검색, TS/JS 자동완성·자동 import·타입/설명 툴팁·매개변수 안내·진단·정의·참조·이름 변경·코드 액션              |
-| 실행 / 디버그   | Node.js JavaScript 실행, 브레이크포인트·스텝·지역 변수·콜스택, 프로젝트 launch 구성                                                    |
-| 터미널 / 작업   | 최대 8개 실제 PTY 탭, PowerShell 또는 사용자의 shell, tasks 구성과 npm scripts 실행                                                    |
-| 설정 / 확장     | 설정 저장, 3개 Witch 테마, 사용자 단축키, 명령 팔레트, 선택적 자동 저장, 로컬 스니펫 확장                                              |
-| 외부 파일 변경  | 자동 감시, 깨끗한 버퍼 새로고침, 미저장 충돌 보존, 디스크와 diff 검토                                                                  |
-| 구조 / AI       | 검증 가능한 typed IR, 활성 파일 Focus·근거 그래프·경로 추적, 시점 비교, HTML/JSON 내보내기, 컴포넌트 드래그, Codex 격리 편집·diff 승인 |
+| 영역            | 구현 범위                                                                                                                                                                       |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 프로젝트 / 파일 | 폴더 열기, 최근 프로젝트, 빈 폴더 탐색, 새 파일·폴더, 이름 변경·이동·휴지통 삭제                                                                                                |
+| 편집기          | Monaco, 여러 파일 탭, 문법 강조, 저장·모두 저장, 파일 내 검색, 미저장 표시, UTF-8/BOM 보존                                                                                      |
+| 검색 / 언어     | 빠른 파일 열기, 프로젝트 검색, TS/JS 자동완성·자동 import·타입/설명 툴팁·매개변수 안내·진단·정의·참조·이름 변경·코드 액션                                                       |
+| 실행 / 디버그   | Node.js JavaScript 실행, 브레이크포인트·스텝·지역 변수·콜스택, 프로젝트 launch 구성                                                                                             |
+| 터미널 / 작업   | 최대 8개 실제 PTY 탭, PowerShell 또는 사용자의 shell, tasks 구성과 npm scripts 실행                                                                                             |
+| 설정 / 확장     | 설정 저장, 3개 Witch 테마, 사용자 단축키, 명령 팔레트, 선택적 자동 저장, 로컬 스니펫 확장                                                                                       |
+| 외부 파일 변경  | 자동 감시, 깨끗한 버퍼 새로고침, 미저장 충돌 보존, 디스크와 diff 검토                                                                                                           |
+| 구조 / AI       | 검증 가능한 source IR + 의미 IR, Python/Rust/TS 심볼, System·Component·Workflow Meaning 뷰, 근거·추론·Authored 충돌 질문, 시점 비교, 컴포넌트 드래그, Codex 격리 편집·diff 승인 |
 
-TS/JS 관계는 TypeScript AST와 모듈 해석을 사용합니다. Python은 제한적인 정적 분석입니다. 분석 결과는 `witch.architecture/v1` IR로 정렬되고 노드 ID, edge endpoint, 파일 hash와 evidence 경로를 검증한 뒤에만 화면과 기록에 전달됩니다. 확인하지 못한 관계를 AI가 추측해 그래프에 넣지 않습니다. 편집 중인 분석 대상 파일은 **Reveal in Constellation**으로 직접 찾아갈 수 있으며, Focus 뷰는 해당 파일의 정확한 1-hop import/imported-by와 evidence line만 표시합니다. 노드를 선택하면 작성된 관계만 따라 upstream/downstream reach를 확인하거나 두 노드 사이의 최단 방향 경로를 추적할 수 있습니다. 이전 reading과 현재 reading은 **Before · Delta · After**로 비교하며, 추가·변경·삭제된 노드와 관계만 정확히 표시하고 영향도를 추정하지 않습니다. 검증된 IR은 단일 오프라인 HTML 또는 JSON으로 원자적으로 저장할 수 있습니다. 큰 프로젝트는 20,000개 탐색 항목·64 MB 소스 읽기, 화면은 220개 노드·600개 연결로 제한됩니다. 검색과 모듈 상세 보기로 범위를 좁힐 수 있고, 연결을 선택하면 실제 import 위치와 코드 근거가 표시됩니다. 지원 관점과 정적 분석의 진실성 경계는 [architecture views](docs/architecture-views.md)에 정리했습니다.
+TS/JS 관계는 TypeScript AST와 모듈 해석을 사용합니다. Python은 클래스·함수·메서드·async·decorator와 import 범위를, Rust는 `struct`·`enum`·`trait`·`impl`·함수/메서드·`mod/use` 범위를 정적으로 추출합니다. 확인된 결과는 `witch.architecture/v1`, 의미 계층은 별도로 검증되는 `witch.semantic/v1`에 저장됩니다. **Meaning** 뷰에서 System, Component, Workflow, WorkflowStep, File, Symbol을 탐색하며 `Verified`, `Inferred`, `Authored`를 섞지 않고 표시합니다. 이름·annotation 기반 역할/워크플로 추론은 자동으로 `provisional` 계층에만 활성화되고, 소스 사실을 덮어쓰지 않습니다. `.witch/analysis.json`의 Authored claim과 충돌하면 추론을 임시 추천값으로 유지하면서 OpenQuestion과 양쪽 근거를 남깁니다. 이 자동 승인은 코드 변경·터미널 실행·Git 작업·금융 주문에는 적용되지 않습니다. 상세 계약은 [semantic analysis policy](docs/semantic-analysis-policy.md)를 참고하세요.
+
+편집 중인 분석 대상 파일은 **Reveal in Constellation**으로 직접 찾아갈 수 있으며, Focus 뷰는 해당 파일의 정확한 1-hop import/imported-by와 evidence line만 표시합니다. 노드를 선택하면 확인된 관계만 따라 upstream/downstream reach를 확인하거나 두 노드 사이의 최단 방향 경로를 추적할 수 있습니다. 이전 reading과 현재 reading은 **Before · Delta · After**로 비교하며, 추가·변경·삭제된 노드와 관계만 정확히 표시하고 영향도를 추정하지 않습니다. 검증된 IR은 단일 오프라인 HTML 또는 JSON으로 원자적으로 저장할 수 있습니다. 큰 프로젝트는 20,000개 탐색 항목·64 MB 소스 읽기, 화면은 220개 노드·600개 연결로 제한됩니다. 검색과 모듈 상세 보기로 범위를 좁힐 수 있고, 연결을 선택하면 실제 import 위치와 코드 근거가 표시됩니다. 지원 관점과 정적 분석의 진실성 경계는 [architecture views](docs/architecture-views.md)에 정리했습니다.
 
 왼쪽·오른쪽 패널과 터미널의 크기를 드래그나 키보드로 조절할 수 있으며 크기와 브레이크포인트는 재실행 후에도 유지됩니다. 편집기 새로고침 시 기존 터미널에 다시 연결합니다. 앱을 완전히 종료하면 터미널 프로세스는 종료됩니다.
 
@@ -39,10 +43,11 @@ TS/JS 관계는 TypeScript AST와 모듈 해석을 사용합니다. Python은 �
 1. 프로젝트를 열고 **Constellation**에서 **Read structure**를 누릅니다.
 2. 모듈을 더블클릭하면 파일로 들어갑니다. Source에서 **Reveal in Constellation**을 누르면 활성 파일의 직접 의존성만 집중해서 보고, evidence 줄이나 **Open source**로 다시 편집기에 돌아갈 수 있습니다.
 3. 과거 reading의 **Compare reading**을 누르면 현재 구조와의 정확한 차이를 보고, **Export architecture**에서 오프라인 HTML이나 검증된 IR JSON을 저장할 수 있습니다.
-4. 카드의 드래그 손잡이를 오른쪽 채팅에 놓습니다.
-5. **Ask**는 질문, **Change · isolated copy**는 분리된 복사본에서 변경을 수행합니다.
-6. 변경 검토 화면에서 실제 파일 diff를 확인하고 적용할 파일만 선택합니다. 원본은 승인 후 바뀝니다.
-7. 원본 충돌이 있으면 적용을 거부하며, 그래프는 저장된 실제 코드에서 다시 계산됩니다.
+4. **Meaning**에서 임시 컴포넌트·워크플로와 claim/question 근거를 검토합니다.
+5. 카드의 드래그 손잡이를 오른쪽 채팅에 놓습니다.
+6. **Ask**는 질문, **Change · isolated copy**는 분리된 복사본에서 변경을 수행합니다.
+7. 변경 검토 화면에서 실제 파일 diff를 확인하고 적용할 파일만 선택합니다. 원본은 승인 후 바뀝니다.
+8. 원본 충돌이 있으면 적용을 거부하며, 그래프는 저장된 실제 코드에서 다시 계산됩니다.
 
 미적용 변경안은 **Archive without applying**으로 보관할 수 있습니다. 원본은 바꾸지 않고, 전체 diff와 격리 폴더를 앱 데이터에 남깁니다. 보관을 취소하면 기존 검토 상태를 유지합니다. 보관본을 검토 화면으로 복원하는 기능은 아직 없습니다.
 
@@ -106,6 +111,8 @@ npm run package:win
 # macOS에서 실행: universal DMG + ZIP
 npm run package:mac
 ```
+
+`package:win`과 `package:mac`은 먼저 같은 메모리 안정화 build wrapper를 실행합니다. CI처럼 이미 검증된 최신 `out`이 있을 때만 내부용 `package:win:built` 또는 `package:mac:built`를 사용합니다.
 
 Windows는 x64, macOS는 Intel/Apple Silicon universal을 대상으로 합니다. Electron 44 기반 macOS 최소 버전은 13입니다. macOS 패키지는 macOS 호스트에서 빌드·검증하는 [워크플로](.github/workflows/package-desktop.yml)를 포함합니다. macOS 프리뷰에는 인증서가 필요 없는 로컬 ad-hoc 서명을 요청하며 자동 공증 업로드는 끕니다. 이는 Apple Developer ID 서명·공증이 아니므로 정식 배포용으로 취급하지 마세요.
 

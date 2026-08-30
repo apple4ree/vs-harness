@@ -69,6 +69,13 @@ test("component chat runs isolated edits, honors canceled approval, applies diff
       async () => (await window.witch.analysis.current())?.revision,
     );
     expect(before).toBeTruthy();
+    const artwork = page.locator(".chat-observatory img");
+    expect(
+      await artwork.evaluate((image: HTMLImageElement) => image.draggable),
+    ).toBe(false);
+    await expect(artwork).toHaveCSS("pointer-events", "none");
+    // The chat region's default drop point overlaps this artwork on macOS.
+    // Keeping it inert lets the enclosing Component chat handler receive it.
     await page
       .getByRole("button", { name: "Drag root to chat", exact: true })
       .dragTo(page.getByRole("region", { name: "Component chat" }));

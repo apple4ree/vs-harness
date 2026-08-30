@@ -4,6 +4,7 @@ import {
   type AnalysisOptions,
 } from "./architecture";
 import type { ArchitectureGraph } from "../../shared/architecture";
+import type { SemanticGraph } from "../../shared/semantic";
 
 type Pending = {
   root: string;
@@ -18,6 +19,7 @@ export class RepositoryAnalysisService {
   private controller: AbortController | null = null;
   private currentRoot: string | null = null;
   private cache: ArchitectureCache = new Map();
+  private previousSemantic: SemanticGraph | null = null;
   constructor(
     private analyzer: (
       root: string,
@@ -49,15 +51,20 @@ export class RepositoryAnalysisService {
             request.reject(
               new Error("Analysis superseded by a different project"),
             );
-        if (this.currentRoot !== root) this.cache.clear();
+        if (this.currentRoot !== root) {
+          this.cache.clear();
+          this.previousSemantic = null;
+        }
         this.currentRoot = root;
         this.controller = new AbortController();
         try {
           const graph = await this.analyzer(root, {
             cache: this.cache,
             signal: this.controller.signal,
+            previousSemantic: this.previousSemantic,
           });
           this.controller.signal.throwIfAborted();
+          this.previousSemantic = graph.semantic || null;
           for (const request of batch) request.resolve(graph);
         } catch (error) {
           for (const request of batch) request.reject(error);
@@ -74,5 +81,6 @@ export class RepositoryAnalysisService {
     for (const request of this.pending.splice(0))
       request.reject(new Error("Repository analyzer closed"));
     this.cache.clear();
+    this.previousSemantic = null;
   }
 }

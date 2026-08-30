@@ -2,7 +2,7 @@ import type { ArchitectureGraph } from "./architecture";
 
 export type SnapshotMetadata = Omit<
   ArchitectureGraph,
-  "nodes" | "edges" | "validation"
+  "nodes" | "edges" | "semantic" | "validation"
 > & {
   id: string;
   workspaceName: string;

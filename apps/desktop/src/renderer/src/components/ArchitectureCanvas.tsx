@@ -17,6 +17,7 @@ import {
   relationsForEdge,
   type CardData,
   type CardNode,
+  type ArchitectureScope,
 } from "./architecture-view";
 import {
   Box,
@@ -48,14 +49,20 @@ import "./architecture.css";
 
 function ComponentCard({ data, selected }: NodeProps<CardNode>) {
   const Icon =
-    data.kind === "module"
-      ? Box
-      : data.kind === "external"
-        ? Package
-        : FileCode2;
+    data.kind === "system"
+      ? Network
+      : data.kind === "module" || data.kind === "component"
+        ? Box
+        : data.kind === "external" || data.kind === "external-system"
+          ? Package
+          : data.kind === "workflow"
+            ? Layers3
+            : data.kind === "workflow-step"
+              ? LocateFixed
+              : FileCode2;
   return (
     <div
-      className={`architecture-card ${selected ? "is-selected" : ""} ${data.changed ? "has-changed" : ""} ${data.traced ? "is-traced" : ""} ${data.dimmed ? "is-dimmed" : ""}`}
+      className={`architecture-card ${selected ? "is-selected" : ""} ${data.changed ? "has-changed" : ""} ${data.traced ? "is-traced" : ""} ${data.dimmed ? "is-dimmed" : ""} ${data.trust ? `semantic-${data.trust}` : ""}`}
     >
       <Handle type="target" position={Position.Left} />
       <div className="architecture-card-top">
@@ -84,12 +91,15 @@ function ComponentCard({ data, selected }: NodeProps<CardNode>) {
       <strong title={data.label}>{data.label}</strong>
       <small title={data.subtitle}>{data.subtitle}</small>
       <footer>
-        {data.kind === "module"
-          ? `${data.count} files`
-          : data.kind === "external"
-            ? "External dependency"
-            : `${data.symbols} symbols`}
+        {data.semanticId
+          ? `${data.trust} · ${data.status}`
+          : data.kind === "module"
+            ? `${data.count} files`
+            : data.kind === "external"
+              ? "External dependency"
+              : `${data.symbols} symbols`}
         {data.changed && <span>updated</span>}
+        {Boolean(data.questions) && <span>{data.questions} question</span>}
       </footer>
       <Handle type="source" position={Position.Right} />
     </div>
@@ -116,7 +126,7 @@ export function ArchitectureCanvas({
   activeFile?: string | null;
   revealRequest?: number;
 }) {
-  const [scope, setScope] = useState<"modules" | "files" | "focus">("modules");
+  const [scope, setScope] = useState<ArchitectureScope>("modules");
   const [module, setModule] = useState<string | null>(null);
   const [external, setExternal] = useState(false);
   const [query, setQuery] = useState("");
@@ -280,6 +290,30 @@ export function ArchitectureCanvas({
     graph && relationSelection
       ? relationsForEdge(graph, relationSelection)
       : [];
+  const selectedSemanticNode = selection?.data.semanticId
+    ? graph?.semantic?.nodes.find(
+        (node) => node.id === selection.data.semanticId,
+      ) || null
+    : null;
+  const selectedSemanticClaims = selectedSemanticNode
+    ? graph?.semantic?.claims.filter(
+        (claim) => claim.subjectId === selectedSemanticNode.id,
+      ) || []
+    : [];
+  const selectedSemanticQuestions = selectedSemanticNode
+    ? graph?.semantic?.questions.filter(
+        (question) => question.subjectId === selectedSemanticNode.id,
+      ) || []
+    : [];
+  const selectedSemanticRelation = relationSelection
+    ? graph?.semantic?.relations.find(
+        (relation) => relation.id === relationSelection.id,
+      ) || null
+    : null;
+  const semanticLabels = useMemo(
+    () => new Map(graph?.semantic?.nodes.map((node) => [node.id, node.label])),
+    [graph?.semantic?.revision],
+  );
   const selectedNeighborhood = useMemo(
     () =>
       graph && selection?.data.kind === "file"
@@ -311,6 +345,19 @@ export function ArchitectureCanvas({
             <FileCode2 size={14} /> Files
           </button>
           <button
+            className={scope === "semantics" ? "active" : ""}
+            disabled={!graph?.semantic}
+            title="Explore verified facts and provisional system, component, and workflow meaning"
+            onClick={() => {
+              setScope("semantics");
+              setModule(null);
+              setSelection(null);
+              setRelationSelection(null);
+            }}
+          >
+            <Network size={14} /> Meaning
+          </button>
+          <button
             className={scope === "focus" ? "active" : ""}
             disabled={!projection}
             title={
@@ -333,7 +380,9 @@ export function ArchitectureCanvas({
             placeholder={
               scope === "focus"
                 ? "Focused view follows the active source file"
-                : "Find a component…"
+                : scope === "semantics"
+                  ? "Find a system, workflow, component, or symbol…"
+                  : "Find a component…"
             }
             disabled={scope === "focus"}
           />
@@ -496,7 +545,10 @@ export function ArchitectureCanvas({
               setSelection(null);
             }}
             onEdgeDoubleClick={(_event, edge) => {
-              const evidence = relationsForEdge(graph, edge)[0]?.evidence[0];
+              const evidence =
+                graph.semantic?.relations.find(
+                  (relation) => relation.id === edge.id,
+                )?.evidence[0] || relationsForEdge(graph, edge)[0]?.evidence[0];
               if (evidence) onOpenFile(evidence.path, evidence.line);
             }}
             onNodeDoubleClick={(_event, node) => {
@@ -527,10 +579,26 @@ export function ArchitectureCanvas({
             />
           </ReactFlow>
           <div className="graph-metrics">
-            <span className="live-dot" /> {graph.scannedFiles} files ·{" "}
-            {graph.edges.length} source relations · verified IR{" "}
-            {graph.validation.sourceBackedEdges}/{graph.validation.edgeCount} ·{" "}
-            {graph.revision.slice(0, 8)}
+            <span className="live-dot" />
+            {scope === "semantics" && graph.semantic ? (
+              <>
+                {graph.semantic.nodes.length} semantic nodes ·{" "}
+                {graph.semantic.validation.verifiedCount} verified ·{" "}
+                {graph.semantic.validation.provisionalCount} provisional ·{" "}
+                {
+                  graph.semantic.questions.filter(
+                    (question) => question.status === "open",
+                  ).length
+                }{" "}
+                open questions · {graph.semantic.revision.slice(0, 8)}
+              </>
+            ) : (
+              <>
+                {graph.scannedFiles} files · {graph.edges.length} source
+                relations · verified IR {graph.validation.sourceBackedEdges}/
+                {graph.validation.edgeCount} · {graph.revision.slice(0, 8)}
+              </>
+            )}
             {view.total > view.nodes.length && (
               <span>
                 {" "}
@@ -607,6 +675,58 @@ export function ArchitectureCanvas({
             {selection.data.paths.length} source files · {related.length} import
             relations
           </p>
+          {selectedSemanticNode && (
+            <div className="semantic-inspector">
+              <div className="semantic-trust-row">
+                <span
+                  className={`semantic-trust ${selectedSemanticNode.trust}`}
+                >
+                  {selectedSemanticNode.trust}
+                </span>
+                <span>{selectedSemanticNode.status}</span>
+                <span>
+                  {Math.round(selectedSemanticNode.confidence * 100)}%
+                  confidence
+                </span>
+              </div>
+              {selectedSemanticNode.description && (
+                <p>{selectedSemanticNode.description}</p>
+              )}
+              {selectedSemanticClaims.length > 0 && (
+                <>
+                  <h4>
+                    Semantic claims <span>{selectedSemanticClaims.length}</span>
+                  </h4>
+                  <div className="semantic-claims">
+                    {selectedSemanticClaims.map((claim) => (
+                      <section key={claim.id} className={claim.status}>
+                        <header>
+                          <strong>{claim.key}</strong>
+                          <span>
+                            {claim.trust} · {claim.status}
+                          </span>
+                        </header>
+                        <p>{claim.value}</p>
+                        <small>{claim.reason}</small>
+                      </section>
+                    ))}
+                  </div>
+                </>
+              )}
+              {selectedSemanticQuestions.map((question) => (
+                <section className="semantic-question" key={question.id}>
+                  <strong>Open question</strong>
+                  <p>{question.prompt}</p>
+                  <small>Recommended for now: {question.recommendation}</small>
+                  <ul>
+                    {question.options.map((option) => (
+                      <li key={option}>{option}</li>
+                    ))}
+                  </ul>
+                </section>
+              ))}
+            </div>
+          )}
           <div className="component-source-list">
             {selectedFiles.slice(0, 50).map((file) => (
               <section key={file.id}>
@@ -726,8 +846,15 @@ export function ArchitectureCanvas({
             <div>
               <span className="eyebrow">Connection evidence</span>
               <h3>
-                {relationSelection.source.replace(/^module:/, "")} →{" "}
-                {relationSelection.target.replace(/^module:/, "")}
+                {selectedSemanticRelation
+                  ? semanticLabels.get(selectedSemanticRelation.from) ||
+                    selectedSemanticRelation.from
+                  : relationSelection.source.replace(/^module:/, "")}{" "}
+                →{" "}
+                {selectedSemanticRelation
+                  ? semanticLabels.get(selectedSemanticRelation.to) ||
+                    selectedSemanticRelation.to
+                  : relationSelection.target.replace(/^module:/, "")}
               </h3>
             </div>
             <button
@@ -737,13 +864,26 @@ export function ArchitectureCanvas({
               ×
             </button>
           </header>
-          <p>
-            {selectedRelations.reduce((count, edge) => count + edge.count, 0)}{" "}
-            imports / re-exports from actual source. Select an evidence line to
-            open its file.
-          </p>
+          {selectedSemanticRelation ? (
+            <p>
+              {selectedSemanticRelation.kind} · {selectedSemanticRelation.trust}
+              {" · "}
+              {selectedSemanticRelation.status} ·{" "}
+              {Math.round(selectedSemanticRelation.confidence * 100)}%
+              confidence. Select its evidence to open the source.
+            </p>
+          ) : (
+            <p>
+              {selectedRelations.reduce((count, edge) => count + edge.count, 0)}{" "}
+              imports / re-exports from actual source. Select an evidence line
+              to open its file.
+            </p>
+          )}
           <div className="component-relations">
-            {selectedRelations.slice(0, 50).flatMap((edge) =>
+            {(selectedSemanticRelation
+              ? [selectedSemanticRelation]
+              : selectedRelations.slice(0, 50)
+            ).flatMap((edge) =>
               edge.evidence.slice(0, 4).map((evidence, index) => (
                 <button
                   key={`${edge.id}:${index}`}

@@ -277,6 +277,23 @@ test("architecture edges and drag-to-chat source context work in Electron", asyn
   await expect(page.locator(".architecture-card.is-traced")).toHaveCount(2);
   await page.screenshot({ path: "test-results/witch-architecture-route.png" });
   await page.getByRole("button", { name: "Clear trace", exact: true }).click();
+  await page.getByRole("button", { name: "Meaning", exact: true }).click();
+  await expect(
+    page.locator('.react-flow__node[data-id="semantic:system:workspace"]'),
+  ).toBeVisible();
+  const semanticComponent = page.locator(
+    '.react-flow__node[data-id="semantic:component:src/api"]',
+  );
+  await semanticComponent.click();
+  await expect(page.locator(".semantic-inspector")).toContainText(
+    "provisional",
+  );
+  await expect(page.locator(".semantic-inspector")).toContainText(
+    "Semantic claims",
+  );
+  await expect(page.locator(".graph-metrics")).toContainText("verified");
+  await page.screenshot({ path: "test-results/witch-semantic-meaning.png" });
+  await page.getByRole("button", { name: "Modules", exact: true }).click();
   const handle = page.getByRole("button", {
     name: "Drag src/api to chat",
     exact: true,

@@ -202,7 +202,7 @@ export function ChatPanel({
             <div className="chat-observatory" aria-hidden="true">
               <span className="chat-orbit chat-orbit-one" />
               <span className="chat-orbit chat-orbit-two" />
-              <img src={astralObservatory} alt="" />
+              <img src={astralObservatory} alt="" draggable={false} />
             </div>
             <h3>Understand, then shape.</h3>
             <p>

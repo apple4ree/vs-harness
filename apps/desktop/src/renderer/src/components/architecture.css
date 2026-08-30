@@ -210,6 +210,15 @@
 .architecture-card.has-changed {
   border-color: #78ba9a;
 }
+.architecture-card.semantic-verified {
+  border-left: 3px solid #78ba9a;
+}
+.architecture-card.semantic-inferred {
+  border-left: 3px solid #a477d3;
+}
+.architecture-card.semantic-authored {
+  border-left: 3px solid #c6a56b;
+}
 .architecture-card.is-traced {
   border-color: #d3a4ff;
   box-shadow:
@@ -465,6 +474,85 @@
   background: #352447;
   color: #dfc5f7;
   font-size: 8px;
+}
+.semantic-inspector {
+  margin: 10px 0 12px;
+  border-top: 1px solid #3d2b4d;
+  padding-top: 10px;
+}
+.semantic-trust-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  color: #9d8daf;
+  font-size: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.semantic-trust-row > span {
+  border: 1px solid #48345a;
+  border-radius: 999px;
+  padding: 3px 6px;
+  background: #21162d;
+}
+.semantic-trust.verified {
+  border-color: #49785f;
+  color: #91d5af;
+}
+.semantic-trust.inferred {
+  border-color: #765597;
+  color: #d3a4ff;
+}
+.semantic-trust.authored {
+  border-color: #876d42;
+  color: #dfc185;
+}
+.semantic-claims {
+  display: grid;
+  gap: 7px;
+}
+.semantic-claims section,
+.semantic-question {
+  border: 1px solid #453156;
+  border-radius: 7px;
+  padding: 8px;
+  background: #1d1427;
+}
+.semantic-claims section.conflicting,
+.semantic-question {
+  border-color: #8d5a70;
+  background: #2a1725;
+}
+.semantic-claims header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 7px;
+}
+.semantic-claims header strong,
+.semantic-question > strong {
+  color: #dec8f1;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.semantic-claims header span,
+.semantic-claims small,
+.semantic-question small {
+  color: #8d7c9d;
+  font-size: 8px;
+}
+.semantic-claims p,
+.semantic-question p {
+  margin: 6px 0;
+  line-height: 1.5;
+  color: #c9b6d8;
+}
+.semantic-question ul {
+  margin: 7px 0 0;
+  padding-left: 17px;
+  color: #ad98bd;
+  font-size: 9px;
 }
 .component-relations button {
   display: grid;
