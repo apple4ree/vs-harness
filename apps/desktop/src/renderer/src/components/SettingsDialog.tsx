@@ -7,7 +7,21 @@ import {
   type Preferences,
   type SettingsSnapshot,
 } from "../../../shared/settings";
+import {
+  REMOTE_PROTOCOL_VERSION,
+  validateSshProfileDraft,
+  type RemoteProfileSnapshot,
+  type RemoteStatus,
+  type SshProfileDraft,
+} from "../../../shared/remote";
 import "./settings.css";
+
+const EMPTY_SSH_PROFILE: SshProfileDraft = {
+  label: "",
+  host: "",
+  port: 22,
+  connectTimeoutSeconds: 15,
+};
 
 export function SettingsDialog({
   snapshot,
@@ -16,12 +30,21 @@ export function SettingsDialog({
   snapshot: SettingsSnapshot;
   onClose: () => void;
 }) {
-  const [tab, setTab] = useState<"editor" | "shortcuts" | "extensions">(
-    "editor",
-  );
+  const [tab, setTab] = useState<
+    "editor" | "shortcuts" | "extensions" | "remote"
+  >("editor");
   const [draft, setDraft] = useState<Preferences>(snapshot.preferences);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [remote, setRemote] = useState<RemoteProfileSnapshot>({
+    protocol: REMOTE_PROTOCOL_VERSION,
+    profiles: [],
+    warnings: [],
+  });
+  const [remoteStatus, setRemoteStatus] = useState<RemoteStatus | null>(null);
+  const [sshDraft, setSshDraft] = useState<SshProfileDraft>({
+    ...EMPTY_SSH_PROFILE,
+  });
   useEffect(
     () => setDraft(snapshot.preferences),
     [JSON.stringify(snapshot.preferences)],
@@ -33,6 +56,26 @@ export function SettingsDialog({
     window.addEventListener("keydown", listener);
     return () => window.removeEventListener("keydown", listener);
   }, [busy, onClose]);
+  useEffect(() => {
+    let disposed = false;
+    void Promise.all([window.witch.remote.list(), window.witch.remote.status()])
+      .then(([profiles, status]) => {
+        if (!disposed) {
+          setRemote(profiles);
+          setRemoteStatus(status);
+        }
+      })
+      .catch((reason) => {
+        if (!disposed) setError(String(reason));
+      });
+    const off = window.witch.remote.onChanged((profiles) => {
+      if (!disposed) setRemote(profiles);
+    });
+    return () => {
+      disposed = true;
+      off();
+    };
+  }, []);
   async function save() {
     setBusy(true);
     setError("");
@@ -56,6 +99,27 @@ export function SettingsDialog({
       setBusy(false);
     }
   }
+  async function remoteAction(action: () => Promise<RemoteProfileSnapshot>) {
+    setBusy(true);
+    setError("");
+    try {
+      setRemote(await action());
+      return true;
+    } catch (reason) {
+      setError(String(reason));
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function saveSshProfile() {
+    if (
+      await remoteAction(() =>
+        window.witch.remote.saveProfile(validateSshProfileDraft(sshDraft)),
+      )
+    )
+      setSshDraft({ ...EMPTY_SSH_PROFILE });
+  }
   return (
     <div className="provider-backdrop">
       <section
@@ -74,15 +138,17 @@ export function SettingsDialog({
           </button>
         </header>
         <nav aria-label="Settings categories">
-          {(["editor", "shortcuts", "extensions"] as const).map((name) => (
-            <button
-              key={name}
-              className={tab === name ? "selected" : ""}
-              onClick={() => setTab(name)}
-            >
-              {name}
-            </button>
-          ))}
+          {(["editor", "shortcuts", "extensions", "remote"] as const).map(
+            (name) => (
+              <button
+                key={name}
+                className={tab === name ? "selected" : ""}
+                onClick={() => setTab(name)}
+              >
+                {name}
+              </button>
+            ),
+          )}
         </nav>
         <div className="settings-content">
           {snapshot.warnings.map((warning, index) => (
@@ -283,6 +349,185 @@ export function SettingsDialog({
               ))}
             </>
           )}
+          {tab === "remote" && (
+            <>
+              <article
+                className={`remote-status ${remoteStatus?.ssh.installed ? "ready" : "unavailable"}`}
+              >
+                <header>
+                  <strong>System OpenSSH</strong>
+                  <span>
+                    {remoteStatus?.ssh.installed ? "Ready" : "Unavailable"}
+                  </span>
+                </header>
+                <p>
+                  {remoteStatus?.ssh.message || "Inspecting the SSH client…"}
+                </p>
+                {remoteStatus?.ssh.version && (
+                  <small>{remoteStatus.ssh.version}</small>
+                )}
+              </article>
+              <p className="setting-help">
+                Witch stores connection metadata only. Passwords, passphrases,
+                and private-key contents remain with OpenSSH, ssh-agent, or your
+                operating system.
+              </p>
+              {remote.warnings.map((warning, index) => (
+                <p className="inline-error" key={index}>
+                  {warning}
+                </p>
+              ))}
+              <section className="remote-profile-form" aria-label="SSH profile">
+                <header>
+                  <strong>
+                    {sshDraft.id ? "Edit SSH profile" : "New SSH profile"}
+                  </strong>
+                  {sshDraft.id && (
+                    <button
+                      disabled={busy}
+                      onClick={() => setSshDraft({ ...EMPTY_SSH_PROFILE })}
+                    >
+                      Cancel edit
+                    </button>
+                  )}
+                </header>
+                <label>
+                  Label
+                  <input
+                    aria-label="SSH profile label"
+                    placeholder="Research GPU"
+                    value={sshDraft.label}
+                    onChange={(event) =>
+                      setSshDraft({ ...sshDraft, label: event.target.value })
+                    }
+                  />
+                </label>
+                <label>
+                  Host or SSH config alias
+                  <input
+                    aria-label="SSH host"
+                    placeholder="gpu.example.com"
+                    value={sshDraft.host}
+                    onChange={(event) =>
+                      setSshDraft({ ...sshDraft, host: event.target.value })
+                    }
+                  />
+                </label>
+                <div className="remote-profile-grid">
+                  <label>
+                    User
+                    <input
+                      aria-label="SSH user"
+                      placeholder="optional"
+                      value={sshDraft.user || ""}
+                      onChange={(event) =>
+                        setSshDraft({
+                          ...sshDraft,
+                          user: event.target.value || undefined,
+                        })
+                      }
+                    />
+                  </label>
+                  <label>
+                    Port
+                    <input
+                      aria-label="SSH port"
+                      type="number"
+                      min={1}
+                      max={65535}
+                      value={sshDraft.port}
+                      onChange={(event) =>
+                        setSshDraft({
+                          ...sshDraft,
+                          port: Number(event.target.value),
+                        })
+                      }
+                    />
+                  </label>
+                </div>
+                <label>
+                  Identity file
+                  <input
+                    aria-label="SSH identity file"
+                    placeholder="Optional absolute local path"
+                    value={sshDraft.identityFile || ""}
+                    onChange={(event) =>
+                      setSshDraft({
+                        ...sshDraft,
+                        identityFile: event.target.value || undefined,
+                      })
+                    }
+                  />
+                </label>
+                <label>
+                  Connection timeout (seconds)
+                  <input
+                    aria-label="SSH connection timeout"
+                    type="number"
+                    min={5}
+                    max={120}
+                    value={sshDraft.connectTimeoutSeconds}
+                    onChange={(event) =>
+                      setSshDraft({
+                        ...sshDraft,
+                        connectTimeoutSeconds: Number(event.target.value),
+                      })
+                    }
+                  />
+                </label>
+                <button
+                  className="primary-action"
+                  disabled={busy}
+                  onClick={() => void saveSshProfile()}
+                >
+                  {sshDraft.id ? "Update SSH profile" : "Add SSH profile"}
+                </button>
+              </section>
+              <section
+                className="remote-profile-list"
+                aria-label="Saved SSH profiles"
+              >
+                {!remote.profiles.length && (
+                  <p className="setting-help">No SSH profiles saved yet.</p>
+                )}
+                {remote.profiles.map((profile) => (
+                  <article className="extension-card" key={profile.id}>
+                    <header>
+                      <strong>{profile.label}</strong>
+                      <span>
+                        {profile.user ? `${profile.user}@` : ""}
+                        {profile.host}:{profile.port}
+                      </span>
+                    </header>
+                    <p>
+                      {profile.identityFile
+                        ? "Explicit identity file · "
+                        : "OpenSSH config / agent · "}
+                      {profile.connectTimeoutSeconds}s timeout
+                    </p>
+                    <footer>
+                      <button
+                        disabled={busy}
+                        onClick={() => setSshDraft({ ...profile })}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        disabled={busy}
+                        onClick={() =>
+                          void remoteAction(() =>
+                            window.witch.remote.removeProfile(profile.id),
+                          )
+                        }
+                      >
+                        Remove
+                      </button>
+                    </footer>
+                  </article>
+                ))}
+              </section>
+            </>
+          )}
         </div>
         {error && (
           <div className="inline-error" role="alert">
@@ -290,19 +535,39 @@ export function SettingsDialog({
           </div>
         )}
         <footer>
-          <button
-            disabled={busy}
-            onClick={() => setDraft(structuredClone(DEFAULT_PREFERENCES))}
-          >
-            Reset draft to defaults
-          </button>
-          <button
-            className="primary-action"
-            disabled={busy}
-            onClick={() => void save()}
-          >
-            Save settings
-          </button>
+          {tab === "remote" ? (
+            <>
+              <button
+                disabled={busy}
+                onClick={() => setSshDraft({ ...EMPTY_SSH_PROFILE })}
+              >
+                New profile
+              </button>
+              <button
+                className="primary-action"
+                disabled={busy}
+                onClick={onClose}
+              >
+                Done
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                disabled={busy}
+                onClick={() => setDraft(structuredClone(DEFAULT_PREFERENCES))}
+              >
+                Reset draft to defaults
+              </button>
+              <button
+                className="primary-action"
+                disabled={busy}
+                onClick={() => void save()}
+              >
+                Save settings
+              </button>
+            </>
+          )}
         </footer>
       </section>
     </div>

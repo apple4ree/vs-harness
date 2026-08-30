@@ -467,6 +467,19 @@ body {
   font-size: 10px;
   font-weight: 500;
 }
+.terminal-header select {
+  min-width: 0;
+  max-width: 145px;
+  border: 1px solid #3f2c50;
+  border-radius: 4px;
+  padding: 3px 5px;
+  background: #160e20;
+  color: #bca6cf;
+  font-size: 9px;
+}
+.terminal-connection-picker {
+  width: 135px;
+}
 .terminal-header > button {
   border: 0;
   padding: 4px;

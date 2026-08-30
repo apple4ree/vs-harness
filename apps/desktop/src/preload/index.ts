@@ -5,6 +5,7 @@ import type { AgentRequest, AgentEvent } from "../shared/agent";
 import type { DebugState, DebugAction } from "../shared/execution";
 import type { Preferences, SettingsSnapshot } from "../shared/settings";
 import type { SessionUpdate } from "../shared/session";
+import type { RemoteProfileSnapshot, SshProfileDraft } from "../shared/remote";
 
 function subscribe<T>(channel: string, listener: (event: T) => void) {
   const wrapped = (_event: Electron.IpcRendererEvent, payload: T) =>
@@ -176,6 +177,16 @@ contextBridge.exposeInMainWorld("witch", {
     disconnect: () => ipcRenderer.invoke("cua:disconnect"),
     listWindows: () => ipcRenderer.invoke("cua:list-windows"),
   },
+  remote: {
+    list: () => ipcRenderer.invoke("remote:list"),
+    status: () => ipcRenderer.invoke("remote:status"),
+    saveProfile: (profile: SshProfileDraft) =>
+      ipcRenderer.invoke("remote:save-profile", profile),
+    removeProfile: (id: string) =>
+      ipcRenderer.invoke("remote:remove-profile", id),
+    onChanged: (listener: (snapshot: RemoteProfileSnapshot) => void) =>
+      subscribe("remote:changed", listener),
+  },
   terminal: {
     list: () => ipcRenderer.invoke("terminal:list"),
     attach: (id: string) => ipcRenderer.invoke("terminal:attach", id),
@@ -183,8 +194,12 @@ contextBridge.exposeInMainWorld("witch", {
       ipcRenderer.invoke("terminal:run-task", id, activeFile),
     onExit: (listener: (event: { id: string; exitCode: number }) => void) =>
       subscribe("terminal:exit", listener),
-    create: (options: { cwd?: string; cols?: number; rows?: number }) =>
-      ipcRenderer.invoke("terminal:create", options),
+    create: (options: {
+      cwd?: string;
+      cols?: number;
+      rows?: number;
+      remoteProfileId?: string;
+    }) => ipcRenderer.invoke("terminal:create", options),
     write: (id: string, data: string) =>
       ipcRenderer.invoke("terminal:write", id, data),
     resize: (id: string, cols: number, rows: number) =>

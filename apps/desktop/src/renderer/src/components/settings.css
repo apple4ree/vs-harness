@@ -111,6 +111,70 @@
 .extension-card footer {
   justify-content: flex-start;
 }
+.remote-status,
+.remote-profile-form {
+  border: 1px solid #4a335d;
+  border-radius: 8px;
+  background: #150d20;
+  padding: 12px;
+}
+.remote-status.ready {
+  border-color: #557d72;
+}
+.remote-status.unavailable {
+  border-color: #8a4f68;
+}
+.remote-status header,
+.remote-profile-form > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.remote-status header span {
+  color: #b99bd1;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.remote-status p,
+.remote-status small {
+  color: #a994b9;
+  font-size: 10px;
+  line-height: 1.5;
+  word-break: break-word;
+}
+.remote-profile-form {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.remote-profile-form label,
+.remote-profile-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: #cdb9dc;
+  font-size: 10px;
+}
+.remote-profile-form input {
+  width: 100% !important;
+  box-sizing: border-box;
+}
+.remote-profile-grid {
+  display: grid;
+  grid-template-columns: 1fr 120px;
+  gap: 10px;
+}
+.remote-profile-list {
+  margin-top: 12px;
+}
+.remote-profile-list .extension-card header span {
+  max-width: 55%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .command-palette {
   position: absolute;
   top: 12vh;

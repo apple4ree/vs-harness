@@ -742,6 +742,55 @@ test("Node debugger and project tasks are connected to the desktop UI", async ()
   expect(errors).toEqual([]);
 });
 
+test("SSH profiles are managed without credentials and appear in terminal connections", async () => {
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("button", { name: "remote", exact: true }).click();
+  await expect(page.locator(".remote-status")).toContainText("Ready");
+  await page.getByLabel("SSH profile label").fill("Research GPU");
+  await page.getByLabel("SSH host").fill("127.0.0.1");
+  await page.getByLabel("SSH user").fill("witch");
+  await page.getByLabel("SSH port").fill("1");
+  await page.getByLabel("SSH connection timeout").fill("5");
+  await page
+    .getByRole("button", { name: "Add SSH profile", exact: true })
+    .click();
+  await expect(page.getByLabel("Saved SSH profiles")).toContainText(
+    "witch@127.0.0.1:1",
+  );
+  await page.screenshot({ path: "test-results/witch-remote-profiles.png" });
+  const snapshot = await page.evaluate(() => window.witch.remote.list());
+  expect(snapshot.profiles).toHaveLength(1);
+  expect(snapshot.profiles[0]).toMatchObject({
+    label: "Research GPU",
+    host: "127.0.0.1",
+    user: "witch",
+    port: 1,
+  });
+  const stored = await fs.readFile(
+    path.join(profile, "remote", "ssh-profiles.json"),
+    "utf8",
+  );
+  expect(stored).not.toMatch(/password|passphrase|privateKey/);
+  await page.getByRole("button", { name: "Done", exact: true }).click();
+  await expect(
+    page.getByLabel("Terminal connection").locator("option"),
+  ).toHaveCount(2);
+  await expect(page.getByLabel("Terminal connection")).toContainText(
+    "SSH · Research GPU",
+  );
+  await page
+    .getByLabel("Terminal connection")
+    .selectOption({ label: "SSH · Research GPU" });
+  await page.getByRole("button", { name: "New terminal", exact: true }).click();
+  await expect(page.locator(".terminal-tab.selected")).toContainText(
+    "Research GPU",
+  );
+  await expect(page.locator(".terminal-tab.selected")).toContainText("exited", {
+    timeout: 15_000,
+  });
+  expect(errors).toEqual([]);
+});
+
 test("settings, remapped shortcuts, auto save and local snippet extensions work and persist", async () => {
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByLabel("Theme", { exact: true }).selectOption("twilight");
@@ -830,6 +879,10 @@ test("settings, remapped shortcuts, auto save and local snippet extensions work 
   await page.getByRole("button", { name: "extensions", exact: true }).click();
   await expect(page.locator(".extension-card")).toContainText(
     "witch.typescript-starters",
+  );
+  await page.getByRole("button", { name: "remote", exact: true }).click();
+  await expect(page.getByLabel("Saved SSH profiles")).toContainText(
+    "Research GPU",
   );
   await page
     .getByRole("button", { name: "Close settings", exact: true })
