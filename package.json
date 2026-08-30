@@ -36,6 +36,7 @@
     "lucide-react": "^1.35.0",
     "monaco-editor": "0.56.0",
     "node-pty": "^1.0.0",
+    "pyright": "1.1.413",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "typescript": "5.9.3",
@@ -75,6 +76,7 @@
     "asarUnpack": [
       "**/*.node",
       "node_modules/node-pty/**/*",
+      "node_modules/pyright/**/*",
       "node_modules/typescript/**/*",
       "node_modules/typescript-language-server/**/*"
     ],

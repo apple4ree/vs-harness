@@ -18,7 +18,7 @@ declare global {
     source?: string;
     code?: string | number;
   };
-  type LspStatus = { installed: boolean; connected: boolean; message: string };
+  type LspStatus = import("../../shared/language").LanguageStatus;
   type LspLocation = { path: string; start: LspPosition; end: LspPosition };
   type LspCompletion = import("../../shared/language").Completion;
   type GraphNode = import("../../shared/architecture").ArchitectureNode;
@@ -230,6 +230,10 @@ declare global {
           position: LspPosition,
           root?: string,
         ): Promise<LspLocation[]>;
+        symbols(
+          path: string,
+          root?: string,
+        ): Promise<import("../../shared/language").DocumentSymbol[]>;
         rename(
           path: string,
           position: LspPosition,
@@ -247,6 +251,7 @@ declare global {
         onStatus(listener: (status: LspStatus) => void): () => void;
         onDiagnostics(
           listener: (event: {
+            language?: import("../../shared/language").LanguageProviderId;
             path: string;
             diagnostics: LspDiagnostic[];
           }) => void,

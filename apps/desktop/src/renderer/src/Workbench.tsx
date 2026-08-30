@@ -34,6 +34,7 @@ import {
 import type { ComponentContext } from "../../shared/architecture";
 import type {
   CodeAction,
+  DocumentSymbol,
   Position,
   Range,
   RefactorPreview,
@@ -45,6 +46,10 @@ import "./astral-theme.css";
 
 function errorText(reason: unknown) {
   return reason instanceof Error ? reason.message : String(reason);
+}
+
+function isLanguageFile(file: string) {
+  return /\.(?:[cm]?[jt]sx?|pyi?|rs)$/i.test(file);
 }
 
 export function Workbench() {
@@ -156,6 +161,7 @@ export function Workbench() {
   });
   const [breakpoints, setBreakpoints] = useState<Breakpoint[]>([]);
   const [lsp, setLsp] = useState<LspStatus | null>(null);
+  const [outline, setOutline] = useState<DocumentSymbol[]>([]);
   const [diagnostics, setDiagnostics] = useState<
     Record<string, LspDiagnostic[]>
   >({});
@@ -654,7 +660,7 @@ export function Workbench() {
     const languageRoot = rootRef.current;
     const timer = setTimeout(() => {
       for (const tab of tabs)
-        if (/\.[cm]?[jt]sx?$/i.test(tab.path))
+        if (isLanguageFile(tab.path))
           void window.witch.lsp
             .change(tab.path, tab.content, languageRoot)
             .catch((reason) =>
@@ -663,6 +669,37 @@ export function Workbench() {
     }, 300);
     return () => clearTimeout(timer);
   }, [tabs]);
+  useEffect(() => {
+    const tab = activeTab;
+    const root = rootRef.current;
+    if (!tab || !isLanguageFile(tab.path)) {
+      setOutline([]);
+      return;
+    }
+    let disposed = false;
+    const timer = setTimeout(() => {
+      void window.witch.lsp
+        .symbols(tab.path, root)
+        .then((symbols) => {
+          const current = tabsRef.current.find(
+            (candidate) => candidate.path === tab.path,
+          );
+          if (
+            !disposed &&
+            root === rootRef.current &&
+            current?.content === tab.content
+          )
+            setOutline(symbols);
+        })
+        .catch(() => {
+          if (!disposed) setOutline([]);
+        });
+    }, 500);
+    return () => {
+      disposed = true;
+      clearTimeout(timer);
+    };
+  }, [activeTab?.path, activeTab?.content]);
   async function selectFile(path: string, line?: number) {
     const root = rootRef.current;
     if (root && sessionReady.current !== root) {
@@ -795,7 +832,7 @@ export function Workbench() {
   }
   async function syncDocuments(root = rootRef.current) {
     for (const tab of tabsRef.current)
-      if (/\.[cm]?[jt]sx?$/i.test(tab.path))
+      if (isLanguageFile(tab.path))
         await window.witch.lsp.change(tab.path, tab.content, root);
   }
   async function findLocations(
@@ -1220,21 +1257,26 @@ export function Workbench() {
               Save all<small>{preferences.keybindings.saveAll}</small>
             </button>
           </section>
-          <DebugPanel
-            root={workspace?.root}
-            activeFile={selectedFile}
-            state={debugState}
-            onNavigate={(path, line) => void selectFile(path, line)}
-            onConfigure={() => void configureExecution("launch")}
-            onError={setStatus}
-          />
           <section>
             <h2>Language intelligence</h2>
-            <p className="rail-note">
-              {lsp?.connected
-                ? "● TypeScript / JavaScript connected"
-                : "TypeScript / JavaScript starts when a source file opens"}
-            </p>
+            <div className="language-provider-list">
+              {(lsp?.providers || []).map((provider) => (
+                <p
+                  className={`language-provider ${provider.connected ? "connected" : provider.installed ? "ready" : "missing"}`}
+                  key={provider.id}
+                  title={provider.message}
+                >
+                  <span>
+                    {provider.connected ? "●" : provider.installed ? "○" : "×"}
+                  </span>
+                  {provider.label}
+                  {!provider.installed && " — not installed"}
+                </p>
+              ))}
+              {!lsp?.providers?.length && (
+                <p className="rail-note">Language services start on demand.</p>
+              )}
+            </div>
             <details className="problems-list">
               <summary>{problems.length} diagnostics</summary>
               {problems.map((problem, index) => (
@@ -1252,7 +1294,39 @@ export function Workbench() {
                 </button>
               ))}
             </details>
+            <details className="problems-list outline-list" open>
+              <summary>
+                {outline.length} symbols
+                {selectedFile ? ` · ${selectedFile.split("/").at(-1)}` : ""}
+              </summary>
+              {outline.map((symbol, index) => (
+                <button
+                  key={`${symbol.path}:${symbol.selectionRange.start.line}:${index}`}
+                  style={{ paddingLeft: 10 + symbol.depth * 12 }}
+                  title={symbol.detail || symbol.name}
+                  onClick={() =>
+                    void selectFile(
+                      symbol.path,
+                      symbol.selectionRange.start.line + 1,
+                    )
+                  }
+                >
+                  <strong>
+                    <span aria-hidden="true">◇</span> {symbol.name}
+                  </strong>
+                  {symbol.detail && <span>{symbol.detail}</span>}
+                </button>
+              ))}
+            </details>
           </section>
+          <DebugPanel
+            root={workspace?.root}
+            activeFile={selectedFile}
+            state={debugState}
+            onNavigate={(path, line) => void selectFile(path, line)}
+            onConfigure={() => void configureExecution("launch")}
+            onError={setStatus}
+          />
           <section>
             <h2>Recent projects</h2>
             {recentProjects.slice(0, 5).map((project) => (

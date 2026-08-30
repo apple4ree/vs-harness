@@ -141,6 +141,8 @@ contextBridge.exposeInMainWorld("witch", {
       ipcRenderer.invoke("lsp:definition", path, position, root),
     references: (path: string, position: LspPosition, root?: string) =>
       ipcRenderer.invoke("lsp:references", path, position, root),
+    symbols: (path: string, root?: string) =>
+      ipcRenderer.invoke("lsp:symbols", path, root),
     rename: (
       path: string,
       position: LspPosition,
@@ -153,11 +155,19 @@ contextBridge.exposeInMainWorld("witch", {
     onStatus: (listener: (status: LspStatus) => void) =>
       subscribe("lsp:status", listener),
     onDiagnostics: (
-      listener: (event: { path: string; diagnostics: LspDiagnostic[] }) => void,
+      listener: (event: {
+        language?: import("../shared/language").LanguageProviderId;
+        path: string;
+        diagnostics: LspDiagnostic[];
+      }) => void,
     ) => {
       const wrapped = (
         _event: Electron.IpcRendererEvent,
-        payload: { path: string; diagnostics: LspDiagnostic[] },
+        payload: {
+          language?: import("../shared/language").LanguageProviderId;
+          path: string;
+          diagnostics: LspDiagnostic[];
+        },
       ) => listener(payload);
       ipcRenderer.on("lsp:diagnostics", wrapped);
       return () => ipcRenderer.removeListener("lsp:diagnostics", wrapped);

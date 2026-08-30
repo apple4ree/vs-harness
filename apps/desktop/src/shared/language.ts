@@ -8,12 +8,30 @@ export type Diagnostic = {
   source?: string;
   code?: string | number;
 };
-export type LanguageStatus = {
+export type LanguageProviderId = "typescript" | "python" | "rust";
+export type LanguageProviderStatus = {
+  id: LanguageProviderId;
+  label: string;
   installed: boolean;
   connected: boolean;
   message: string;
 };
+export type LanguageStatus = {
+  installed: boolean;
+  connected: boolean;
+  message: string;
+  providers?: LanguageProviderStatus[];
+};
 export type SourceLocation = { path: string; start: Position; end: Position };
+export type DocumentSymbol = {
+  name: string;
+  detail?: string;
+  kind?: number;
+  path: string;
+  range: Range;
+  selectionRange: Range;
+  depth: number;
+};
 export type HoverInfo = { contents: string[]; range?: Range };
 export type SignatureInfo = {
   label: string;

@@ -41,6 +41,7 @@ This is an early desktop preview, not feature parity with VS Code.
 - Encrypted provider-key updates are serialized and atomically replaced after fsync. Malformed/oversized existing stores are preserved, not silently emptied. Key removal leaves no old-key backup file; this does not claim secure erasure of filesystem history.
 - Witch file/folder move and trash operations update saved breakpoint paths. A running debugger must be stopped first. A breakpoint-metadata failure is reported separately from an already completed filesystem operation.
 - Remote Workspace stage A stores validated SSH host profiles outside the repository and launches the trusted system OpenSSH executable through a real PTY with an argv array. Passwords, passphrases and private-key bytes are never accepted or persisted; malformed profile storage is preserved and fails closed. This stage does not present remote paths as local files.
+- Workspace Intelligence routes TypeScript/JavaScript, Python and Rust documents through isolated LSP clients. Pyright is bundled; rust-analyzer is an optional trusted system tool. Diagnostics, navigation, document Outline and review-only refactors share one provider-tagged contract. Arbitrary commands, Rust build scripts and proc macros remain disabled.
 
 ## References
 
@@ -54,22 +55,22 @@ The following repositories informed the separation of concerns; Witch does not e
 
 ## Important implementation limits
 
-| Area         | Implemented                                                                                                      | Not claimed                                                                                  |
-| ------------ | ---------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| AI           | Local signed-in Codex, read-only questions and isolated edits, streaming, stop, history, selected apply          | Claude/direct API inference, arbitrary MCP tools, autonomous computer control                |
-| Isolation    | Workspace copy, scoped write policy, immutable baseline, review and recovery copies                              | VM/container isolation, read denial across the OS, Git worktree management                   |
-| Languages    | Real TS/JS IDE language service plus Python/Rust/TS static semantic extraction and evidence-backed Meaning graph | Python/Rust LSP IDE features, resolved cross-language calls, full framework/runtime adapters |
-| Debug        | Node JavaScript launch, breakpoints, step, stack and local variables                                             | Source maps, attach, arbitrary DAP adapters                                                  |
-| Extensions   | Validated local JSON snippets, install/enable/disable/remove                                                     | VSIX or executable extension host                                                            |
-| Files        | Atomic replacement, conflict checks, watcher updates, trash deletion                                             | Full filesystem transaction isolation against concurrent external programs                   |
-| Remote       | System OpenSSH discovery, saved host profiles, confirmed multi-tab interactive SSH terminals                     | Remote file workspace, remote LSP/tasks/debug/analyzer/Agent service                         |
-| Distribution | Windows x64 and macOS universal build definitions, packaged-resource checks and E2E gates                        | Apple signing/notarization or a macOS runtime test performed on this Windows host            |
+| Area         | Implemented                                                                                                 | Not claimed                                                                                |
+| ------------ | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| AI           | Local signed-in Codex, read-only questions and isolated edits, streaming, stop, history, selected apply     | Claude/direct API inference, arbitrary MCP tools, autonomous computer control              |
+| Isolation    | Workspace copy, scoped write policy, immutable baseline, review and recovery copies                         | VM/container isolation, read denial across the OS, Git worktree management                 |
+| Languages    | Real TS/JS and Python/Pyright IDE services, optional rust-analyzer, plus Python/Rust/TS semantic extraction | Python/Rust debugger/test adapters, resolved cross-language calls, full framework adapters |
+| Debug        | Node JavaScript launch, breakpoints, step, stack and local variables                                        | Source maps, attach, arbitrary DAP adapters                                                |
+| Extensions   | Validated local JSON snippets, install/enable/disable/remove                                                | VSIX or executable extension host                                                          |
+| Files        | Atomic replacement, conflict checks, watcher updates, trash deletion                                        | Full filesystem transaction isolation against concurrent external programs                 |
+| Remote       | System OpenSSH discovery, saved host profiles, confirmed multi-tab interactive SSH terminals                | Remote file workspace, remote LSP/tasks/debug/analyzer/Agent service                       |
+| Distribution | Windows x64 and macOS universal build definitions, packaged-resource checks and E2E gates                   | Apple signing/notarization or a macOS runtime test performed on this Windows host          |
 
 ## Regression checks
 
-`npm test` covers source and semantic IR canonicalization, fail-closed evidence validation, Python/Rust/TS extraction, provisional workflow/component meaning, Authored conflict questions, stable semantic revisions, deterministic route/reach traversal, exact snapshot deltas, portable script-safe exports, source evidence and aliases, path traversal/junction refusal, ignored files, UTF-8 and BOM handling, concurrent saves, immutable review baselines, selective apply and conflict rejection, RPC framing, real TypeScript language-server operations, the real Node debugger, settings and extension validation. Remote tests cover option injection, secret-field refusal, fixed SSH executable discovery, argv construction, atomic profile persistence and corrupt-store preservation.
+`npm test` covers source and semantic IR canonicalization, fail-closed evidence validation, Python/Rust/TS extraction, provisional workflow/component meaning, Authored conflict questions, stable semantic revisions, deterministic route/reach traversal, exact snapshot deltas, portable script-safe exports, source evidence and aliases, path traversal/junction refusal, ignored files, UTF-8 and BOM handling, concurrent saves, immutable review baselines, selective apply and conflict rejection, RPC framing, real TypeScript and Python/Pyright language-server operations, safe rust-analyzer discovery and command blocking, the real Node debugger, settings and extension validation. Remote tests cover option injection, secret-field refusal, fixed SSH executable discovery, argv construction, atomic profile persistence and corrupt-store preservation.
 
-`npm run test:e2e` launches Electron using disposable project/profile folders. Native dialogs are overridden only inside the test harness. The application/preload/services are real. Scenarios cover validated graph route/reach tracing, Before/Delta/After comparison, HTML/JSON export, graph-to-chat drag, file CRUD/save/watch conflicts, multi-file rename review, local and loopback-failure SSH terminals, Node debugging, task execution, settings, shortcut remapping, auto save, snippet insertion and restart persistence.
+`npm run test:e2e` launches Electron using disposable project/profile folders. Native dialogs are overridden only inside the test harness. The application/preload/services are real. Scenarios cover validated graph route/reach tracing, Before/Delta/After comparison, HTML/JSON export, graph-to-chat drag, file CRUD/save/watch conflicts, multi-file rename review, real Pyright diagnostics/navigation/Outline, local and loopback-failure SSH terminals, Node debugging, task execution, settings, shortcut remapping, auto save, snippet insertion and restart persistence.
 
 The chat E2E fixture replaces only the external Codex protocol process. It tests an actual mouse drag into chat, UI submission, isolation, canceled native approval, selected diff application, graph revision updates, read-only mode, interruption, explicit review archiving and retained history. This is distinct from the live-provider smoke test below.
 
@@ -91,7 +92,7 @@ An opt-in Codex smoke script uses a synthetic repository and a real signed-in CL
 - node-pty prebuilds and spawn helpers are unpacked from ASAR. macOS universal merging retains architecture-specific terminal prebuilds; runtime selects the matching architecture.
 - macOS preview packaging explicitly requests local ad-hoc signing (`identity: "-"`) and disables automatic notarization. This avoids silently skipping the signing step when no Developer ID exists; it is not an Apple-trusted distribution signature. Runtime verification still requires macOS.
 - The package verifier reads Mach-O headers to require both CPUs in a macOS universal executable and the correct CPU in each terminal prebuild/helper. The installed native Mac binaries and synthetic universal-header cases are checked on Windows; this is not a macOS execution test. Header definitions follow [LLVM MachO.h](https://github.com/llvm/llvm-project/blob/main/llvm/include/llvm/BinaryFormat/MachO.h).
-- TypeScript and typescript-language-server runtime files are unpacked so the bundled Node runtime can execute them in packaged apps.
+- TypeScript, typescript-language-server and Pyright runtime files are unpacked so the bundled Node runtime can execute them in packaged apps.
 
 ## Data locations
 

@@ -88,6 +88,7 @@ async function main() {
       `Missing bundled ${worker} worker`,
     );
   for (const required of [
+    "node_modules/pyright/langserver.index.js",
     "node_modules/typescript/lib/tsserver.js",
     "node_modules/typescript-language-server/lib/cli.mjs",
   ]) {

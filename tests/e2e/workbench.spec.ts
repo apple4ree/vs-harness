@@ -517,6 +517,61 @@ test("language server diagnostics, rename review and multiple terminal sessions 
   expect(errors).toEqual([]);
 });
 
+test("Pyright powers Python diagnostics, navigation and the visible outline", async () => {
+  const model =
+    'def forecast(symbol: str) -> str:\n    """Build a bounded market forecast."""\n    return symbol.upper()\n';
+  const consumer =
+    'from model import forecast\nposition: int = "invalid"\nprint(forecast("witch"))\n';
+  await fs.writeFile(path.join(fixture, "model.py"), model);
+  await fs.writeFile(path.join(fixture, "use_model.py"), consumer);
+  const files = page.locator(".file-list");
+  const consumerButton = files.getByRole("button", {
+    name: "use_model.py",
+    exact: true,
+  });
+  await expect(consumerButton).toBeVisible();
+  await consumerButton.click();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        async () =>
+          (await window.witch.lsp.status()).providers?.find(
+            (provider) => provider.id === "python",
+          )?.connected,
+      ),
+    )
+    .toBe(true);
+  await expect(
+    page.locator(".language-provider.connected", {
+      hasText: "Python · Pyright",
+    }),
+  ).toContainText("Python · Pyright");
+  await expect(page.locator(".problems-list").first()).toContainText(
+    "use_model.py",
+    { timeout: 15_000 },
+  );
+  await expect(page.locator(".problems-list").first()).toContainText(
+    "not assignable",
+  );
+  const definition = await page.evaluate(() =>
+    window.witch.lsp.definition(
+      "use_model.py",
+      { line: 2, character: 8 },
+      undefined,
+    ),
+  );
+  expect(definition[0]).toMatchObject({
+    path: "model.py",
+    start: { line: 0 },
+  });
+  await files.getByRole("button", { name: "model.py", exact: true }).click();
+  await expect(page.locator(".outline-list")).toContainText("forecast", {
+    timeout: 15_000,
+  });
+  await page.screenshot({ path: "test-results/witch-python-outline.png" });
+  expect(errors).toEqual([]);
+});
+
 test("canceling app quit leaves terminal processes and the language server running", async () => {
   const terminals = await page.evaluate(() => window.witch.terminal.list());
   expect(terminals).toHaveLength(2);

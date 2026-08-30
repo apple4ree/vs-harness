@@ -20,6 +20,11 @@ import chokidar, { type FSWatcher } from "chokidar";
 import { searchRepository } from "./services/workspace-search";
 import { RepositoryAnalysisService } from "./services/repository-analysis";
 import { LanguageServer } from "./services/language-server";
+import {
+  findRustAnalyzerExecutable,
+  LanguageIntelligence,
+  rustAnalyzerCandidates,
+} from "./services/language-intelligence";
 import { AgentService } from "./services/agent-service";
 import { NodeDebugService } from "./services/node-debugger";
 import { SettingsService } from "./services/settings-service";
@@ -166,7 +171,7 @@ let quitRequested = false;
 let shutdownStarted = false;
 let shutdownComplete = false;
 const pendingDesktopCalls = new Set<Promise<unknown>>();
-let languageService: LanguageServer | null = null;
+let languageService: LanguageIntelligence | null = null;
 let workspaceWatcher: FSWatcher | null = null;
 let watcherTimer: NodeJS.Timeout | null = null;
 let latestGraph: ArchitectureGraph | null = null;
@@ -628,14 +633,71 @@ function getLanguageServer() {
   if (!languageService) {
     const unpacked = (file: string) =>
       file.replace(/app\.asar([\\/])/, "app.asar.unpacked$1");
-    languageService = new LanguageServer({
-      runtime: process.execPath,
-      entrypoint: unpacked(
-        require.resolve("typescript-language-server/lib/cli.mjs"),
-      ),
-      tsserver: unpacked(require.resolve("typescript/lib/tsserver.js")),
-      runAsNode: true,
-    });
+    let rustExecutable: string;
+    let rustUnavailableMessage: string | undefined;
+    try {
+      const installedRustAnalyzer = findRustAnalyzerExecutable();
+      rustExecutable = installedRustAnalyzer || rustAnalyzerCandidates()[0];
+      if (!installedRustAnalyzer)
+        rustUnavailableMessage =
+          "Install rust-analyzer with rustup component add rust-analyzer, or set WITCH_RUST_ANALYZER_PATH to an absolute executable path.";
+    } catch (error) {
+      rustExecutable = path.join(
+        app.getPath("userData"),
+        "tools",
+        "rust-analyzer-missing",
+      );
+      rustUnavailableMessage = `Rust language intelligence is unavailable. ${error}`;
+    }
+    const rustConfiguration = {
+      cargo: { buildScripts: { enable: false }, autoreload: false },
+      procMacro: { enable: false },
+      checkOnSave: false,
+    };
+    languageService = new LanguageIntelligence([
+      new LanguageServer({
+        runtime: process.execPath,
+        entrypoint: unpacked(
+          require.resolve("typescript-language-server/lib/cli.mjs"),
+        ),
+        tsserver: unpacked(require.resolve("typescript/lib/tsserver.js")),
+        runAsNode: true,
+        allowedCommands: ["_typescript.organizeImports"],
+      }),
+      new LanguageServer({
+        id: "python",
+        label: "Python · Pyright",
+        command: process.execPath,
+        args: [
+          unpacked(require.resolve("pyright/langserver.index.js")),
+          "--stdio",
+        ],
+        installedPath: unpacked(require.resolve("pyright/langserver.index.js")),
+        extensions: [".py", ".pyi"],
+        runAsNode: true,
+        configuration: {
+          python: {},
+          "python.analysis": {
+            autoSearchPaths: true,
+            diagnosticMode: "openFilesOnly",
+            typeCheckingMode: "basic",
+            useLibraryCodeForTypes: true,
+          },
+        },
+      }),
+      new LanguageServer({
+        id: "rust",
+        label: "Rust · rust-analyzer",
+        command: rustExecutable,
+        args: [],
+        extensions: [".rs"],
+        initializationOptions: rustConfiguration,
+        configuration: { "rust-analyzer": rustConfiguration },
+        ...(rustUnavailableMessage
+          ? { unavailableMessage: rustUnavailableMessage }
+          : {}),
+      }),
+    ]);
     languageService.on("diagnostics", (event) => {
       if (!applicationWindow?.isDestroyed())
         applicationWindow?.webContents.send("lsp:diagnostics", event);
@@ -1495,6 +1557,10 @@ app.whenReady().then(() => {
       return getLanguageServer().locations("references", relative, position);
     },
   );
+  handleDesktop("lsp:symbols", (_event, relative: string, root?: string) => {
+    assertWorkspaceRoot(root);
+    return getLanguageServer().documentSymbols(relative);
+  });
   handleDesktop(
     "lsp:rename",
     (
