@@ -168,6 +168,16 @@ export class LanguageServer extends EventEmitter {
   get providerId() {
     return this.id;
   }
+  updateConfiguration(section: string, value: unknown) {
+    this.options.configuration = {
+      ...(this.options.configuration || {}),
+      [section]: value,
+    };
+    if (this.rpc && this.connected)
+      this.rpc.notify("workspace/didChangeConfiguration", {
+        settings: this.options.configuration,
+      });
+  }
   setWorkspace(root: string | null) {
     let canonicalRoot = root;
     if (root) canonicalRoot = canonicalPath(root);

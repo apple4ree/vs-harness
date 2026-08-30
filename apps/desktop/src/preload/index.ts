@@ -6,6 +6,7 @@ import type { DebugState, DebugAction } from "../shared/execution";
 import type { Preferences, SettingsSnapshot } from "../shared/settings";
 import type { SessionUpdate } from "../shared/session";
 import type { RemoteProfileSnapshot, SshProfileDraft } from "../shared/remote";
+import type { WorkspaceToolingSnapshot } from "../shared/tooling";
 
 function subscribe<T>(channel: string, listener: (event: T) => void) {
   const wrapped = (_event: Electron.IpcRendererEvent, payload: T) =>
@@ -31,6 +32,13 @@ contextBridge.exposeInMainWorld("witch", {
     catalog: () => ipcRenderer.invoke("execution:catalog"),
     configure: (kind: "launch" | "tasks", activeFile?: string) =>
       ipcRenderer.invoke("execution:configure", kind, activeFile),
+  },
+  tooling: {
+    status: () => ipcRenderer.invoke("tooling:status"),
+    selectPython: (id: string | null, root?: string) =>
+      ipcRenderer.invoke("tooling:select-python", id, root),
+    onChanged: (listener: (snapshot: WorkspaceToolingSnapshot) => void) =>
+      subscribe("tooling:changed", listener),
   },
   debug: {
     status: () => ipcRenderer.invoke("debug:status"),

@@ -166,6 +166,16 @@ export class LanguageIntelligence extends EventEmitter {
     return this.serverFor(relative).documentSymbols(relative);
   }
 
+  setPythonEnvironment(executable?: string) {
+    const python = this.servers.find(
+      (server) => server.providerId === "python",
+    );
+    python?.updateConfiguration(
+      "python",
+      executable ? { pythonPath: executable } : {},
+    );
+  }
+
   rename(
     relative: string,
     position: Position,

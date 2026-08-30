@@ -86,6 +86,7 @@ function platformItem(value: any) {
 }
 export async function executionCatalog(
   root: string,
+  detectedTasks: ProjectTask[] = [],
 ): Promise<ExecutionCatalog> {
   const result: ExecutionCatalog = { tasks: [], launches: [], warnings: [] };
   for (const source of [".witch/tasks.json", ".vscode/tasks.json"]) {
@@ -135,6 +136,9 @@ export async function executionCatalog(
   } catch (error) {
     result.warnings.push(`package.json: ${String(error)}`);
   }
+  const configuredLabels = new Set(result.tasks.map((task) => task.label));
+  for (const task of detectedTasks)
+    if (!configuredLabels.has(task.label)) result.tasks.push(task);
   for (const source of [".witch/launch.json", ".vscode/launch.json"]) {
     try {
       const value = await config(root, source);
@@ -262,6 +266,16 @@ export async function resolveTask(
   task: ProjectTask,
   activeFile?: string,
 ) {
+  if (
+    task.requiresActiveFile === "python" &&
+    (!activeFile || !/\.pyi?$/i.test(activeFile))
+  )
+    throw new Error("This task requires an active Python file");
+  if (
+    task.requiresActiveFile === "javascript" &&
+    (!activeFile || !/\.[cm]?js$/i.test(activeFile))
+  )
+    throw new Error("This task requires an active JavaScript file");
   const command = substitute(task.command, root, activeFile);
   const args = task.args.map((arg) => substitute(arg, root, activeFile));
   const shellCommand =

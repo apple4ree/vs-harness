@@ -29,6 +29,10 @@ import { AgentService } from "./services/agent-service";
 import { NodeDebugService } from "./services/node-debugger";
 import { SettingsService } from "./services/settings-service";
 import {
+  detectedExecutionTasks,
+  WorkspaceToolingService,
+} from "./services/workspace-tooling";
+import {
   buildSshInvocation,
   findSshExecutable,
   RemoteProfileService,
@@ -182,6 +186,7 @@ let debugService: NodeDebugService | null = null;
 let executionBusy = false;
 let settingsService: SettingsService | null = null;
 let remoteProfileService: RemoteProfileService | null = null;
+let workspaceToolingService: WorkspaceToolingService | null = null;
 let providerKeyStore: ProviderKeyStore | null = null;
 let sessionStore: SessionStore | null = null;
 const repositoryAnalysis = new RepositoryAnalysisService();
@@ -756,6 +761,36 @@ function getRemoteProfiles() {
     path.join(app.getPath("userData"), "remote"),
   ));
 }
+function getWorkspaceTooling() {
+  return (workspaceToolingService ||= new WorkspaceToolingService(
+    path.join(app.getPath("userData"), "toolchains"),
+  ));
+}
+function publishWorkspaceTooling<T>(snapshot: T) {
+  if (!applicationWindow?.isDestroyed())
+    applicationWindow?.webContents.send("tooling:changed", snapshot);
+  return snapshot;
+}
+async function refreshWorkspaceTooling(root: string) {
+  const snapshot = await getWorkspaceTooling().get(root);
+  if (currentWorkspace?.root !== root)
+    throw new Error("Workspace changed while detecting toolchains");
+  const python = snapshot.python.candidates.find(
+    (item) => item.id === snapshot.python.activeId,
+  );
+  getLanguageServer().setPythonEnvironment(python?.path);
+  return publishWorkspaceTooling(snapshot);
+}
+async function projectExecutionCatalog(root: string) {
+  try {
+    const tooling = await getWorkspaceTooling().get(root);
+    return executionCatalog(root, detectedExecutionTasks(tooling));
+  } catch (error) {
+    const catalog = await executionCatalog(root);
+    catalog.warnings.unshift(`Workspace toolchains: ${error}`);
+    return catalog;
+  }
+}
 function publishSettings(snapshot: SettingsSnapshot) {
   if (!applicationWindow?.isDestroyed())
     applicationWindow?.webContents.send("settings:changed", snapshot);
@@ -897,6 +932,7 @@ async function activateWorkspace(root: string): Promise<Workspace> {
   currentWorkspace = workspaceFor(resolved);
   acceptingSessionUpdates = true;
   getLanguageServer().setWorkspace(resolved);
+  await refreshWorkspaceTooling(resolved);
   const changed = new Set<string>();
   workspaceWatcher = chokidar.watch(resolved, {
     ignoreInitial: true,
@@ -929,6 +965,21 @@ async function activateWorkspace(root: string): Promise<Workspace> {
             applicationWindow?.webContents.send(
               "analysis:error",
               String(error),
+            );
+        });
+      if (
+        currentWorkspace?.root === resolved &&
+        paths.some((file) =>
+          /(^|\/)(?:pyproject\.toml|uv\.lock|poetry\.lock|Cargo\.toml|pyvenv\.cfg|pytest\.ini|tox\.ini)$/i.test(
+            file,
+          ),
+        )
+      )
+        void refreshWorkspaceTooling(resolved).catch((error) => {
+          if (!applicationWindow?.isDestroyed())
+            applicationWindow?.webContents.send(
+              "workspace:warning",
+              `Toolchain refresh: ${error}`,
             );
         });
     }, 400);
@@ -1131,6 +1182,7 @@ const exclusiveWorkspaceOperations: Record<string, string> = {
   "terminal:create": "starting a terminal",
   "terminal:run-task": "starting a task",
   "debug:start": "starting the debugger",
+  "tooling:select-python": "selecting a Python environment",
 };
 const queuedWorkspaceOperations = new Set([
   "terminal:create",
@@ -1302,6 +1354,31 @@ app.whenReady().then(() => {
   );
   handleDesktop("remote:list", () => getRemoteProfiles().list());
   handleDesktop("remote:status", () => getRemoteProfiles().status());
+  handleDesktop("tooling:status", () =>
+    currentWorkspace
+      ? getWorkspaceTooling().get(currentWorkspace.root)
+      : null,
+  );
+  handleDesktop(
+    "tooling:select-python",
+    async (_event, id: string | null, root?: string) => {
+      assertWorkspaceRoot(root);
+      if (id !== null && typeof id !== "string")
+        throw new Error("Invalid Python environment selection");
+      const workspaceRoot = currentWorkspace!.root;
+      const snapshot = await getWorkspaceTooling().selectPython(
+        workspaceRoot,
+        id,
+      );
+      if (currentWorkspace?.root !== workspaceRoot)
+        throw new Error("Workspace changed while selecting a toolchain");
+      const python = snapshot.python.candidates.find(
+        (item) => item.id === snapshot.python.activeId,
+      );
+      getLanguageServer().setPythonEnvironment(python?.path);
+      return publishWorkspaceTooling(snapshot);
+    },
+  );
   handleDesktop("remote:save-profile", async (_event, value: unknown) =>
     publishRemoteProfiles(await getRemoteProfiles().save(value)),
   );
@@ -1790,7 +1867,7 @@ app.whenReady().then(() => {
   );
   handleDesktop("execution:catalog", () =>
     currentWorkspace
-      ? executionCatalog(currentWorkspace.root)
+      ? projectExecutionCatalog(currentWorkspace.root)
       : { tasks: [], launches: [], warnings: [] },
   );
   handleDesktop(
@@ -1858,7 +1935,7 @@ app.whenReady().then(() => {
       executionBusy = true;
       try {
         const root = currentWorkspace.root;
-        const task = (await executionCatalog(root)).tasks.find(
+        const task = (await projectExecutionCatalog(root)).tasks.find(
           (item) => item.id === id,
         );
         if (!task)
@@ -1908,7 +1985,7 @@ app.whenReady().then(() => {
       try {
         const root = currentWorkspace.root;
         const launch = id
-          ? (await executionCatalog(root)).launches.find(
+          ? (await projectExecutionCatalog(root)).launches.find(
               (item) => item.id === id,
             )
           : {
@@ -2031,6 +2108,7 @@ app.on("will-quit", (event) => {
         sessionStore?.flush(),
         settingsService?.flush(),
         remoteProfileService?.flush(),
+        workspaceToolingService?.flush(),
         providerKeyStore?.flush(),
         historyStore?.flush(),
         debugService?.flush(),

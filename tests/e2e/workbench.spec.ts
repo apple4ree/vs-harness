@@ -568,6 +568,18 @@ test("Pyright powers Python diagnostics, navigation and the visible outline", as
   await expect(page.locator(".outline-list")).toContainText("forecast", {
     timeout: 15_000,
   });
+  const tooling = await page.evaluate(() => window.witch.tooling.status());
+  expect(tooling?.root).toBe(fixture);
+  await expect(page.getByLabel("Python environment")).toBeVisible();
+  if (tooling?.python.candidates.length) {
+    const active = tooling.python.candidates.find(
+      (item) => item.id === tooling.python.activeId,
+    );
+    expect(active && path.isAbsolute(active.path)).toBe(true);
+    await expect(
+      page.getByLabel("Run project task").locator("option"),
+    ).toContainText(["Run task…", "Python: Run active file"]);
+  }
   await page.screenshot({ path: "test-results/witch-python-outline.png" });
   expect(errors).toEqual([]);
 });

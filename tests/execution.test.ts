@@ -74,6 +74,18 @@ test("VS Code style execution configs validate paths, variables and unsupported 
     /workspace/,
   );
   await assert.rejects(resolveTask(root, catalog.tasks[0]), /variable/);
+  await assert.rejects(
+    resolveTask(root, {
+      id: "python-active",
+      label: "Python active",
+      source: "test",
+      type: "process",
+      command: process.execPath,
+      args: ["${file}"],
+      requiresActiveFile: "python",
+    }, "app.cjs"),
+    /active Python file/,
+  );
 });
 test(
   "real Node debugger stops at a breakpoint, reads locals, steps, and exits",

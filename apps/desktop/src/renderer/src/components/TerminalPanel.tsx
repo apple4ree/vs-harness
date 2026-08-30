@@ -184,6 +184,13 @@ export function TerminalPanel({
   const [selected, setSelected] = useState(0);
   const [collapsed, setCollapsed] = useState(false);
   const [restoring, setRestoring] = useState(false);
+  const availableTasks = tasks.filter(
+    (task) =>
+      !task.requiresActiveFile ||
+      (task.requiresActiveFile === "python"
+        ? /\.pyi?$/i.test(activeFile || "")
+        : /\.[cm]?js$/i.test(activeFile || "")),
+  );
   const counter = useRef(0);
   function add(task?: ProjectTask, remoteProfile?: SshProfile) {
     const id = ++counter.current;
@@ -257,14 +264,23 @@ export function TerminalPanel({
       if (
         event.root === root &&
         event.paths.some(
-          (path) => path.endsWith("tasks.json") || path === "package.json",
+          (path) =>
+            path.endsWith("tasks.json") ||
+            path === "package.json" ||
+            /(^|\/)(?:pyproject\.toml|uv\.lock|poetry\.lock|Cargo\.toml|pyvenv\.cfg|pytest\.ini|tox\.ini)$/i.test(
+              path,
+            ),
         )
       )
         refresh();
     });
+    const offTooling = window.witch.tooling.onChanged((snapshot) => {
+      if (snapshot.root === root) refresh();
+    });
     return () => {
       disposed = true;
       off();
+      offTooling();
     };
   }, [root]);
   function close(id: number) {
@@ -321,7 +337,7 @@ export function TerminalPanel({
             }}
           >
             <option value="">Run task…</option>
-            {tasks.map((task) => (
+            {availableTasks.map((task) => (
               <option key={task.id} value={task.id}>
                 {task.label}
               </option>

@@ -7,6 +7,7 @@ export type ProjectTask = {
   args: string[];
   cwd?: string;
   env?: Record<string, string>;
+  requiresActiveFile?: "python" | "javascript";
 };
 export type LaunchConfiguration = {
   id: string;

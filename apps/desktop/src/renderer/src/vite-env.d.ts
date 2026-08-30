@@ -98,6 +98,20 @@ declare global {
           activeFile?: string,
         ): Promise<string>;
       };
+      tooling: {
+        status(): Promise<
+          import("../../shared/tooling").WorkspaceToolingSnapshot | null
+        >;
+        selectPython(
+          id: string | null,
+          root?: string,
+        ): Promise<import("../../shared/tooling").WorkspaceToolingSnapshot>;
+        onChanged(
+          listener: (
+            snapshot: import("../../shared/tooling").WorkspaceToolingSnapshot,
+          ) => void,
+        ): () => void;
+      };
       debug: {
         status(): Promise<import("../../shared/execution").DebugState>;
         breakpoints(): Promise<import("../../shared/execution").Breakpoint[]>;

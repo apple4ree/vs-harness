@@ -22,6 +22,7 @@ import {
 } from "../../shared/settings";
 import { monaco } from "./components/editor-runtime";
 import type { DebugState, Breakpoint } from "../../shared/execution";
+import type { WorkspaceToolingSnapshot } from "../../shared/tooling";
 import { ReviewDialog, type ReviewFile } from "./components/ReviewDialog";
 import {
   FileActionDialog,
@@ -161,6 +162,8 @@ export function Workbench() {
   });
   const [breakpoints, setBreakpoints] = useState<Breakpoint[]>([]);
   const [lsp, setLsp] = useState<LspStatus | null>(null);
+  const [tooling, setTooling] = useState<WorkspaceToolingSnapshot | null>(null);
+  const [toolingBusy, setToolingBusy] = useState(false);
   const [outline, setOutline] = useState<DocumentSymbol[]>([]);
   const [diagnostics, setDiagnostics] = useState<
     Record<string, LspDiagnostic[]>
@@ -642,12 +645,32 @@ export function Workbench() {
       }),
       window.witch.workspace.onWarning(setRecoveryWarning),
       window.witch.lsp.onStatus(setLsp),
+      window.witch.tooling.onChanged((snapshot) => {
+        if (snapshot.root === rootRef.current) setTooling(snapshot);
+      }),
       window.witch.lsp.onDiagnostics(({ path, diagnostics: items }) =>
         setDiagnostics((previous) => ({ ...previous, [path]: items })),
       ),
     ];
     return () => subscriptions.forEach((unsubscribe) => unsubscribe());
   }, []);
+  useEffect(() => {
+    let disposed = false;
+    setTooling(null);
+    if (workspace?.root)
+      void window.witch.tooling
+        .status()
+        .then((snapshot) => {
+          if (!disposed && snapshot?.root === rootRef.current)
+            setTooling(snapshot);
+        })
+        .catch((reason) => {
+          if (!disposed) setStatus(`Toolchains: ${errorText(reason)}`);
+        });
+    return () => {
+      disposed = true;
+    };
+  }, [workspace?.root]);
   useEffect(() => {
     void window.witch.workspace
       .dirty(
@@ -1277,6 +1300,64 @@ export function Workbench() {
                 <p className="rail-note">Language services start on demand.</p>
               )}
             </div>
+            <label className="python-environment-picker">
+              <span>Python environment</span>
+              <select
+                aria-label="Python environment"
+                value={tooling?.python.selectedId || ""}
+                disabled={
+                  !workspace ||
+                  toolingBusy ||
+                  !tooling?.python.candidates.length
+                }
+                title={tooling?.python.message}
+                onChange={(event) => {
+                  const id = event.target.value || null;
+                  const root = rootRef.current;
+                  if (!root) return;
+                  setToolingBusy(true);
+                  void window.witch.tooling
+                    .selectPython(id, root)
+                    .then((snapshot) => {
+                      if (snapshot.root === rootRef.current) {
+                        setTooling(snapshot);
+                        const active = snapshot.python.candidates.find(
+                          (item) => item.id === snapshot.python.activeId,
+                        );
+                        setStatus(
+                          active
+                            ? `Python environment: ${active.label}`
+                            : snapshot.python.message,
+                        );
+                      }
+                    })
+                    .catch((reason) =>
+                      setStatus(`Toolchains: ${errorText(reason)}`),
+                    )
+                    .finally(() => setToolingBusy(false));
+                }}
+              >
+                <option value="">
+                  Auto
+                  {tooling?.python.selection === "automatic"
+                    ? ` · ${tooling.python.candidates.find((item) => item.id === tooling.python.activeId)?.label || "detect"}`
+                    : ""}
+                </option>
+                {tooling?.python.candidates.map((environment) => (
+                  <option key={environment.id} value={environment.id}>
+                    {environment.label}
+                  </option>
+                ))}
+              </select>
+              <small>
+                {tooling?.python.candidates.find(
+                  (item) => item.id === tooling.python.activeId,
+                )?.source || "No interpreter detected"}
+              </small>
+            </label>
+            {!!tooling?.warnings.length && (
+              <p className="rail-note">{tooling.warnings.join(" ")}</p>
+            )}
             <details className="problems-list">
               <summary>{problems.length} diagnostics</summary>
               {problems.map((problem, index) => (

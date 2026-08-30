@@ -25,7 +25,7 @@ npm run dev
 | 편집기          | Monaco, 여러 파일 탭, 문법 강조, 저장·모두 저장, 파일 내 검색, 미저장 표시, UTF-8/BOM 보존                                                                                      |
 | 검색 / 언어     | 빠른 파일 열기, 프로젝트 검색, TS/JS와 Python 언어 서버, 선택적 rust-analyzer, 자동완성·툴팁·진단·정의·참조·Outline·검토형 리팩터링                                             |
 | 실행 / 디버그   | Node.js JavaScript 실행, 브레이크포인트·스텝·지역 변수·콜스택, 프로젝트 launch 구성                                                                                             |
-| 터미널 / 작업   | 최대 8개 실제 PTY 탭, 로컬 shell, tasks/npm scripts, 시스템 OpenSSH 프로필을 이용한 대화형 원격 터미널                                                                          |
+| 터미널 / 작업   | 최대 8개 실제 PTY 탭, 로컬 shell, tasks/npm scripts, 선택 Python 환경과 uv/Poetry/Ruff/Cargo 기반 탐지 Task, 시스템 OpenSSH 대화형 원격 터미널                               |
 | 설정 / 확장     | 설정 저장, 3개 Witch 테마, 사용자 단축키, 명령 팔레트, 선택적 자동 저장, 로컬 스니펫 확장                                                                                       |
 | 외부 파일 변경  | 자동 감시, 깨끗한 버퍼 새로고침, 미저장 충돌 보존, 디스크와 diff 검토                                                                                                           |
 | 구조 / AI       | 검증 가능한 source IR + 의미 IR, Python/Rust/TS 심볼, System·Component·Workflow Meaning 뷰, 근거·추론·Authored 충돌 질문, 시점 비교, 컴포넌트 드래그, Codex 격리 편집·diff 승인 |
@@ -79,7 +79,7 @@ AI에 요청하면 관련 소스가 해당 공급자에게 전달됩니다. 로�
 
 터미널의 **Edit tasks**, Run and debug의 구성 버튼에서 `.witch/tasks.json`, `.witch/launch.json`을 생성·편집합니다. 기존 `.vscode/tasks.json`과 `.vscode/launch.json`의 지원되는 항목도 읽습니다. 프로젝트 명령은 자동 실행하지 않으며 실제 명령·경로를 확인한 뒤 실행합니다.
 
-현재 디버거는 `.js/.cjs/.mjs` Node 프로그램의 launch 모드입니다. Python은 번들된 Pyright를 사용하며, Rust는 시스템 `rust-analyzer` 또는 절대 `WITCH_RUST_ANALYZER_PATH`가 있을 때 활성화됩니다. Rust build script와 proc macro는 프로젝트를 열었다는 이유만으로 실행하지 않습니다. TypeScript source map, attach, Python/Rust 디버거, VS Code 확장 호스트(VSIX), 임의의 language-server 설치, Git UI는 아직 지원하지 않습니다. 지원하지 않는 실행 구성은 경고합니다. 상세 계약은 [Workspace Intelligence v0](docs/workspace-intelligence-v0.md)을 참고하세요.
+현재 디버거는 `.js/.cjs/.mjs` Node 프로그램의 launch 모드입니다. Python은 번들된 Pyright를 사용하고 `.venv`, `venv`, `env`, Conda와 시스템 Python 후보 중 프로젝트별 환경을 선택할 수 있습니다. 탐지는 실행 없이 이뤄지며 선택은 저장소 밖 앱 데이터에 저장됩니다. Rust는 시스템 `rust-analyzer` 또는 절대 `WITCH_RUST_ANALYZER_PATH`가 있을 때 활성화됩니다. Rust build script와 proc macro는 프로젝트를 열었다는 이유만으로 실행하지 않습니다. 탐지된 Python/Rust Task 역시 사용자가 명령·경로를 확인하고 승인해야 시작됩니다. TypeScript source map, attach, Python/Rust 디버거, VS Code 확장 호스트(VSIX), 임의의 language-server 설치, Git UI는 아직 지원하지 않습니다. 상세 계약은 [Workspace Intelligence v0](docs/workspace-intelligence-v0.md)과 [Workspace Toolchains v0](docs/workspace-toolchains-v0.md)을 참고하세요.
 
 Witch에서 파일·폴더를 옮기면 저장된 브레이크포인트도 경로를 따라 이동하며, 삭제한 경로의 브레이크포인트는 제거합니다. 실행 중인 디버거가 있으면 먼저 중지해야 파일을 이동·삭제할 수 있습니다.
 
