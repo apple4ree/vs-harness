@@ -19,18 +19,18 @@ npm run dev
 
 ## 현재 기능
 
-| 영역            | 구현 범위                                                                                                                                                  |
-| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 프로젝트 / 파일 | 폴더 열기, 최근 프로젝트, 빈 폴더 탐색, 새 파일·폴더, 이름 변경·이동·휴지통 삭제                                                                           |
-| 편집기          | Monaco, 여러 파일 탭, 문법 강조, 저장·모두 저장, 파일 내 검색, 미저장 표시, UTF-8/BOM 보존                                                                 |
-| 검색 / 언어     | 빠른 파일 열기, 프로젝트 검색, TS/JS와 Python 언어 서버, 선택적 rust-analyzer, 자동완성·툴팁·진단·정의·참조·Outline·검토형 리팩터링                        |
-| 실행 / 디버그   | Node.js와 선택 Python 환경/debugpy launch, 브레이크포인트·스텝·지역 변수·콜스택, 프로젝트 launch 구성                                                      |
-| 터미널 / 작업   | 최대 8개 실제 PTY 탭, 로컬 shell, tasks/npm scripts, 선택 Python 환경과 uv/Poetry/Ruff/Cargo 기반 탐지 Task, 시스템 OpenSSH 대화형 원격 터미널             |
-| 설정 / 확장     | 설정 저장, 3개 Witch 테마, 사용자 단축키, 명령 팔레트, 선택적 자동 저장, 로컬 스니펫 확장                                                                  |
-| 외부 파일 변경  | 자동 감시, 깨끗한 버퍼 새로고침, 미저장 충돌 보존, 디스크와 diff 검토                                                                                      |
-| 구조 / AI       | 검증 가능한 source IR + 의미 IR, Python/Rust/TS 심볼, 5개 Meaning 렌즈, 근거·추론·Authored 충돌 질문, 검증된 의미 dossier를 쓰는 Codex 격리 편집·diff 승인 |
+| 영역            | 구현 범위                                                                                                                                             |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 프로젝트 / 파일 | 폴더 열기, 최근 프로젝트, 빈 폴더 탐색, 새 파일·폴더, 이름 변경·이동·휴지통 삭제                                                                      |
+| 편집기          | Monaco, 여러 파일 탭, 문법 강조, 저장·모두 저장, 파일 내 검색, 미저장 표시, UTF-8/BOM 보존                                                            |
+| 검색 / 언어     | 빠른 파일 열기, 프로젝트 검색, TS/JS와 Python 언어 서버, 선택적 rust-analyzer, 자동완성·툴팁·진단·정의·참조·Outline·검토형 리팩터링                   |
+| 실행 / 디버그   | Node.js와 선택 Python 환경/debugpy launch, 브레이크포인트·스텝·지역 변수·콜스택, 프로젝트 launch 구성                                                 |
+| 터미널 / 작업   | 최대 8개 실제 PTY 탭, 로컬 shell, tasks/npm scripts, 선택 Python 환경과 uv/Poetry/Ruff/Cargo 기반 탐지 Task, 시스템 OpenSSH 대화형 원격 터미널        |
+| 설정 / 확장     | 설정 저장, 3개 Witch 테마, 사용자 단축키, 명령 팔레트, 선택적 자동 저장, 로컬 스니펫 확장                                                             |
+| 외부 파일 변경  | 자동 감시, 깨끗한 버퍼 새로고침, 미저장 충돌 보존, 디스크와 diff 검토                                                                                 |
+| 구조 / AI       | 검증 가능한 source IR + 의미 IR, Python/Rust/TS 심볼, 6개 Meaning 렌즈, TS/JS direct-call graph, 검증된 의미 dossier를 쓰는 Codex 격리 편집·diff 승인 |
 
-TS/JS 관계는 TypeScript AST와 모듈 해석을 사용합니다. Python은 클래스·함수·메서드·async·decorator와 import 범위를, Rust는 `struct`·`enum`·`trait`·`impl`·함수/메서드·`mod/use` 범위를 정적으로 추출합니다. 확인된 결과는 `witch.architecture/v1`, 의미 계층은 별도로 검증되는 `witch.semantic/v1`에 저장됩니다. **Meaning**은 Overview, Components, Workflows, Questions, Verified/Authored 렌즈로 복잡도를 나누며 System, Component, Workflow, WorkflowStep, File, Symbol의 근거와 추론 관계를 탐색합니다. `Verified`, `Inferred`, `Authored`는 섞지 않고 표시합니다. 이름·annotation 기반 역할/워크플로 추론은 자동으로 `provisional` 계층에만 활성화되고, 소스 사실을 덮어쓰지 않습니다. `.witch/analysis.json`의 Authored claim과 충돌하면 추론을 임시 추천값으로 유지하면서 OpenQuestion과 양쪽 근거를 남깁니다. Meaning 카드를 Agent에 첨부하면 메인 프로세스가 현재 검증된 그래프에서 파일 범위·label·trust를 다시 계산하고, 선택 노드 주변 관계·claim·질문·evidence를 bounded dossier로 전달합니다. 이 자동 승인은 코드 변경·터미널 실행·Git 작업·금융 주문에는 적용되지 않습니다. 상세 계약은 [semantic analysis policy](docs/semantic-analysis-policy.md)를 참고하세요.
+TS/JS 관계는 TypeScript AST와 모듈 해석을 사용합니다. Python은 클래스·함수·메서드·async·decorator와 import 범위를, Rust는 `struct`·`enum`·`trait`·`impl`·함수/메서드·`mod/use` 범위를 정적으로 추출합니다. 확인된 결과는 `witch.architecture/v1`, 의미 계층은 별도로 검증되는 `witch.semantic/v1`에 저장됩니다. **Meaning**은 Overview, Components, Workflows, Calls, Questions, Verified/Authored 렌즈로 복잡도를 나누며 System, Component, Workflow, WorkflowStep, File, Symbol의 근거와 추론 관계를 탐색합니다. Calls는 TypeScript checker가 프로젝트 내부의 direct identifier를 실제 선언으로 해석한 경우만 `Verified`로 표시하며 property/dynamic dispatch는 제외합니다. `Verified`, `Inferred`, `Authored`는 섞지 않고 표시합니다. 이름·annotation 기반 역할/워크플로 추론은 자동으로 `provisional` 계층에만 활성화되고, 소스 사실을 덮어쓰지 않습니다. `.witch/analysis.json`의 Authored claim과 충돌하면 추론을 임시 추천값으로 유지하면서 OpenQuestion과 양쪽 근거를 남깁니다. Meaning 카드를 Agent에 첨부하면 메인 프로세스가 현재 검증된 그래프에서 파일 범위·label·trust를 다시 계산하고, 선택 노드 주변 관계·claim·질문·evidence를 bounded dossier로 전달합니다. 이 자동 승인은 코드 변경·터미널 실행·Git 작업·금융 주문에는 적용되지 않습니다. 상세 계약은 [semantic analysis policy](docs/semantic-analysis-policy.md)와 [Symbol call graph v0](docs/symbol-call-graph-v0.md)을 참고하세요.
 
 편집 중인 분석 대상 파일은 **Reveal in Constellation**으로 직접 찾아갈 수 있으며, Focus 뷰는 해당 파일의 정확한 1-hop import/imported-by와 evidence line만 표시합니다. 노드를 선택하면 확인된 관계만 따라 upstream/downstream reach를 확인하거나 두 노드 사이의 최단 방향 경로를 추적할 수 있습니다. 이전 reading과 현재 reading은 **Before · Delta · After**로 비교하며, 추가·변경·삭제된 노드와 관계만 정확히 표시하고 영향도를 추정하지 않습니다. 검증된 IR은 단일 오프라인 HTML 또는 JSON으로 원자적으로 저장할 수 있습니다. 큰 프로젝트는 20,000개 탐색 항목·64 MB 소스 읽기, 화면은 220개 노드·600개 연결로 제한됩니다. 검색과 모듈 상세 보기로 범위를 좁힐 수 있고, 연결을 선택하면 실제 import 위치와 코드 근거가 표시됩니다. 지원 관점과 정적 분석의 진실성 경계는 [architecture views](docs/architecture-views.md)에 정리했습니다.
 
@@ -45,7 +45,7 @@ Settings → Remote에서 SSH 호스트 프로필을 저장하고 터미널 상�
 1. 프로젝트를 열고 **Constellation**에서 **Read structure**를 누릅니다.
 2. 모듈을 더블클릭하면 파일로 들어갑니다. Source에서 **Reveal in Constellation**을 누르면 활성 파일의 직접 의존성만 집중해서 보고, evidence 줄이나 **Open source**로 다시 편집기에 돌아갈 수 있습니다.
 3. 과거 reading의 **Compare reading**을 누르면 현재 구조와의 정확한 차이를 보고, **Export architecture**에서 오프라인 HTML이나 검증된 IR JSON을 저장할 수 있습니다.
-4. **Meaning**에서 Overview, Components, Workflows, Questions, Verified/Authored 렌즈를 전환하며 임시 컴포넌트·워크플로와 claim/question 근거를 검토합니다.
+4. **Meaning**에서 Overview, Components, Workflows, Calls, Questions, Verified/Authored 렌즈를 전환하며 컴포넌트·direct call·임시 워크플로와 claim/question 근거를 검토합니다.
 5. 카드의 드래그 손잡이를 오른쪽 채팅에 놓거나 inspector의 **Add to Agent context**를 누릅니다. 의미 컨텍스트 chip은 kind와 trust를 함께 표시합니다.
 6. **Ask**는 질문, **Change · isolated copy**는 분리된 복사본에서 변경을 수행합니다.
 7. 변경 검토 화면에서 실제 파일 diff를 확인하고 적용할 파일만 선택합니다. 원본은 승인 후 바뀝니다.

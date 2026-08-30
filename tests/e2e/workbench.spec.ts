@@ -51,7 +51,7 @@ test.beforeAll(async () => {
   );
   await fs.writeFile(
     path.join(fixture, "src/ui/view.ts"),
-    'import { greet } from "../api/client"\nexport const greeting = greet("Witch")\n',
+    'import { greet } from "../api/client"\nexport function renderGreeting() { return greet("Witch") }\nexport const greeting = renderGreeting()\n',
   );
   await fs.writeFile(
     path.join(fixture, "tsconfig.json"),
@@ -293,6 +293,27 @@ test("architecture edges and drag-to-chat source context work in Electron", asyn
     "Semantic claims",
   );
   await expect(page.locator(".graph-metrics")).toContainText("verified");
+  await page.getByLabel("Meaning lens").selectOption("calls");
+  await expect(page.locator(".architecture-card")).toHaveCount(2);
+  await expect(page.locator(".architecture-card")).toContainText([
+    "greet",
+    "renderGreeting",
+  ]);
+  await expect(page.locator(".react-flow__edge-text")).toContainText("calls");
+  await page
+    .locator(".architecture-card")
+    .filter({ hasText: "renderGreeting" })
+    .click();
+  await expect(page.locator(".semantic-inspector")).toContainText(
+    "calls · greet",
+  );
+  await expect(
+    page
+      .locator(".semantic-reasoning button")
+      .filter({ hasText: "calls · greet" })
+      .locator("code"),
+  ).toContainText("src/ui/view.ts:2");
+  await page.screenshot({ path: "test-results/witch-symbol-calls.png" });
   await page.getByLabel("Meaning lens").selectOption("components");
   await expect(semanticComponent).toBeVisible();
   await semanticComponent.click();

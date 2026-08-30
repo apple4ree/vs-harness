@@ -23,8 +23,14 @@ import {
 } from "../../shared/semantic-ir";
 import { contentHash } from "./workspace-files";
 
-export const SEMANTIC_ANALYZER_VERSION = "semantic-static-v1";
+export const SEMANTIC_ANALYZER_VERSION = "semantic-static-v2";
 export const SEMANTIC_POLICY_VERSION = "agent-finance-v1";
+
+export type ResolvedSymbolCall = {
+  fromSourceSymbolId: string;
+  toSourceSymbolId: string;
+  evidence: SourceEvidence[];
+};
 
 const staticProvenance: SemanticProvenance = {
   source: "static-analysis",
@@ -258,6 +264,7 @@ export function buildSemanticGraph({
   edges: architectureEdges,
   previous,
   authoredContent,
+  symbolCalls = [],
 }: {
   workspaceRoot: string;
   sourceRevision: string;
@@ -266,6 +273,7 @@ export function buildSemanticGraph({
   edges: ArchitectureEdge[];
   previous?: SemanticGraph | null;
   authoredContent?: string | null;
+  symbolCalls?: ResolvedSymbolCall[];
 }): { graph: SemanticGraph; warnings: string[] } {
   const warnings: string[] = [];
   const nodes: SemanticNode[] = [];
@@ -428,6 +436,23 @@ export function buildSemanticGraph({
       });
     }
 
+  for (const call of symbolCalls) {
+    const from = semanticSymbols.get(call.fromSourceSymbolId);
+    const to = semanticSymbols.get(call.toSourceSymbolId);
+    if (!from || !to || !call.evidence.length) continue;
+    relations.push({
+      id: `semantic:calls:${from}:${to}`,
+      from,
+      to,
+      kind: "calls",
+      trust: "verified",
+      status: "accepted",
+      confidence: 1,
+      evidence: call.evidence,
+      provenance: staticProvenance,
+    });
+  }
+
   const externalNodes = new Set<string>();
   for (const edge of architectureEdges) {
     const from = semanticFiles.get(edge.from);
@@ -465,7 +490,19 @@ export function buildSemanticGraph({
     });
   }
 
+  const sourceSymbols = new Map(
+    sourceFiles.flatMap((source) =>
+      source.symbols.map((symbol) => [symbol.id, { source, symbol }] as const),
+    ),
+  );
+  const callsBySource = new Map<string, ResolvedSymbolCall[]>();
+  for (const call of symbolCalls) {
+    const existing = callsBySource.get(call.fromSourceSymbolId);
+    if (existing) existing.push(call);
+    else callsBySource.set(call.fromSourceSymbolId, [call]);
+  }
   let workflowCount = 0;
+  let workflowParticipantCount = 0;
   for (const source of sourceFiles) {
     for (const symbol of source.symbols) {
       if (workflowCount >= 100) break;
@@ -557,6 +594,59 @@ export function buildSemanticGraph({
         evidence,
         provenance: inferredProvenance,
       });
+      const participants = (callsBySource.get(symbol.id) || [])
+        .filter((call) => call.toSourceSymbolId !== symbol.id)
+        .sort((a, b) => a.toSourceSymbolId.localeCompare(b.toSourceSymbolId))
+        .slice(0, Math.max(0, Math.min(6, 400 - workflowParticipantCount)));
+      for (const call of participants) {
+        const target = sourceSymbols.get(call.toSourceSymbolId);
+        const targetId = semanticSymbols.get(call.toSourceSymbolId);
+        if (!target || !targetId) continue;
+        workflowParticipantCount++;
+        const participantId = `${workflowId}:participant:${contentHash(call.toSourceSymbolId).slice(0, 12)}`;
+        const participantKind = workflowStepFor(target.symbol) || "execute";
+        nodes.push({
+          id: participantId,
+          label: target.symbol.qualifiedName || target.symbol.name,
+          kind: "workflow-step",
+          stepKind: participantKind,
+          trust: "inferred",
+          status: "provisional",
+          confidence: 0.82,
+          language: languageFor(target.source.language)!,
+          path: target.source.path,
+          sourceNodeId: target.source.id,
+          sourceSymbolId: target.symbol.id,
+          description:
+            "Direct compiler-resolved call participant; branch and runtime order are not asserted.",
+          evidence: call.evidence,
+          provenance: inferredProvenance,
+        });
+        relations.push(
+          {
+            id: `semantic:contains:${workflowId}:${participantId}`,
+            from: workflowId,
+            to: participantId,
+            kind: "contains",
+            trust: "inferred",
+            status: "provisional",
+            confidence: 0.82,
+            evidence: call.evidence,
+            provenance: inferredProvenance,
+          },
+          {
+            id: `semantic:executes:${participantId}:${targetId}`,
+            from: participantId,
+            to: targetId,
+            kind: "executes",
+            trust: "inferred",
+            status: "provisional",
+            confidence: 0.82,
+            evidence: call.evidence,
+            provenance: inferredProvenance,
+          },
+        );
+      }
     }
   }
 
@@ -609,6 +699,8 @@ export function buildSemanticGraph({
   const claims = reconciled.claims;
   const questions = reconciled.questions;
   const core = {
+    analyzerVersion: SEMANTIC_ANALYZER_VERSION,
+    policyVersion: SEMANTIC_POLICY_VERSION,
     sourceRevision,
     nodes: [...nodes].sort((a, b) => a.id.localeCompare(b.id)),
     relations: [...relations].sort((a, b) => a.id.localeCompare(b.id)),
@@ -639,6 +731,7 @@ export function buildSemanticGraph({
             : {}),
           sourceRevision,
           createdAt: generatedAt,
+          analyzerVersion: SEMANTIC_ANALYZER_VERSION,
           policyVersion: SEMANTIC_POLICY_VERSION,
           approval: "provisional-inference" as const,
           changedIds: delta.changedIds,

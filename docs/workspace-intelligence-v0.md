@@ -53,5 +53,5 @@ If Rust tooling is absent, TypeScript and Python remain available and the UI rep
 
 - Python candidates from `.venv`, `venv`, `env`, active Conda and the system path are discovered without executing them. Witch stores an explicit per-project selection outside the repository and sends the active absolute interpreter path to Pyright.
 - Rust requires a separately installed `rust-analyzer` and has not been executed on this Windows development host because the tool is absent.
-- Python/Rust formatter, linter, test explorer and debugger adapters are not part of this slice.
-- The architecture analyzer does not yet consume LSP call hierarchy or type hierarchy. That is the bridge into Semantic Graph v2 after the local ADE language foundation is stable.
+- Python/Rust formatter and test commands are available as confirmed Tasks, and Python uses a bounded debugpy DAP adapter. A test explorer and Rust debugger adapter are not yet implemented.
+- The architecture analyzer now produces conservative TypeScript/JavaScript direct-call relations with an in-memory TypeChecker program. It does not yet consume Pyright/rust-analyzer call hierarchy or any provider's type hierarchy; those adapters are the next bridge into a deeper Semantic Graph.

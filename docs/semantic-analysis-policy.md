@@ -5,8 +5,8 @@
 - 결정일: 2026-08-30
 - 상태: v1 공통 IR·정적 추출·Meaning UI 구현, 심층 adapter는 진행 중
 - 범위: 구조 분석, Workflow, Inferred/Authored 대조, 자동 승인과 이력
-- 현재 구현: `witch.semantic/v1`, Python/Rust/TS 심볼, 확인된 containment/import/export, provisional Component/Workflow, Authored 충돌 질문, revision delta, Meaning 렌즈, 검증된 Agent dossier
-- 다음 범위: compiler/LSP call resolution, framework adapter, multi-step ordering, runtime trace, GUI question resolution
+- 현재 구현: `witch.semantic/v1`, Python/Rust/TS 심볼, 확인된 containment/import/export와 TS/JS direct call, provisional Component/Workflow participant, Authored 충돌 질문, revision delta, Meaning 렌즈, 검증된 Agent dossier
+- 다음 범위: Pyright/rust-analyzer call hierarchy, framework adapter, authored/observed ordering, runtime trace, GUI question resolution
 
 ## 1. 결정 요약
 
@@ -461,6 +461,7 @@ Before
 | Overview            | System, Component, Workflow, WorkflowStep의 고수준 지도 |
 | Components          | System→Component→File 경계와 소스 범위                  |
 | Workflows           | Workflow/Step과 직접 연결된 실행 주체·근거              |
+| Calls               | checker가 내부 선언으로 해석한 TS/JS direct call        |
 | Questions           | open question의 subject와 인접 근거                     |
 | Verified / Authored | inferred-only 항목을 제외한 확인·선언 계층              |
 
@@ -531,21 +532,22 @@ inference:
 - Python/Rust/TypeScript 최소 정적 fixture
 - Inferred/Authored 대조와 추천 우선 OpenQuestion
 - 동일 분석 중복을 만들지 않는 부모 revision/delta 기록
-- 5개 Meaning 렌즈와 claim/evidence/reasoning inspector
+- 6개 Meaning 렌즈와 claim/evidence/reasoning inspector
+- TypeChecker-resolved TS/JS direct call과 provisional Workflow participant
 - 검증된 Meaning 선택을 source 범위와 semantic dossier로 Agent에 전달
 
 다음 심층 단계에는 아래 항목이 필요하다.
 
-1. 공통 IR과 Python/Rust/TypeScript extension schema
-2. claim provenance와 AnalysisRevision schema
-3. Workflow/Step validator
-4. Inferred/Authored comparison algorithm
-5. OpenQuestion 상태 전이
-6. auto-approval과 rollback contract
-7. graph status별 시각·접근성 규칙
-8. 세 언어별 최소 fixture와 expected graph
-9. Agent/금융 reference workflow fixture
-10. false positive, dynamic dispatch, stale evidence 시험 기준
+1. Pyright와 rust-analyzer의 bounded call hierarchy adapter
+2. Agent/금융 framework registration adapter
+3. authored/observed Workflow 순서·branch·error contract
+4. OpenQuestion 답변과 상태 전이 UI
+5. semantic auto-approval rollback
+6. Artifact와 read/write/publish data-flow IR
+7. Agent/금융 reference workflow fixture
+8. false positive, dynamic dispatch, stale evidence 평가 corpus
+9. opt-in runtime trace와 static/observed 대조
+10. 대형 저장소용 persistent incremental symbol index
 
 ## 12. 승인된 방향과 남은 제품 질문
 

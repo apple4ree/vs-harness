@@ -12,6 +12,7 @@ Witch의 구조 탐색은 하나의 검증된 `witch.architecture/v1` IR을 여�
 | Upstream / downstream reach | 현재 화면에 존재하는 authored directed relation의 도달 가능성                               | 변경 영향이나 위험도                      |
 | Route                       | 현재 화면의 authored relation만 사용한 결정적 최단 경로                                     | 실제 실행 call sequence                   |
 | Before · Delta · After      | 두 검증된 reading 사이의 정확한 노드·관계 추가/변경/삭제                                    | 회귀 위험이나 의미 변화 추정              |
+| Meaning · Calls             | TypeScript checker가 내부 선언으로 해석한 direct identifier call과 call-site evidence       | property/dynamic dispatch, 실제 실행 횟수 |
 
 ## Source ↔ Constellation 왕복 탐색
 
@@ -27,6 +28,8 @@ Dependencies 옵션을 끄면 외부 package 노드와 그 관계만 투영에�
 - Sequence: 관측되거나 작성된 call/return과 participant
 - Data flow: source, transform, store, trust boundary
 - Lifecycle: state, event, retry, cancel transition
+
+TS/JS direct call은 `witch.semantic/v1`의 verified relation으로 저장되지만, Workflow participant 해석은 provisional Meaning 계층에 남습니다. direct call의 존재도 branch나 실제 실행 순서를 증명하지 않으므로 `precedes`를 자동 생성하지 않습니다.
 
 향후 각 입력은 별도의 typed IR과 validator를 가져야 합니다. AI는 근거 후보를 제안할 수 있지만, 검증되지 않은 제안을 canonical graph에 자동 합치지 않습니다.
 

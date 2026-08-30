@@ -141,6 +141,34 @@
   background:
     radial-gradient(circle at 50% 45%, #28183955, transparent 46%), #100b18;
 }
+.graph-lens-empty {
+  position: absolute;
+  z-index: 4;
+  left: 50%;
+  top: 50%;
+  width: min(360px, calc(100% - 72px));
+  transform: translate(-50%, -50%);
+  display: grid;
+  gap: 7px;
+  padding: 18px 20px;
+  border: 1px solid #5c3d78;
+  border-radius: 9px;
+  background: #160e21e8;
+  box-shadow: 0 18px 45px #05030899;
+  color: #d8c3ed;
+  text-align: center;
+  pointer-events: none;
+}
+.graph-lens-empty strong {
+  color: #f0d9ff;
+  font-family: Georgia, serif;
+  font-size: 16px;
+}
+.graph-lens-empty span {
+  color: #a98dbd;
+  font-size: 11px;
+  line-height: 1.5;
+}
 .graph-stage > .react-flow {
   position: relative;
   z-index: 2;

@@ -255,11 +255,14 @@ export class AgentService extends EventEmitter {
         confidence: node.confidence,
         ...(node.stepKind ? { stepKind: node.stepKind } : {}),
         ...(node.description ? { description: node.description } : {}),
+        provenance: node.provenance,
         evidence: node.evidence.slice(0, 4),
       }));
     const visible = new Set(nodes.map((node) => node.id));
     return {
       contract: semantic.contract,
+      analyzerVersion: semantic.analyzerVersion,
+      policyVersion: semantic.policyVersion,
       revision: semantic.revision,
       sourceRevision: semantic.sourceRevision,
       boundary:
@@ -278,6 +281,7 @@ export class AgentService extends EventEmitter {
           trust: relation.trust,
           status: relation.status,
           confidence: relation.confidence,
+          provenance: relation.provenance,
           evidence: relation.evidence.slice(0, 3),
         })),
       claims: semantic.claims
@@ -290,6 +294,7 @@ export class AgentService extends EventEmitter {
           trust: claim.trust,
           status: claim.status,
           reason: claim.reason,
+          provenance: claim.provenance,
           evidence: claim.evidence.slice(0, 3),
         })),
       openQuestions: semantic.questions

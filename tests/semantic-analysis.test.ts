@@ -68,7 +68,8 @@ async function fixture(t: TestContext) {
       "export class Planner {",
       "  async planTrade() { return true }",
       "}",
-      "export function bootstrapAgent() { return new Planner() }",
+      "export function submitOrder() { return true }",
+      "export function bootstrapAgent() { return submitOrder() }",
       "",
     ].join("\n"),
   );
@@ -139,6 +140,33 @@ test("Python, Rust, and TypeScript facts feed a validated semantic graph", async
         relation.kind === "imports" && relation.trust === "verified",
     ),
   );
+  const bootstrap = typescript.symbols.find(
+    (symbol) => symbol.name === "bootstrapAgent",
+  )!;
+  const submit = typescript.symbols.find(
+    (symbol) => symbol.name === "submitOrder",
+  )!;
+  assert(
+    semantic.relations.some(
+      (relation) =>
+        relation.kind === "calls" &&
+        relation.from === `semantic:symbol:${bootstrap.id}` &&
+        relation.to === `semantic:symbol:${submit.id}` &&
+        relation.trust === "verified",
+    ),
+  );
+  const bootstrapWorkflow = semantic.nodes.find(
+    (node) => node.kind === "workflow" && node.sourceSymbolId === bootstrap.id,
+  )!;
+  assert(
+    semantic.relations.some(
+      (relation) =>
+        relation.kind === "contains" &&
+        relation.from === bootstrapWorkflow.id &&
+        semantic.nodes.find((node) => node.id === relation.to)?.description ===
+          "Direct compiler-resolved call participant; branch and runtime order are not asserted.",
+    ),
+  );
 });
 
 test("authored conflicts remain provisional questions with recommendation first", async (t) => {
@@ -171,6 +199,10 @@ test("semantic revisions are stable for identical scans and record source change
   const second = await service.analyze(root);
   assert.equal(second.semantic?.revision, first.semantic?.revision);
   assert.equal(second.semantic?.revisions.length, 1);
+  assert.equal(
+    second.semantic?.revisions.at(-1)?.analyzerVersion,
+    second.semantic?.analyzerVersion,
+  );
 
   await fs.appendFile(
     path.join(root, "src", "risk.py"),
@@ -214,6 +246,9 @@ test("meaning view exposes trust, workflow hierarchy, and source context", async
   assert(workflows.nodes.some((node) => node.data.kind === "workflow-step"));
   assert(workflows.nodes.some((node) => node.data.kind === "symbol"));
   assert(workflows.edges.some((edge) => edge.label === "executes"));
+  const calls = buildSemanticView(graph, false, "", new Set(), "calls");
+  assert(calls.nodes.every((node) => node.data.kind === "symbol"));
+  assert(calls.edges.some((edge) => edge.label === "calls"));
   const questions = buildSemanticView(graph, false, "", new Set(), "questions");
   assert(questions.nodes.some((node) => node.data.questions));
 });

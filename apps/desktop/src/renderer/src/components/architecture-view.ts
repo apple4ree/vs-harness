@@ -12,7 +12,7 @@ import type { SemanticNode } from "../../../shared/semantic";
 
 export type ArchitectureScope = "modules" | "files" | "focus" | "semantics";
 export type SemanticLens =
-  "overview" | "components" | "workflows" | "questions" | "verified";
+  "overview" | "components" | "workflows" | "calls" | "questions" | "verified";
 export type CardKind =
   | "module"
   | "file"
@@ -238,6 +238,13 @@ export function buildSemanticView(
         allowed.add(relation.to);
       }
   }
+  if (lens === "calls")
+    semantic.relations
+      .filter((relation) => relation.kind === "calls")
+      .forEach((relation) => {
+        allowed.add(relation.from);
+        allowed.add(relation.to);
+      });
   if (lens === "questions") {
     semantic.questions
       .filter((question) => question.status === "open")

@@ -135,6 +135,7 @@ export type SemanticRevision = {
   parentRevision?: string;
   sourceRevision: string;
   createdAt: string;
+  analyzerVersion?: string;
   policyVersion: string;
   approval: "provisional-inference";
   changedIds: string[];

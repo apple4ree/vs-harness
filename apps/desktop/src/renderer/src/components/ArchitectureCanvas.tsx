@@ -419,6 +419,7 @@ export function ArchitectureCanvas({
             <option value="overview">Meaning · Overview</option>
             <option value="components">Components · Boundaries</option>
             <option value="workflows">Workflows · Execution</option>
+            <option value="calls">Calls · Symbols</option>
             <option value="questions">Questions · Conflicts</option>
             <option value="verified">Verified / Authored</option>
           </select>
@@ -466,7 +467,7 @@ export function ArchitectureCanvas({
             {routeStart
               ? `Route from ${routeStart.data.label} · choose a downstream destination`
               : traceNotice ||
-                `${trace?.mode} · ${trace?.nodeIds.length || 0} components · ${trace?.edgeIds.length || 0} authored relations`}
+                `${trace?.mode} · ${trace?.nodeIds.length || 0} components · ${trace?.edgeIds.length || 0} ${scope === "semantics" ? "visible meaning" : "authored"} relations`}
           </span>
           <button
             onClick={() => {
@@ -541,6 +542,24 @@ export function ArchitectureCanvas({
               </button>
             </div>
           )}
+          {view.nodes.length === 0 && (
+            <div className="graph-lens-empty" role="status">
+              <strong>
+                {semanticLens === "calls" && scope === "semantics"
+                  ? "No verified direct calls"
+                  : semanticLens === "questions" && scope === "semantics"
+                    ? "No open questions"
+                    : "No matching graph items"}
+              </strong>
+              <span>
+                {semanticLens === "calls" && scope === "semantics"
+                  ? "Property and dynamic dispatch stay excluded until stronger evidence is available."
+                  : query
+                    ? "Clear or change the graph search."
+                    : "This lens has no source-grounded items in the current reading."}
+              </span>
+            </div>
+          )}
           <ReactFlow
             nodes={displayedNodes}
             edges={displayedEdges}
@@ -566,7 +585,7 @@ export function ArchitectureCanvas({
                 setTraceNotice(
                   result
                     ? `route · ${routeStart.data.label} → ${node.data.label}`
-                    : `No authored downstream route from ${routeStart.data.label} to ${node.data.label}`,
+                    : `No ${scope === "semantics" ? "visible meaning" : "authored"} downstream route from ${routeStart.data.label} to ${node.data.label}`,
                 );
                 setRouteStart(null);
                 setSelection(node);
@@ -618,7 +637,8 @@ export function ArchitectureCanvas({
             <span className="live-dot" />
             {scope === "semantics" && graph.semantic ? (
               <>
-                {graph.semantic.nodes.length} semantic nodes ·{" "}
+                {view.total} {semanticLens} nodes · {view.totalEdges} lens
+                relations · {graph.semantic.nodes.length} total ·{" "}
                 {graph.semantic.validation.verifiedCount} verified ·{" "}
                 {graph.semantic.validation.provisionalCount} provisional ·{" "}
                 {
@@ -708,8 +728,11 @@ export function ArchitectureCanvas({
             </button>
           </div>
           <p>
-            {selection.data.paths.length} source files · {related.length} import
-            relations
+            {selection.data.paths.length} source file
+            {selection.data.paths.length === 1 ? "" : "s"} ·{" "}
+            {selectedSemanticNode
+              ? `${selectedSemanticRelations.length} semantic relations`
+              : `${related.length} source relations`}
           </p>
           {selectedSemanticNode && (
             <div className="semantic-inspector">

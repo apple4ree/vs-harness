@@ -17,11 +17,11 @@ test("AST graph resolves aliases, re-exports and JSX components with source evid
   );
   await fs.writeFile(
     path.join(root, "src", "model.ts"),
-    "export const answer = 42\n",
+    "export const answer = 42\nexport function calculate() { return answer }\nexport class Calculator { calculateMember() { return answer } }\n",
   );
   await fs.writeFile(
     path.join(root, "src", "View.tsx"),
-    '// import ghost from "./ghost"\nimport { answer } from "@/model"\nexport function View() { return <div>{answer}</div> }\n',
+    '// import ghost from "./ghost"\nimport { calculate, Calculator } from "@/model"\nexport function View() { const calculator = new Calculator(); return <div>{calculate()}{calculator.calculateMember()}</div> }\n',
   );
   await fs.writeFile(
     path.join(root, "src", "index.ts"),
@@ -44,11 +44,35 @@ test("AST graph resolves aliases, re-exports and JSX components with source evid
       (edge) => edge.kind === "exports" && edge.to === "src/View.tsx",
     ),
   );
+  const viewSymbol = graph.nodes
+    .find((node) => node.id === "src/View.tsx")!
+    .symbols.find((symbol) => symbol.name === "View")!;
+  const calculateSymbol = graph.nodes
+    .find((node) => node.id === "src/model.ts")!
+    .symbols.find((symbol) => symbol.name === "calculate")!;
+  const call = graph.semantic?.relations.find(
+    (relation) =>
+      relation.kind === "calls" &&
+      relation.from === `semantic:symbol:${viewSymbol.id}` &&
+      relation.to === `semantic:symbol:${calculateSymbol.id}`,
+  );
+  assert.equal(call?.trust, "verified");
+  assert.equal(call?.evidence[0].line, 3);
+  const member = graph.nodes
+    .find((node) => node.id === "src/model.ts")!
+    .symbols.find((symbol) => symbol.name === "calculateMember")!;
+  assert(
+    !graph.semantic?.relations.some(
+      (relation) =>
+        relation.kind === "calls" &&
+        relation.to === `semantic:symbol:${member.id}`,
+    ),
+  );
   assert(!graph.warnings.some((warning) => warning.includes("ghost")));
   const oldRevision = graph.revision;
   await fs.writeFile(
     path.join(root, "src", "model.ts"),
-    "export const answer = 43\n",
+    "export const answer = 43\nexport function calculate() { return answer }\nexport class Calculator { calculateMember() { return answer } }\n",
   );
   const updated = await analyzeRepository(root);
   assert.notEqual(updated.revision, oldRevision);

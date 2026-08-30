@@ -14,7 +14,10 @@ import {
   readWorkspaceText,
   TEXT_LIMIT,
 } from "./workspace-files";
-import { buildSemanticGraph } from "./semantic-analysis";
+import {
+  buildSemanticGraph,
+  type ResolvedSymbolCall,
+} from "./semantic-analysis";
 
 const SOURCE_EXTENSIONS = new Set([
   ".ts",
@@ -54,7 +57,12 @@ type ImportRecord = {
 };
 export type ArchitectureCache = Map<
   string,
-  { hash: string; symbols: CodeSymbol[]; imports: ImportRecord[] }
+  {
+    hash: string;
+    symbols: CodeSymbol[];
+    imports: ImportRecord[];
+    hasCallExpressions?: boolean;
+  }
 >;
 export type AnalysisOptions = {
   cache?: ArchitectureCache;
@@ -82,6 +90,7 @@ function tsSymbolsAndImports(file: string, content: string) {
   );
   const symbols: CodeSymbol[] = [];
   const imports: ImportRecord[] = [];
+  let hasCallExpressions = false;
   const lineAt = (node: ts.Node) =>
     source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1;
   const exported = (node: ts.Node) =>
@@ -143,6 +152,7 @@ function tsSymbolsAndImports(file: string, content: string) {
     return id;
   }
   function visit(node: ts.Node, containerId?: string) {
+    if (ts.isCallExpression(node)) hasCallExpressions = true;
     if (
       ts.isImportDeclaration(node) &&
       ts.isStringLiteral(node.moduleSpecifier)
@@ -249,7 +259,215 @@ function tsSymbolsAndImports(file: string, content: string) {
     ts.forEachChild(node, (child) => visit(child, childContainer));
   }
   visit(source);
-  return { symbols, imports };
+  return { symbols, imports, hasCallExpressions };
+}
+
+const typeScriptExtension = (file: string): ts.Extension => {
+  const normalized = file.toLowerCase();
+  if (normalized.endsWith(".d.ts")) return ts.Extension.Dts;
+  if (normalized.endsWith(".tsx")) return ts.Extension.Tsx;
+  if (normalized.endsWith(".mts")) return ts.Extension.Mts;
+  if (normalized.endsWith(".cts")) return ts.Extension.Cts;
+  if (normalized.endsWith(".jsx")) return ts.Extension.Jsx;
+  if (normalized.endsWith(".mjs")) return ts.Extension.Mjs;
+  if (normalized.endsWith(".cjs")) return ts.Extension.Cjs;
+  if (normalized.endsWith(".js")) return ts.Extension.Js;
+  return ts.Extension.Ts;
+};
+
+async function typeScriptResolvedCalls(
+  root: string,
+  sourceNodes: ArchitectureNode[],
+  sourceTexts: Map<string, string>,
+  resolveImport: (file: string, specifier: string) => string | null,
+  signal?: AbortSignal,
+): Promise<ResolvedSymbolCall[]> {
+  if (!sourceTexts.size) return [];
+  const canonical = (file: string) => {
+    const absolute = path.resolve(file);
+    return ts.sys.useCaseSensitiveFileNames ? absolute : absolute.toLowerCase();
+  };
+  const records = new Map<
+    string,
+    { relative: string; absolute: string; text: string; node: ArchitectureNode }
+  >();
+  const nodes = new Map(sourceNodes.map((node) => [node.id, node]));
+  for (const [relative, text] of sourceTexts) {
+    const node = nodes.get(relative);
+    if (!node) continue;
+    const absolute = path.resolve(root, relative);
+    records.set(canonical(absolute), { relative, absolute, text, node });
+  }
+  const compilerOptions: ts.CompilerOptions = {
+    allowJs: true,
+    checkJs: false,
+    jsx: ts.JsxEmit.Preserve,
+    module: ts.ModuleKind.ESNext,
+    moduleResolution: ts.ModuleResolutionKind.Bundler,
+    noLib: true,
+    skipLibCheck: true,
+    target: ts.ScriptTarget.Latest,
+    types: [],
+  };
+  const fallback = ts.createCompilerHost(compilerOptions, true);
+  const recordFor = (file: string) => records.get(canonical(file));
+  const host: ts.CompilerHost = {
+    ...fallback,
+    fileExists: (file) => Boolean(recordFor(file)),
+    readFile: (file) => recordFor(file)?.text,
+    getCurrentDirectory: () => root,
+    getSourceFile: (file, languageVersion) => {
+      const record = recordFor(file);
+      return record
+        ? ts.createSourceFile(
+            record.absolute,
+            record.text,
+            languageVersion,
+            true,
+            typeScriptExtension(record.relative) === ts.Extension.Tsx
+              ? ts.ScriptKind.TSX
+              : [
+                    ts.Extension.Js,
+                    ts.Extension.Jsx,
+                    ts.Extension.Mjs,
+                    ts.Extension.Cjs,
+                  ].includes(typeScriptExtension(record.relative))
+                ? typeScriptExtension(record.relative) === ts.Extension.Jsx
+                  ? ts.ScriptKind.JSX
+                  : ts.ScriptKind.JS
+                : ts.ScriptKind.TS,
+          )
+        : undefined;
+    },
+    resolveModuleNames: (moduleNames, containingFile) => {
+      const containing = recordFor(containingFile);
+      return moduleNames.map((specifier) => {
+        if (!containing) return undefined;
+        const target = resolveImport(containing.relative, specifier);
+        if (!target || target.startsWith("external:")) return undefined;
+        const record = records.get(canonical(path.resolve(root, target)));
+        return record
+          ? {
+              resolvedFileName: record.absolute,
+              extension: typeScriptExtension(record.relative),
+              isExternalLibraryImport: false,
+            }
+          : undefined;
+      });
+    },
+  };
+  const program = ts.createProgram({
+    rootNames: [...records.values()].map((record) => record.absolute),
+    options: compilerOptions,
+    host,
+  });
+  const checker = program.getTypeChecker();
+  const symbolForDeclaration = (declaration: ts.Node): CodeSymbol | null => {
+    let owner: ts.Node = declaration;
+    if (
+      (ts.isArrowFunction(owner) || ts.isFunctionExpression(owner)) &&
+      ts.isVariableDeclaration(owner.parent)
+    )
+      owner = owner.parent;
+    const source = owner.getSourceFile();
+    const record = recordFor(source.fileName);
+    if (!record) return null;
+    let name: string | null = null;
+    if (ts.isFunctionDeclaration(owner) && owner.name) name = owner.name.text;
+    else if (ts.isMethodDeclaration(owner) && owner.name)
+      name = owner.name.getText(source);
+    else if (ts.isVariableDeclaration(owner) && ts.isIdentifier(owner.name))
+      name = owner.name.text;
+    if (!name) return null;
+    const line =
+      source.getLineAndCharacterOfPosition(owner.getStart(source)).line + 1;
+    return (
+      record.node.symbols.find(
+        (symbol) => symbol.name === name && symbol.line === line,
+      ) || null
+    );
+  };
+  const callerFor = (call: ts.CallExpression) => {
+    let owner: ts.Node | undefined = call.parent;
+    while (owner && !ts.isSourceFile(owner)) {
+      if (
+        ts.isFunctionDeclaration(owner) ||
+        ts.isMethodDeclaration(owner) ||
+        ts.isArrowFunction(owner) ||
+        ts.isFunctionExpression(owner)
+      )
+        return symbolForDeclaration(owner);
+      owner = owner.parent;
+    }
+    return null;
+  };
+  const targetFor = (call: ts.CallExpression) => {
+    // A property call can dispatch to an override at runtime. This first
+    // source-grounded slice accepts only direct identifier bindings.
+    if (!ts.isIdentifier(call.expression)) return null;
+    let symbol = checker.getSymbolAtLocation(call.expression);
+    if (symbol?.flags && symbol.flags & ts.SymbolFlags.Alias)
+      symbol = checker.getAliasedSymbol(symbol);
+    for (const declaration of [
+      symbol?.valueDeclaration,
+      ...(symbol?.declarations || []),
+    ]) {
+      if (!declaration) continue;
+      if (
+        ts.isVariableDeclaration(declaration) &&
+        (!ts.isVariableDeclarationList(declaration.parent) ||
+          !(declaration.parent.flags & ts.NodeFlags.Const))
+      )
+        continue;
+      const target = symbolForDeclaration(declaration);
+      if (target) return target;
+    }
+    return null;
+  };
+  const calls = new Map<string, ResolvedSymbolCall>();
+  for (const [index, source] of program.getSourceFiles().entries()) {
+    signal?.throwIfAborted();
+    if (index > 0 && index % 16 === 0)
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    const record = recordFor(source.fileName);
+    if (!record) continue;
+    const lines = record.text.split(/\r?\n/);
+    const visit = (node: ts.Node) => {
+      if (calls.size >= 10_000) return;
+      if (ts.isCallExpression(node)) {
+        const from = callerFor(node);
+        const to = targetFor(node);
+        if (from && to) {
+          const key = `${from.id}->${to.id}`;
+          const line =
+            source.getLineAndCharacterOfPosition(node.getStart(source)).line +
+            1;
+          const evidence = {
+            path: record.relative,
+            line,
+            hash: record.node.hash,
+            excerpt: lines[line - 1]?.trim().slice(0, 300),
+          };
+          const existing = calls.get(key);
+          if (existing) {
+            if (existing.evidence.length < 20) existing.evidence.push(evidence);
+          } else
+            calls.set(key, {
+              fromSourceSymbolId: from.id,
+              toSourceSymbolId: to.id,
+              evidence: [evidence],
+            });
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+  }
+  return [...calls.values()].sort(
+    (a, b) =>
+      a.fromSourceSymbolId.localeCompare(b.fromSourceSymbolId) ||
+      a.toSourceSymbolId.localeCompare(b.toSourceSymbolId),
+  );
 }
 
 function pythonSymbolsAndImports(file: string, content: string) {
@@ -504,6 +722,8 @@ export async function analyzeRepository(
   }
   const warnings = [...listing.warnings];
   const contents = new Map<string, string[]>();
+  const typeScriptTexts = new Map<string, string>();
+  let hasTypeScriptCallExpressions = false;
   let authoredContent: string | null = null;
   let bytesRead = 0;
   let budgetReached = false;
@@ -540,6 +760,14 @@ export async function analyzeRepository(
             : file.extension === ".rs"
               ? rustSymbolsAndImports(file.path, content)
               : { symbols: [], imports: [] };
+    if (/\.[cm]?[jt]sx?$/i.test(file.path))
+      typeScriptTexts.set(file.path, content);
+    if (
+      /\.[cm]?[jt]sx?$/i.test(file.path) &&
+      "hasCallExpressions" in parsed &&
+      parsed.hasCallExpressions
+    )
+      hasTypeScriptCallExpressions = true;
     options.cache?.set(file.path, { hash, ...parsed });
     nodes.push({
       id: file.path,
@@ -768,6 +996,31 @@ export async function analyzeRepository(
       }
     }
   }
+  let symbolCalls: ResolvedSymbolCall[] = [];
+  const typeScriptBytes = [...typeScriptTexts.values()].reduce(
+    (total, content) => total + Buffer.byteLength(content),
+    0,
+  );
+  if (
+    hasTypeScriptCallExpressions &&
+    (typeScriptTexts.size > 2_500 || typeScriptBytes > 32_000_000)
+  )
+    warnings.push(
+      "TypeScript symbol calls were skipped because the analyzed program exceeds 2,500 files or 32 MB. File/import structure remains available.",
+    );
+  else if (hasTypeScriptCallExpressions) {
+    symbolCalls = await typeScriptResolvedCalls(
+      root,
+      nodes,
+      typeScriptTexts,
+      resolveImport,
+      options.signal,
+    );
+    if (symbolCalls.length >= 10_000)
+      warnings.push(
+        "TypeScript symbol calls reached the 10,000 relation display/index limit.",
+      );
+  }
   const revision = contentHash(
     nodes
       .filter((node) => node.path)
@@ -784,12 +1037,13 @@ export async function analyzeRepository(
     edges,
     previous: options.previousSemantic,
     authoredContent,
+    symbolCalls,
   });
   warnings.push(...semantic.warnings);
   return finalizeArchitectureGraph({
     schemaVersion: 1,
     diagramKind: "architecture",
-    analyzerVersion: "polyglot-static-v3",
+    analyzerVersion: "polyglot-static-v4",
     workspaceRoot: root,
     revision,
     generatedAt,

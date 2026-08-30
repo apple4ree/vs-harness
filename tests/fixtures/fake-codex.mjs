@@ -40,6 +40,14 @@ createInterface({ input: process.stdin }).on("line", async (line) => {
       assert(params.input[0].text.includes('"contract": "witch.semantic/v1"'));
       assert(params.input[0].text.includes('"kind": "workflow"'));
       assert(params.input[0].text.includes('"trust": "inferred"'));
+      assert(params.input[0].text.includes('"kind": "calls"'));
+      assert(params.input[0].text.includes("submitOrder"));
+      assert(
+        params.input[0].text.includes(
+          '"analyzerVersion": "semantic-static-v2"',
+        ),
+      );
+      assert(params.input[0].text.includes('"source": "static-analysis"'));
       assert(params.input[0].text.includes('"boundary"'));
       assert(!params.input[0].text.includes("untrusted semantic path"));
     }

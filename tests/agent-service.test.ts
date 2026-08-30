@@ -159,12 +159,12 @@ test("validated semantic workflows become authoritative Agent dossiers", async (
   const root = path.join(directory, "project");
   await fs.mkdir(root);
   await fs.writeFile(
-    path.join(root, "agent.py"),
-    "@agent.command()\nasync def run_agent():\n    return True\n",
+    path.join(root, "agent.ts"),
+    "export function submitOrder() { return true }\nexport function bootstrapAgent() { return submitOrder() }\n",
   );
   const graph = await analyzeRepository(root);
   const workflow = graph.semantic!.nodes.find(
-    (node) => node.kind === "workflow",
+    (node) => node.kind === "workflow" && node.label.includes("bootstrapAgent"),
   )!;
   assert(workflow);
   const service = new AgentService({
@@ -188,7 +188,7 @@ test("validated semantic workflows become authoritative Agent dossiers", async (
     ],
   });
   assert.equal(started.contexts[0].label, workflow.label);
-  assert.deepEqual(started.contexts[0].paths, ["agent.py"]);
+  assert.deepEqual(started.contexts[0].paths, ["agent.ts"]);
   assert.deepEqual(started.contexts[0].semantic, {
     kind: "workflow",
     trust: "inferred",
