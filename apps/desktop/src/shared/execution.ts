@@ -13,6 +13,7 @@ export type LaunchConfiguration = {
   id: string;
   name: string;
   source: string;
+  type: "node" | "python";
   program: string;
   args: string[];
   cwd?: string;
@@ -47,6 +48,7 @@ export type DebugVariable = {
 };
 export type DebugState = {
   root: string | null;
+  adapter?: "node" | "python";
   status: "idle" | "starting" | "running" | "paused" | "stopped" | "failed";
   name?: string;
   reason?: string;

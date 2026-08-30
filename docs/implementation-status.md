@@ -43,6 +43,7 @@ This is an early desktop preview, not feature parity with VS Code.
 - Remote Workspace stage A stores validated SSH host profiles outside the repository and launches the trusted system OpenSSH executable through a real PTY with an argv array. Passwords, passphrases and private-key bytes are never accepted or persisted; malformed profile storage is preserved and fails closed. This stage does not present remote paths as local files.
 - Workspace Intelligence routes TypeScript/JavaScript, Python and Rust documents through isolated LSP clients. Pyright is bundled; rust-analyzer is an optional trusted system tool. Diagnostics, navigation, document Outline and review-only refactors share one provider-tagged contract. Arbitrary commands, Rust build scripts and proc macros remain disabled.
 - Workspace toolchains discover Python environments and uv/Poetry/Ruff/Cargo executables without running them. Explicit Python selection is persisted outside the repository and reused by Pyright and generated Tasks. Detected run/test/check/format tasks still require the existing local-process confirmation.
+- The debug coordinator preserves the built-in Node inspector and routes `.py` launch configurations to a bounded DAP client using `debugpy` from the selected environment. Python breakpoints, call stacks, stepping and bounded variables use separate persistent metadata; opening a project never imports or installs debugpy.
 
 ## References
 
@@ -61,7 +62,7 @@ The following repositories informed the separation of concerns; Witch does not e
 | AI           | Local signed-in Codex, read-only questions and isolated edits, streaming, stop, history, selected apply     | Claude/direct API inference, arbitrary MCP tools, autonomous computer control              |
 | Isolation    | Workspace copy, scoped write policy, immutable baseline, review and recovery copies                         | VM/container isolation, read denial across the OS, Git worktree management                 |
 | Languages    | Real TS/JS and Python/Pyright IDE services, optional rust-analyzer, Python environment selection and Python/Rust tasks, plus Python/Rust/TS semantic extraction | Python/Rust debugger adapters, resolved cross-language calls, full framework adapters |
-| Debug        | Node JavaScript launch, breakpoints, step, stack and local variables                                        | Source maps, attach, arbitrary DAP adapters                                                |
+| Debug        | Node JavaScript and Python/debugpy launch, breakpoints, step, stack and bounded local variables              | Source maps, attach, Rust and arbitrary DAP adapters                                       |
 | Extensions   | Validated local JSON snippets, install/enable/disable/remove                                                | VSIX or executable extension host                                                          |
 | Files        | Atomic replacement, conflict checks, watcher updates, trash deletion                                        | Full filesystem transaction isolation against concurrent external programs                 |
 | Remote       | System OpenSSH discovery, saved host profiles, confirmed multi-tab interactive SSH terminals                | Remote file workspace, remote LSP/tasks/debug/analyzer/Agent service                       |

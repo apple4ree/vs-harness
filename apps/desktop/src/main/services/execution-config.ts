@@ -149,12 +149,17 @@ export async function executionCatalog(
         try {
           const launch = platformItem(item);
           if (
-            !["node", "pwa-node"].includes(launch.type) ||
+            !["node", "pwa-node", "python", "debugpy"].includes(
+              launch.type,
+            ) ||
             launch.request !== "launch"
           )
             throw new Error(
-              "Only Node.js launch configurations are currently supported",
+              "Only Node.js and Python launch configurations are supported",
             );
+          const debugType = ["python", "debugpy"].includes(launch.type)
+            ? "python"
+            : "node";
           for (const key of [
             "runtimeExecutable",
             "runtimeArgs",
@@ -184,6 +189,7 @@ export async function executionCatalog(
             id: `${source}:${index}`,
             name: text(launch.name, "name"),
             source,
+            type: debugType,
             program: text(launch.program, "program"),
             args: strings(launch.args, "args"),
             cwd: launch.cwd,
@@ -242,9 +248,12 @@ export async function resolveLaunch(
   activeFile?: string,
 ) {
   const program = await executionPath(root, launch.program, false, activeFile);
-  if (!/\.[cm]?js$/i.test(program))
+  if (launch.type === "python") {
+    if (!/\.py$/i.test(program))
+      throw new Error("The Python debugger runs .py files");
+  } else if (!/\.[cm]?js$/i.test(program))
     throw new Error(
-      "The built-in debugger runs JavaScript (.js, .cjs, .mjs). Compile TypeScript first; source-map debugging is not yet supported.",
+      "The built-in Node debugger runs JavaScript (.js, .cjs, .mjs). Compile TypeScript first; source-map debugging is not yet supported.",
     );
   return {
     ...launch,

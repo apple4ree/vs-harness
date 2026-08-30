@@ -16,6 +16,7 @@
     "verify:package": "tsx scripts/verify-package.ts",
     "icons": "electron scripts/generate-icons.cjs",
     "benchmark": "tsx scripts/benchmark-architecture.ts",
+    "smoke:python-debug": "tsx scripts/smoke-python-debug.ts",
     "dev": "electron-vite dev",
     "build": "node scripts/build-desktop.cjs",
     "preview": "electron-vite preview",

@@ -55,16 +55,26 @@ test("VS Code style execution configs validate paths, variables and unsupported 
           program: "${workspaceFolder}/app.cjs",
           stopOnEntry: true,
         },
+        {
+          type: "python",
+          request: "launch",
+          name: "Python app",
+          program: "${workspaceFolder}/app.py",
+        },
         { type: "node", request: "attach", name: "Unsupported", port: 9229 },
       ],
     }),
   );
+  await fs.writeFile(path.join(root, "app.py"), "print('witch')\n");
   const catalog = await executionCatalog(root);
   assert.equal(catalog.tasks.length, 2);
-  assert.equal(catalog.launches.length, 1);
+  assert.equal(catalog.launches.length, 2);
   assert.equal(catalog.warnings.length, 1);
   const launch = await resolveLaunch(root, catalog.launches[0]);
   assert.equal(launch.program, await fs.realpath(path.join(root, "app.cjs")));
+  const pythonLaunch = await resolveLaunch(root, catalog.launches[1]);
+  assert.equal(pythonLaunch.type, "python");
+  assert.equal(pythonLaunch.program, await fs.realpath(path.join(root, "app.py")));
   const task = await resolveTask(root, catalog.tasks[0], "app.cjs");
   assert.match(task.shellCommand, /'a;b'/);
   assert.equal(quoteShellArgument("don't", "win32"), "'don''t'");
@@ -116,6 +126,7 @@ test(
       id: "test",
       name: "Test Node",
       source: "test",
+      type: "node",
       program,
       cwd: root,
       args: [],
@@ -167,6 +178,7 @@ test("a missing debug runtime reports failure without leaving a busy session", a
       id: "missing",
       name: "Missing runtime",
       source: "test",
+      type: "node",
       program,
       cwd: root,
       args: [],
@@ -219,6 +231,7 @@ setInterval(() => {}, 1000);
       id: "tree",
       name: "Worker tree",
       source: "test",
+      type: "node",
       program,
       cwd: root,
       args: [],

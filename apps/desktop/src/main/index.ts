@@ -27,6 +27,8 @@ import {
 } from "./services/language-intelligence";
 import { AgentService } from "./services/agent-service";
 import { NodeDebugService } from "./services/node-debugger";
+import { PythonDebugService } from "./services/python-debugger";
+import { DebugService } from "./services/debug-service";
 import { SettingsService } from "./services/settings-service";
 import {
   detectedExecutionTasks,
@@ -182,7 +184,7 @@ let latestGraph: ArchitectureGraph | null = null;
 let searchController: AbortController | null = null;
 let graphGeneration = 0;
 let agentService: AgentService | null = null;
-let debugService: NodeDebugService | null = null;
+let debugService: DebugService | null = null;
 let executionBusy = false;
 let settingsService: SettingsService | null = null;
 let remoteProfileService: RemoteProfileService | null = null;
@@ -733,11 +735,20 @@ function getAgentService() {
 
 function getDebugger() {
   if (!debugService) {
-    debugService = new NodeDebugService({
-      runtime: process.execPath,
-      runAsNode: true,
-      breakpointDirectory: path.join(app.getPath("userData"), "breakpoints"),
-    });
+    debugService = new DebugService(
+      new NodeDebugService({
+        runtime: process.execPath,
+        runAsNode: true,
+        breakpointDirectory: path.join(app.getPath("userData"), "breakpoints"),
+      }),
+      new PythonDebugService({
+        breakpointDirectory: path.join(
+          app.getPath("userData"),
+          "breakpoints",
+          "python",
+        ),
+      }),
+    );
     debugService.on("state", (state) => {
       if (!applicationWindow?.isDestroyed())
         applicationWindow?.webContents.send("debug:state", state);
@@ -1888,7 +1899,9 @@ app.whenReady().then(() => {
       const directory = await resolveWorkspacePath(root, ".witch", true);
       await fs.mkdir(directory, { recursive: true });
       const program =
-        activeFile && /\.[cm]?js$/i.test(activeFile) ? activeFile : "index.js";
+        activeFile && /(?:\.[cm]?js|\.py)$/i.test(activeFile)
+          ? activeFile
+          : "index.js";
       if (activeFile && program === activeFile)
         await resolveWorkspacePath(root, activeFile);
       const contents =
@@ -1897,7 +1910,7 @@ app.whenReady().then(() => {
               version: "0.2.0",
               configurations: [
                 {
-                  type: "node",
+                  type: /\.py$/i.test(program) ? "python" : "node",
                   request: "launch",
                   name: "Debug project",
                   program: "${workspaceFolder}/" + program,
@@ -1992,16 +2005,30 @@ app.whenReady().then(() => {
               id: "active",
               name: "Debug active file",
               source: "active editor",
+              type: (/\.py$/i.test(activeFile || "")
+                ? "python"
+                : "node") as "python" | "node",
               program: activeFile || "",
               args: [],
               stopOnEntry: true,
             };
         if (!launch) throw new Error("Launch configuration no longer exists");
         const resolved = await resolveLaunch(root, launch, activeFile);
+        let pythonInterpreter: string | undefined;
+        if (resolved.type === "python") {
+          const tooling = await getWorkspaceTooling().get(root);
+          pythonInterpreter = tooling.python.candidates.find(
+            (item) => item.id === tooling.python.activeId,
+          )?.path;
+          if (!pythonInterpreter)
+            throw new Error(
+              "No Python environment is available for this workspace",
+            );
+        }
         const choice = await dialog.showMessageBox(applicationWindow!, {
           type: "warning",
           message: `Debug ${resolved.name}?`,
-          detail: `Program: ${resolved.program}\nArguments: ${JSON.stringify(resolved.args)}\nWorking directory: ${resolved.cwd}\n\nThe program runs locally with your user permissions. Only run code you trust.`,
+          detail: `Program: ${resolved.program}${pythonInterpreter ? `\nInterpreter: ${pythonInterpreter}` : ""}\nArguments: ${JSON.stringify(resolved.args)}\nWorking directory: ${resolved.cwd}\n\nThe program and debug adapter run locally with your user permissions. Python debugging requires debugpy in the selected environment. Only run code you trust.`,
           buttons: ["Cancel", "Start debugger"],
           defaultId: 0,
           cancelId: 0,
@@ -2009,7 +2036,7 @@ app.whenReady().then(() => {
         if (choice.response !== 1) throw new Error("Debug start canceled");
         if (currentWorkspace?.root !== root || dirtyPaths.size)
           throw new Error("The workspace changed while confirming");
-        return getDebugger().start(root, resolved);
+        return getDebugger().start(root, resolved, pythonInterpreter);
       } finally {
         executionBusy = false;
       }
