@@ -16,10 +16,17 @@ async function fixture(t: TestContext) {
   await fs.writeFile(
     path.join(root, "src", "main.py"),
     [
-      "from .risk import RiskEngine",
+      "from .risk import RiskEngine, validate_limit, submit_order, record_rejection",
       "",
       "@agent.command()",
       "async def run_agent():",
+      "    validate_limit()",
+      "    if approved:",
+      "        submit_order()",
+      "    else:",
+      "        record_rejection()",
+      "    for retry_attempt in range(3):",
+      "        submit_order()",
       "    return RiskEngine()",
       "",
       "class Agent:",
@@ -36,6 +43,15 @@ async function fixture(t: TestContext) {
       "    def validate_limit(self):",
       "        return True",
       "",
+      "def validate_limit():",
+      "    return True",
+      "",
+      "def submit_order():",
+      "    return True",
+      "",
+      "def record_rejection():",
+      "    return False",
+      "",
     ].join("\n"),
   );
   await fs.writeFile(
@@ -43,6 +59,7 @@ async function fixture(t: TestContext) {
     [
       "mod broker;",
       "use crate::broker::Broker;",
+      "use crate::broker::{validate_risk, submit_order, record_rejection};",
       "",
       "pub trait Strategy {",
       "    fn decide(&self);",
@@ -54,13 +71,29 @@ async function fixture(t: TestContext) {
       "}",
       "",
       "#[tokio::main]",
-      "pub async fn main() {}",
+      "pub async fn main() {",
+      "    validate_risk();",
+      "    if allowed {",
+      "        submit_order();",
+      "    } else {",
+      "        record_rejection();",
+      "    }",
+      "    for retry_attempt in 0..3 {",
+      "        submit_order();",
+      "    }",
+      "}",
       "",
     ].join("\n"),
   );
   await fs.writeFile(
     path.join(root, "src", "broker.rs"),
-    "pub struct Broker;\n",
+    [
+      "pub struct Broker;",
+      "pub fn validate_risk() {}",
+      "pub fn submit_order() {}",
+      "pub fn record_rejection() {}",
+      "",
+    ].join("\n"),
   );
   await fs.writeFile(
     path.join(root, "src", "agent.ts"),
@@ -140,6 +173,51 @@ test("Python, Rust, and TypeScript facts feed a validated semantic graph", async
         relation.kind === "imports" && relation.trust === "verified",
     ),
   );
+  const pythonRun = python.symbols.find(
+    (symbol) => symbol.name === "run_agent",
+  )!;
+  const pythonValidate = graph.nodes
+    .find((node) => node.id === "src/risk.py")!
+    .symbols.find(
+      (symbol) => symbol.name === "validate_limit" && !symbol.containerId,
+    )!;
+  assert(
+    semantic.relations.some(
+      (relation) =>
+        relation.kind === "calls" &&
+        relation.from === `semantic:symbol:${pythonRun.id}` &&
+        relation.to === `semantic:symbol:${pythonValidate.id}` &&
+        relation.trust === "inferred" &&
+        relation.description?.includes("Python static binding"),
+    ),
+  );
+  const rustMain = rust.symbols.find((symbol) => symbol.name === "main")!;
+  const rustValidate = graph.nodes
+    .find((node) => node.id === "src/broker.rs")!
+    .symbols.find((symbol) => symbol.name === "validate_risk")!;
+  assert(
+    semantic.relations.some(
+      (relation) =>
+        relation.kind === "calls" &&
+        relation.from === `semantic:symbol:${rustMain.id}` &&
+        relation.to === `semantic:symbol:${rustValidate.id}` &&
+        relation.trust === "inferred" &&
+        relation.description?.includes("Rust source-resolved"),
+    ),
+  );
+  assert(
+    semantic.relations.some((relation) => relation.kind === "branches-to"),
+  );
+  assert(semantic.relations.some((relation) => relation.kind === "retries"));
+  assert(semantic.relations.some((relation) => relation.kind === "precedes"));
+  assert(
+    semantic.nodes.some(
+      (node) =>
+        node.kind === "workflow-step" &&
+        node.stepKind === "retry" &&
+        node.description?.includes("3 attempts"),
+    ),
+  );
   const bootstrap = typescript.symbols.find(
     (symbol) => symbol.name === "bootstrapAgent",
   )!;
@@ -198,7 +276,11 @@ test("semantic revisions are stable for identical scans and record source change
   const first = await service.analyze(root);
   const second = await service.analyze(root);
   assert.equal(second.semantic?.revision, first.semantic?.revision);
-  assert.equal(second.semantic?.revisions.length, 1);
+  assert.equal(
+    second.semantic?.revisions.length,
+    1,
+    JSON.stringify(second.semantic?.revisions.at(-1)),
+  );
   assert.equal(
     second.semantic?.revisions.at(-1)?.analyzerVersion,
     second.semantic?.analyzerVersion,

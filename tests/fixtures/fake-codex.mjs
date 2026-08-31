@@ -44,7 +44,7 @@ createInterface({ input: process.stdin }).on("line", async (line) => {
       assert(params.input[0].text.includes("submitOrder"));
       assert(
         params.input[0].text.includes(
-          '"analyzerVersion": "semantic-static-v2"',
+          '"analyzerVersion": "semantic-static-v3"',
         ),
       );
       assert(params.input[0].text.includes('"source": "static-analysis"'));

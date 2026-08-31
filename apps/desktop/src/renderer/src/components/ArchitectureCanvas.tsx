@@ -418,7 +418,7 @@ export function ArchitectureCanvas({
           >
             <option value="overview">Meaning · Overview</option>
             <option value="components">Components · Boundaries</option>
-            <option value="workflows">Workflows · Execution</option>
+            <option value="workflows">Workflows · Control flow</option>
             <option value="calls">Calls · Symbols</option>
             <option value="questions">Questions · Conflicts</option>
             <option value="verified">Verified / Authored</option>
@@ -546,14 +546,14 @@ export function ArchitectureCanvas({
             <div className="graph-lens-empty" role="status">
               <strong>
                 {semanticLens === "calls" && scope === "semantics"
-                  ? "No verified direct calls"
+                  ? "No source-resolved symbol calls"
                   : semanticLens === "questions" && scope === "semantics"
                     ? "No open questions"
                     : "No matching graph items"}
               </strong>
               <span>
                 {semanticLens === "calls" && scope === "semantics"
-                  ? "Property and dynamic dispatch stay excluded until stronger evidence is available."
+                  ? "TypeScript compiler calls and conservative Python/Rust static bindings appear here. Dynamic dispatch stays excluded."
                   : query
                     ? "Clear or change the graph search."
                     : "This lens has no source-grounded items in the current reading."}
@@ -784,6 +784,9 @@ export function ArchitectureCanvas({
                             {relation.trust} · {relation.status} ·{" "}
                             {Math.round(relation.confidence * 100)}%
                           </small>
+                          {relation.description && (
+                            <small>{relation.description}</small>
+                          )}
                           {evidence && (
                             <code>
                               {evidence.path}:{evidence.line}
@@ -969,13 +972,19 @@ export function ArchitectureCanvas({
             </button>
           </header>
           {selectedSemanticRelation ? (
-            <p>
-              {selectedSemanticRelation.kind} · {selectedSemanticRelation.trust}
-              {" · "}
-              {selectedSemanticRelation.status} ·{" "}
-              {Math.round(selectedSemanticRelation.confidence * 100)}%
-              confidence. Select its evidence to open the source.
-            </p>
+            <>
+              <p>
+                {selectedSemanticRelation.kind} ·{" "}
+                {selectedSemanticRelation.trust}
+                {" · "}
+                {selectedSemanticRelation.status} ·{" "}
+                {Math.round(selectedSemanticRelation.confidence * 100)}%
+                confidence. Select its evidence to open the source.
+              </p>
+              {selectedSemanticRelation.description && (
+                <p>{selectedSemanticRelation.description}</p>
+              )}
+            </>
           ) : (
             <p>
               {selectedRelations.reduce((count, edge) => count + edge.count, 0)}{" "}

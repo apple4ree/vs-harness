@@ -3,10 +3,10 @@
 > Python · Rust · TypeScript를 중심으로 한 Agent/금융 시스템 분석 계약
 
 - 결정일: 2026-08-30
-- 상태: v1 공통 IR·정적 추출·Meaning UI 구현, 심층 adapter는 진행 중
+- 상태: v1 공통 IR·polyglot call·정적 workflow control-flow·Meaning UI 구현, 심층 corroboration adapter는 진행 중
 - 범위: 구조 분석, Workflow, Inferred/Authored 대조, 자동 승인과 이력
-- 현재 구현: `witch.semantic/v1`, Python/Rust/TS 심볼, 확인된 containment/import/export와 TS/JS direct call, provisional Component/Workflow participant, Authored 충돌 질문, revision delta, Meaning 렌즈, 검증된 Agent dossier
-- 다음 범위: Pyright/rust-analyzer call hierarchy, framework adapter, authored/observed ordering, runtime trace, GUI question resolution
+- 현재 구현: `witch.semantic/v1`, Python/Rust/TS 심볼, 확인된 containment/import/export와 TS/JS direct call, Python/Rust inferred call, provisional `precedes`/`branches-to`/`retries`, Authored 충돌 질문, revision delta, Meaning 렌즈, 검증된 Agent dossier
+- 다음 범위: Pyright/rust-analyzer call hierarchy corroboration, framework adapter, authored/observed ordering, runtime trace, GUI question resolution
 
 ## 1. 결정 요약
 
@@ -460,8 +460,8 @@ Before
 | ------------------- | ------------------------------------------------------- |
 | Overview            | System, Component, Workflow, WorkflowStep의 고수준 지도 |
 | Components          | System→Component→File 경계와 소스 범위                  |
-| Workflows           | Workflow/Step과 직접 연결된 실행 주체·근거              |
-| Calls               | checker가 내부 선언으로 해석한 TS/JS direct call        |
+| Workflows           | Workflow/Step, provisional 순서·branch·retry와 근거     |
+| Calls               | verified TS/JS와 inferred Python/Rust 내부 call         |
 | Questions           | open question의 subject와 인접 근거                     |
 | Verified / Authored | inferred-only 항목을 제외한 확인·선언 계층              |
 
@@ -471,7 +471,7 @@ Before
 
 Meaning 카드를 Agent에 첨부할 때 renderer의 drag payload는 권한 있는 데이터로 취급하지 않는다. 메인 프로세스는 현재 source revision과 semantic validation receipt를 다시 확인하고, node ID를 기준으로 label과 source path를 재구성한다. stale/invalid semantic graph는 거부한다.
 
-Agent에는 선택한 의미 노드와 제한된 인접 노드·relation·claim·open question·evidence만 `witch.semantic/v1` dossier로 전달한다. `Verified`, `Inferred`, `Authored`와 `accepted`, `provisional`, `conflicting` 상태를 유지하고, provisional workflow order가 runtime proof가 아니라는 boundary 문구를 포함한다. 따라서 Agent가 의미 계층을 활용할 수는 있지만 불확실성을 검증 사실처럼 전달받지는 않는다.
+Agent에는 선택한 의미 노드와 제한된 인접 노드·relation·claim·open question·evidence만 `witch.semantic/v1` dossier로 전달한다. `Verified`, `Inferred`, `Authored`와 `accepted`, `provisional`, `conflicting` 상태를 유지하고, static workflow order·branch membership·retry structure가 runtime proof가 아니라는 boundary 문구와 관계별 설명을 포함한다. 따라서 Agent가 의미 계층을 활용할 수는 있지만 불확실성을 검증 사실처럼 전달받지는 않는다.
 
 ## 10. 사용자 정의 규칙 방향
 
@@ -533,14 +533,14 @@ inference:
 - Inferred/Authored 대조와 추천 우선 OpenQuestion
 - 동일 분석 중복을 만들지 않는 부모 revision/delta 기록
 - 6개 Meaning 렌즈와 claim/evidence/reasoning inspector
-- TypeChecker-resolved TS/JS direct call과 provisional Workflow participant
+- TypeChecker-resolved TS/JS direct call, Python/Rust inferred call과 provisional Workflow control-flow
 - 검증된 Meaning 선택을 source 범위와 semantic dossier로 Agent에 전달
 
 다음 심층 단계에는 아래 항목이 필요하다.
 
-1. Pyright와 rust-analyzer의 bounded call hierarchy adapter
+1. Pyright와 rust-analyzer의 bounded call hierarchy corroboration adapter
 2. Agent/금융 framework registration adapter
-3. authored/observed Workflow 순서·branch·error contract
+3. authored/observed Workflow 순서·선택 branch·error contract
 4. OpenQuestion 답변과 상태 전이 UI
 5. semantic auto-approval rollback
 6. Artifact와 read/write/publish data-flow IR

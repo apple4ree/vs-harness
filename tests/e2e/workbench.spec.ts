@@ -50,6 +50,46 @@ test.beforeAll(async () => {
     "export function greet(name: string) { return `Hello ${name}` }\n",
   );
   await fs.writeFile(
+    path.join(fixture, "src/api/risk.py"),
+    "def validate_order():\n    return True\n\ndef submit_order():\n    return True\n",
+  );
+  await fs.writeFile(
+    path.join(fixture, "src/api/agent.py"),
+    [
+      "from .risk import validate_order, submit_order",
+      "",
+      "async def run_agent():",
+      "    validate_order()",
+      "    if approved:",
+      "        submit_order()",
+      "    for retry_attempt in range(3):",
+      "        submit_order()",
+      "",
+    ].join("\n"),
+  );
+  await fs.writeFile(
+    path.join(fixture, "src/api/broker.rs"),
+    "pub fn validate_order() {}\npub fn submit_order() {}\n",
+  );
+  await fs.writeFile(
+    path.join(fixture, "src/api/lib.rs"),
+    [
+      "mod broker;",
+      "use self::broker::{validate_order, submit_order};",
+      "",
+      "pub fn run() {",
+      "    validate_order();",
+      "    if approved {",
+      "        submit_order();",
+      "    }",
+      "    for retry_attempt in 0..2 {",
+      "        submit_order();",
+      "    }",
+      "}",
+      "",
+    ].join("\n"),
+  );
+  await fs.writeFile(
     path.join(fixture, "src/ui/view.ts"),
     'import { greet } from "../api/client"\nexport function renderGreeting() { return greet("Witch") }\nexport const greeting = renderGreeting()\n',
   );
@@ -294,12 +334,16 @@ test("architecture edges and drag-to-chat source context work in Electron", asyn
   );
   await expect(page.locator(".graph-metrics")).toContainText("verified");
   await page.getByLabel("Meaning lens").selectOption("calls");
-  await expect(page.locator(".architecture-card")).toHaveCount(2);
+  expect(
+    await page.locator(".architecture-card").count(),
+  ).toBeGreaterThanOrEqual(6);
   await expect(page.locator(".architecture-card")).toContainText([
     "greet",
     "renderGreeting",
   ]);
-  await expect(page.locator(".react-flow__edge-text")).toContainText("calls");
+  await expect(
+    page.locator(".react-flow__edge-text").filter({ hasText: "calls" }).first(),
+  ).toContainText("calls");
   await page
     .locator(".architecture-card")
     .filter({ hasText: "renderGreeting" })
@@ -314,6 +358,35 @@ test("architecture edges and drag-to-chat source context work in Electron", asyn
       .locator("code"),
   ).toContainText("src/ui/view.ts:2");
   await page.screenshot({ path: "test-results/witch-symbol-calls.png" });
+  await page.getByLabel("Meaning lens").selectOption("workflows");
+  await expect(
+    page
+      .locator(".react-flow__edge-text")
+      .filter({ hasText: "branches-to" })
+      .first(),
+  ).toContainText("branches-to");
+  await expect(
+    page
+      .locator(".react-flow__edge-text")
+      .filter({ hasText: "retries" })
+      .first(),
+  ).toContainText("retries");
+  await expect(
+    page
+      .locator(".react-flow__edge-text")
+      .filter({ hasText: "precedes" })
+      .first(),
+  ).toContainText("precedes");
+  const retryController = page
+    .locator(".architecture-card")
+    .filter({ hasText: "retry_attempt" })
+    .first();
+  await retryController.click();
+  await expect(page.locator(".semantic-inspector")).toContainText(
+    "Workflow step · retry",
+  );
+  await expect(page.locator(".semantic-inspector")).toContainText("retries");
+  await page.screenshot({ path: "test-results/witch-polyglot-workflow.png" });
   await page.getByLabel("Meaning lens").selectOption("components");
   await expect(semanticComponent).toBeVisible();
   await semanticComponent.click();
@@ -1144,6 +1217,8 @@ test("quick open and the project tree support keyboard navigation without losing
   await expect(
     tree.getByRole("button", { name: "client.ts", exact: true }),
   ).toBeVisible();
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowDown");
   await page.keyboard.press("ArrowDown");
   const file = tree.getByRole("button", { name: "client.ts", exact: true });
   await expect(file).toBeFocused();

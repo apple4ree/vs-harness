@@ -18,7 +18,7 @@ Property calls such as `service.submit()` are intentionally excluded because a s
 
 ## Meaning and Workflow projection
 
-The **Calls · Symbols** Meaning lens shows only symbols participating in verified calls and the relations between them. Selecting a symbol exposes the call direction, trust, confidence and exact call-site evidence.
+The **Calls · Symbols** Meaning lens shows symbols participating in verified TypeScript calls and inferred Python/Rust source bindings. Selecting a symbol exposes the call direction, trust, confidence and exact call-site evidence.
 
 When an already inferred Workflow entry directly calls another resolved symbol, Witch adds that symbol as a provisional workflow participant:
 
@@ -34,6 +34,8 @@ The same nodes and call relations enter the bounded semantic dossier when a Mean
 - Call resolution runs only when the scan contains a TypeScript/JavaScript call expression.
 - Programs above 2,500 analyzed TS/JS files or 32 MB of accepted TS/JS source keep file/import analysis but skip call resolution with a warning.
 - At most 10,000 unique call pairs and 20 evidence sites per pair are retained.
-- Workflow projection adds at most six direct participants per workflow and 400 participants per graph.
+- Workflow projection v1 adds at most sixteen call-site participants per workflow and 800 participants per graph.
 - The call program is rebuilt after source analysis; a persistent/incremental symbol index is not yet claimed.
-- Python/Pyright and Rust/rust-analyzer call hierarchy are the next language adapters. Regex/name matching will not be promoted to verified calls.
+- Conservative Python/Rust source adapters now emit inferred calls. Pyright/rust-analyzer call hierarchy remains the next corroboration layer; source matching is never silently promoted to verified.
+
+The newer control-flow contract is documented in [Polyglot call and workflow control flow v1](polyglot-call-workflow-v1.md).

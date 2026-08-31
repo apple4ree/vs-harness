@@ -10,7 +10,7 @@ import type {
 export type SemanticGraphDraft = Omit<SemanticGraph, "validation">;
 
 const evidenceKey = (evidence: SourceEvidence) =>
-  `${evidence.path}:${evidence.line}:${evidence.endLine || evidence.line}:${evidence.hash}:${evidence.excerpt || ""}`;
+  `${evidence.path}:${String(evidence.line).padStart(12, "0")}:${String(evidence.endLine || evidence.line).padStart(12, "0")}:${evidence.hash}:${evidence.excerpt || ""}`;
 
 function diagnostic(
   diagnostics: SemanticDiagnostic[],

@@ -33,6 +33,8 @@ export type SemanticRelationKind =
   | "routes-to"
   | "executes"
   | "precedes"
+  | "branches-to"
+  | "retries"
   | "depends-on"
   | "extends"
   | "implements"
@@ -89,6 +91,7 @@ export type SemanticRelation = {
   trust: SemanticTrust;
   status: SemanticStatus;
   confidence: number;
+  description?: string;
   evidence: SourceEvidence[];
   provenance: SemanticProvenance;
 };

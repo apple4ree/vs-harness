@@ -266,7 +266,7 @@ export class AgentService extends EventEmitter {
       revision: semantic.revision,
       sourceRevision: semantic.sourceRevision,
       boundary:
-        "Verified, inferred, and authored items remain distinct. Provisional workflow order is not runtime proof.",
+        "Verified, inferred, and authored items remain distinct. Static workflow order, branch membership, and retry structure are provisional control-flow evidence, not runtime proof.",
       selected: [...selected],
       nodes,
       relations: semantic.relations
@@ -281,6 +281,9 @@ export class AgentService extends EventEmitter {
           trust: relation.trust,
           status: relation.status,
           confidence: relation.confidence,
+          ...(relation.description
+            ? { description: relation.description }
+            : {}),
           provenance: relation.provenance,
           evidence: relation.evidence.slice(0, 3),
         })),

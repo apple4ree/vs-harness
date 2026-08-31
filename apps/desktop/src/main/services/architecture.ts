@@ -18,6 +18,10 @@ import {
   buildSemanticGraph,
   type ResolvedSymbolCall,
 } from "./semantic-analysis";
+import {
+  pythonResolvedCalls,
+  rustResolvedCalls,
+} from "./polyglot-call-analysis";
 
 const SOURCE_EXTENSIONS = new Set([
   ".ts",
@@ -451,11 +455,20 @@ async function typeScriptResolvedCalls(
           const existing = calls.get(key);
           if (existing) {
             if (existing.evidence.length < 20) existing.evidence.push(evidence);
+            if ((existing.sites?.length || 0) < 40)
+              existing.sites!.push({
+                evidence,
+                ordinal: node.getStart(source),
+              });
           } else
             calls.set(key, {
               fromSourceSymbolId: from.id,
               toSourceSymbolId: to.id,
               evidence: [evidence],
+              trust: "verified",
+              confidence: 1,
+              resolver: "typescript",
+              sites: [{ evidence, ordinal: node.getStart(source) }],
             });
         }
       }
@@ -723,6 +736,8 @@ export async function analyzeRepository(
   const warnings = [...listing.warnings];
   const contents = new Map<string, string[]>();
   const typeScriptTexts = new Map<string, string>();
+  const pythonTexts = new Map<string, string>();
+  const rustTexts = new Map<string, string>();
   let hasTypeScriptCallExpressions = false;
   let authoredContent: string | null = null;
   let bytesRead = 0;
@@ -762,6 +777,8 @@ export async function analyzeRepository(
               : { symbols: [], imports: [] };
     if (/\.[cm]?[jt]sx?$/i.test(file.path))
       typeScriptTexts.set(file.path, content);
+    if (file.extension === ".py") pythonTexts.set(file.path, content);
+    if (file.extension === ".rs") rustTexts.set(file.path, content);
     if (
       /\.[cm]?[jt]sx?$/i.test(file.path) &&
       "hasCallExpressions" in parsed &&
@@ -1021,6 +1038,23 @@ export async function analyzeRepository(
         "TypeScript symbol calls reached the 10,000 relation display/index limit.",
       );
   }
+  const pythonCalls = await pythonResolvedCalls(
+    nodes,
+    pythonTexts,
+    resolveImport,
+    options.signal,
+  );
+  const rustCalls = await rustResolvedCalls(
+    nodes,
+    rustTexts,
+    resolveImport,
+    options.signal,
+  );
+  symbolCalls = [...symbolCalls, ...pythonCalls, ...rustCalls].slice(0, 10_000);
+  if (symbolCalls.length >= 10_000)
+    warnings.push(
+      "Polyglot symbol calls reached the 10,000 relation display/index limit.",
+    );
   const revision = contentHash(
     nodes
       .filter((node) => node.path)
@@ -1043,7 +1077,7 @@ export async function analyzeRepository(
   return finalizeArchitectureGraph({
     schemaVersion: 1,
     diagramKind: "architecture",
-    analyzerVersion: "polyglot-static-v4",
+    analyzerVersion: "polyglot-static-v5",
     workspaceRoot: root,
     revision,
     generatedAt,
