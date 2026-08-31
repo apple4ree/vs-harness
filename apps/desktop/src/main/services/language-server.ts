@@ -246,12 +246,18 @@ export class LanguageServer extends EventEmitter {
       },
     });
     this.rpc = rpc;
+    rpc.on("log", (message: string) => this.emit("log", message.trim()));
     rpc.on("notification", (message: RpcMessage) => {
+      if (this.rpc !== rpc) return;
       if (
-        this.rpc !== rpc ||
-        message.method !== "textDocument/publishDiagnostics"
-      )
+        (message.method === "window/logMessage" ||
+          message.method === "window/showMessage") &&
+        typeof message.params?.message === "string"
+      ) {
+        this.emit("log", message.params.message.slice(0, 20_000));
         return;
+      }
+      if (message.method !== "textDocument/publishDiagnostics") return;
       const relative = this.relative(message.params.uri);
       if (!relative) return;
       const diagnostics: Diagnostic[] = (message.params.diagnostics || [])
