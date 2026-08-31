@@ -262,6 +262,14 @@ export function validateSemanticGraph(
         question.id,
         "Question references an unknown claim",
       );
+    if (question.relationIds?.some((id) => !relations.has(id)))
+      diagnostic(
+        diagnostics,
+        "SEMANTIC_QUESTION_RELATION_MISSING",
+        "error",
+        question.id,
+        "Question references an unknown relation",
+      );
     if (!question.recommendation || question.options.length < 2)
       diagnostic(
         diagnostics,
@@ -322,6 +330,9 @@ export function finalizeSemanticGraph(
       .map((question) => ({
         ...question,
         claimIds: [...new Set(question.claimIds)].sort(),
+        ...(question.relationIds
+          ? { relationIds: [...new Set(question.relationIds)].sort() }
+          : {}),
         options: [...new Set(question.options)],
         evidence: sortEvidence(question.evidence),
       })),

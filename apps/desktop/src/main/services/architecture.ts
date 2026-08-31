@@ -17,7 +17,9 @@ import {
 import {
   buildSemanticGraph,
   type ResolvedSymbolCall,
+  type SymbolCallCorroboration,
 } from "./semantic-analysis";
+import type { CallCorroborator } from "./call-corroboration";
 import {
   pythonResolvedCalls,
   rustResolvedCalls,
@@ -73,6 +75,7 @@ export type AnalysisOptions = {
   signal?: AbortSignal;
   byteBudget?: number;
   previousSemantic?: SemanticGraph | null;
+  callCorroborator?: CallCorroborator;
 };
 
 export function moduleFor(file: string): string {
@@ -1055,6 +1058,25 @@ export async function analyzeRepository(
     warnings.push(
       "Polyglot symbol calls reached the 10,000 relation display/index limit.",
     );
+  let callCorroborations: SymbolCallCorroboration[] = [];
+  if (options.callCorroborator && (pythonCalls.length || rustCalls.length)) {
+    try {
+      const result = await options.callCorroborator({
+        root,
+        nodes,
+        calls: symbolCalls,
+        signal: options.signal,
+      });
+      options.signal?.throwIfAborted();
+      callCorroborations = result.observations;
+      warnings.push(...result.warnings);
+    } catch (error) {
+      options.signal?.throwIfAborted();
+      warnings.push(
+        `Language-server call corroboration was skipped: ${error instanceof Error ? error.message : error}`,
+      );
+    }
+  }
   const revision = contentHash(
     nodes
       .filter((node) => node.path)
@@ -1072,12 +1094,13 @@ export async function analyzeRepository(
     previous: options.previousSemantic,
     authoredContent,
     symbolCalls,
+    callCorroborations,
   });
   warnings.push(...semantic.warnings);
   return finalizeArchitectureGraph({
     schemaVersion: 1,
     diagramKind: "architecture",
-    analyzerVersion: "polyglot-static-v5",
+    analyzerVersion: "polyglot-static-v6",
     workspaceRoot: root,
     revision,
     generatedAt,

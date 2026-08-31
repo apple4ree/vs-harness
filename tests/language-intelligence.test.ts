@@ -58,6 +58,9 @@ test(
       'from helper import greet\nvalue: int = "invalid"\nprint(greet("witch"))\n';
     await fs.writeFile(path.join(root, "helper.py"), helper);
     await fs.writeFile(path.join(root, "main.py"), main);
+    const runner =
+      'from helper import greet\n\ndef run() -> str:\n    return greet("witch")\n';
+    await fs.writeFile(path.join(root, "runner.py"), runner);
     server.setWorkspace(root);
     const diagnostic = new Promise<any>((resolve, reject) => {
       const timer = setTimeout(
@@ -76,6 +79,7 @@ test(
     });
     await server.sync("helper.py", helper);
     await server.sync("main.py", main);
+    await server.sync("runner.py", runner);
     const errors = await diagnostic;
     assert.equal(errors.language, "python");
     assert(
@@ -100,6 +104,20 @@ test(
     assert(symbols.some((item) => item.name === "greet" && item.depth === 0));
     const hover = await server.hover("main.py", { line: 2, character: 8 });
     assert(hover?.contents.some((item) => item.includes("greet")));
+    const calls = await server.outgoingCalls("runner.py", {
+      line: 2,
+      character: 5,
+    });
+    assert.equal(calls?.caller.name, "run");
+    assert(
+      calls?.outgoing.some(
+        (call) =>
+          call.name === "greet" &&
+          call.path === "helper.py" &&
+          call.fromRanges.some((range) => range.start.line === 3),
+      ),
+      JSON.stringify(calls),
+    );
     const preview = await server.rename(
       "helper.py",
       { line: 0, character: 5 },
@@ -134,6 +152,19 @@ test("Rust language providers reject command-only code actions", async (t) => {
   await fs.writeFile(path.join(root, "main.rs"), source);
   server.setWorkspace(root);
   await server.sync("main.rs", source);
+  server.watchedFiles([
+    { path: "created.rs", type: 1 },
+    { path: "main.rs", type: 2 },
+  ]);
+  let watched = "";
+  for (let attempt = 0; attempt < 40 && !watched; attempt++) {
+    watched = await fs
+      .readFile(path.join(root, "watched-files.txt"), "utf8")
+      .catch(() => "");
+    if (!watched) await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  assert.match(watched, /created\.rs/);
+  assert.match(watched, /"type":1/);
   const actions = await server.codeActions("main.rs", {
     start: { line: 0, character: 10 },
     end: { line: 0, character: 15 },

@@ -13,6 +13,12 @@ import type { SemanticNode } from "../../../shared/semantic";
 export type ArchitectureScope = "modules" | "files" | "focus" | "semantics";
 export type SemanticLens =
   "overview" | "components" | "workflows" | "calls" | "questions" | "verified";
+export type WorkflowViewMode = "graph" | "sequence";
+export type WorkflowProjectionOptions = {
+  focusId?: string | null;
+  mode?: WorkflowViewMode;
+  collapseBranches?: boolean;
+};
 export type CardKind =
   | "module"
   | "file"
@@ -41,6 +47,7 @@ export type CardData = {
   confidence?: number;
   description?: string;
   questions?: number;
+  sequence?: boolean;
 } & Record<string, unknown>;
 export type CardNode = Node<CardData, "component">;
 
@@ -53,9 +60,17 @@ export function buildView(
   changed: Set<string>,
   projection: SourceNeighborhoodProjection | null = null,
   semanticLens: SemanticLens = "overview",
+  workflow: WorkflowProjectionOptions = {},
 ) {
   if (scope === "semantics")
-    return buildSemanticView(graph, external, query, changed, semanticLens);
+    return buildSemanticView(
+      graph,
+      external,
+      query,
+      changed,
+      semanticLens,
+      workflow,
+    );
   const projectedIds = new Set(projection?.nodes.map((node) => node.id) || []);
   const candidates = graph.nodes
     .filter(
@@ -208,6 +223,7 @@ export function buildSemanticView(
   query: string,
   changed: Set<string>,
   lens: SemanticLens = "overview",
+  workflow: WorkflowProjectionOptions = {},
 ) {
   const semantic = graph.semantic;
   if (!semantic) return { nodes: [], edges: [], total: 0, totalEdges: 0 };
@@ -229,14 +245,32 @@ export function buildSemanticView(
       .filter((node) => ["system", "component", "file"].includes(node.kind))
       .forEach((node) => allowed.add(node.id));
   if (lens === "workflows") {
-    available
-      .filter((node) => ["workflow", "workflow-step"].includes(node.kind))
-      .forEach((node) => allowed.add(node.id));
-    for (const relation of semantic.relations)
-      if (allowed.has(relation.from) || allowed.has(relation.to)) {
-        allowed.add(relation.from);
-        allowed.add(relation.to);
-      }
+    const focus = available.find(
+      (node) => node.kind === "workflow" && node.id === workflow.focusId,
+    );
+    if (focus) {
+      allowed.add(focus.id);
+      const children = semantic.relations
+        .filter(
+          (relation) =>
+            relation.kind === "contains" && relation.from === focus.id,
+        )
+        .map((relation) => relation.to);
+      children.forEach((id) => allowed.add(id));
+      if (workflow.mode !== "sequence")
+        for (const relation of semantic.relations)
+          if (allowed.has(relation.from) && relation.kind === "executes")
+            allowed.add(relation.to);
+    } else {
+      available
+        .filter((node) => ["workflow", "workflow-step"].includes(node.kind))
+        .forEach((node) => allowed.add(node.id));
+      for (const relation of semantic.relations)
+        if (allowed.has(relation.from) || allowed.has(relation.to)) {
+          allowed.add(relation.from);
+          if (workflow.mode !== "sequence") allowed.add(relation.to);
+        }
+    }
   }
   if (lens === "calls")
     semantic.relations
@@ -263,9 +297,73 @@ export function buildSemanticView(
       .filter((claim) => claim.trust === "authored")
       .forEach((claim) => allowed.add(claim.subjectId));
   }
+  const hiddenBranches = new Set<string>();
+  const collapsedByGuard = new Map<string, number>();
+  const collapsedContinuations: Array<{ from: string; to: string }> = [];
+  if (lens === "workflows" && workflow.collapseBranches) {
+    const precedence = new Map<string, string[]>();
+    for (const relation of semantic.relations)
+      if (
+        relation.kind === "precedes" &&
+        allowed.has(relation.to) &&
+        !relation.description?.includes("branch convergence")
+      )
+        precedence.set(relation.from, [
+          ...(precedence.get(relation.from) || []),
+          relation.to,
+        ]);
+    const branchStarts = new Map<string, string[]>();
+    for (const relation of semantic.relations)
+      if (
+        relation.kind === "branches-to" &&
+        allowed.has(relation.from) &&
+        allowed.has(relation.to)
+      )
+        branchStarts.set(relation.from, [
+          ...(branchStarts.get(relation.from) || []),
+          relation.to,
+        ]);
+    for (const [guard, rawStarts] of branchStarts) {
+      const starts = [...new Set(rawStarts)];
+      const paths = starts.map((start) => {
+        const reached = new Set<string>();
+        const queue = [start];
+        while (queue.length && reached.size < 100) {
+          const id = queue.shift()!;
+          if (reached.has(id) || !allowed.has(id)) continue;
+          reached.add(id);
+          queue.push(...(precedence.get(id) || []));
+        }
+        return reached;
+      });
+      const frequency = new Map<string, number>();
+      for (const reached of paths)
+        for (const id of reached)
+          frequency.set(id, (frequency.get(id) || 0) + 1);
+      let count = 0;
+      const hiddenForGuard = new Set<string>();
+      for (const [id, occurrences] of frequency)
+        if (starts.length === 1 || occurrences < starts.length) {
+          hiddenBranches.add(id);
+          hiddenForGuard.add(id);
+          count++;
+        }
+      if (count) collapsedByGuard.set(guard, count);
+      for (const relation of semantic.relations)
+        if (
+          relation.kind === "precedes" &&
+          relation.description?.includes("branch convergence") &&
+          hiddenForGuard.has(relation.from) &&
+          allowed.has(relation.to) &&
+          !hiddenForGuard.has(relation.to)
+        )
+          collapsedContinuations.push({ from: guard, to: relation.to });
+    }
+  }
   const candidates = available.filter(
     (node) =>
       allowed.has(node.id) &&
+      !hiddenBranches.has(node.id) &&
       (!normalized ||
         `${node.label} ${node.kind} ${node.description || ""} ${node.path || ""}`
           .toLowerCase()
@@ -281,7 +379,9 @@ export function buildSemanticView(
       position: { x: 0, y: 0 },
       data: {
         label: node.label,
-        subtitle: node.description || node.path || node.kind,
+        subtitle: collapsedByGuard.has(node.id)
+          ? `${node.description || node.path || node.kind} · ${collapsedByGuard.get(node.id)} branch step${collapsedByGuard.get(node.id) === 1 ? "" : "s"} collapsed`
+          : node.description || node.path || node.kind,
         paths,
         kind: node.kind as CardKind,
         count: semantic.relations.filter(
@@ -313,6 +413,7 @@ export function buildSemanticView(
           (question) =>
             question.subjectId === node.id && question.status === "open",
         ).length,
+        sequence: lens === "workflows" && workflow.mode === "sequence",
       },
     };
   });
@@ -321,49 +422,96 @@ export function buildSemanticView(
     inferred: "#a477d3",
     authored: "#c6a56b",
   };
-  const relevantRelations = semantic.relations.filter(
-    (relation) => visible.has(relation.from) && visible.has(relation.to),
-  );
-  const edges: Edge[] = relevantRelations.slice(0, 600).map((relation) => ({
-    id: relation.id,
-    source: relation.from,
-    target: relation.to,
-    type: "smoothstep",
-    markerEnd: {
-      type: MarkerType.ArrowClosed,
-      color: trustColor[relation.trust],
-    },
-    label: relation.kind,
-    data: { count: 1, semantic: true },
-    style: {
-      stroke: trustColor[relation.trust],
-      strokeWidth: relation.status === "conflicting" ? 2.2 : 1.35,
-      strokeDasharray: relation.trust === "inferred" ? "5 4" : undefined,
-    },
-    labelStyle: { fill: "#d4c2e9", fontSize: 9 },
-    labelBgStyle: { fill: "#21162d" },
-  }));
+  const relevantRelations = semantic.relations.filter((relation) => {
+    if (!visible.has(relation.from) || !visible.has(relation.to)) return false;
+    if (lens !== "workflows" || workflow.mode !== "sequence") return true;
+    if (["precedes", "branches-to", "retries"].includes(relation.kind))
+      return true;
+    return (
+      relation.kind === "contains" &&
+      relation.from === workflow.focusId &&
+      relation.to.endsWith(":step")
+    );
+  });
+  const relationEdges: Edge[] = relevantRelations
+    .slice(0, 600)
+    .map((relation) => ({
+      id: relation.id,
+      source: relation.from,
+      target: relation.to,
+      type: "smoothstep",
+      markerEnd: {
+        type: MarkerType.ArrowClosed,
+        color: trustColor[relation.trust],
+      },
+      label: relation.kind,
+      data: { count: 1, semantic: true },
+      style: {
+        stroke: trustColor[relation.trust],
+        strokeWidth: relation.status === "conflicting" ? 2.2 : 1.35,
+        strokeDasharray: relation.trust === "inferred" ? "5 4" : undefined,
+      },
+      labelStyle: { fill: "#d4c2e9", fontSize: 9 },
+      labelBgStyle: { fill: "#21162d" },
+    }));
+  const projectionEdges: Edge[] = [
+    ...new Map(
+      collapsedContinuations.map((continuation) => [
+        `${continuation.from}:${continuation.to}`,
+        continuation,
+      ]),
+    ).values(),
+  ]
+    .filter(
+      (continuation) =>
+        visible.has(continuation.from) && visible.has(continuation.to),
+    )
+    .map((continuation) => ({
+      id: `projection:collapsed:${continuation.from}:${continuation.to}`,
+      source: continuation.from,
+      target: continuation.to,
+      type: "smoothstep",
+      selectable: false,
+      markerEnd: { type: MarkerType.ArrowClosed, color: "#8f6cac" },
+      label: "precedes",
+      data: { count: 1, semantic: true, projection: "collapsed-branch" },
+      style: { stroke: "#8f6cac", strokeWidth: 1.2, strokeDasharray: "2 5" },
+      labelStyle: { fill: "#b69aca", fontSize: 9 },
+      labelBgStyle: { fill: "#21162d" },
+    }));
+  const edges = [...relationEdges, ...projectionEdges];
   const layout = new dagre.graphlib.Graph()
     .setDefaultEdgeLabel(() => ({}))
     .setGraph({
-      rankdir: "LR",
-      ranksep: 110,
-      nodesep: 52,
+      rankdir:
+        lens === "workflows" && workflow.mode === "sequence" ? "TB" : "LR",
+      ranksep: lens === "workflows" && workflow.mode === "sequence" ? 36 : 110,
+      nodesep: lens === "workflows" && workflow.mode === "sequence" ? 38 : 52,
       marginx: 45,
       marginy: 45,
     });
-  nodes.forEach((node) => layout.setNode(node.id, { width: 222, height: 132 }));
+  nodes.forEach((node) =>
+    layout.setNode(node.id, {
+      width: 222,
+      height: lens === "workflows" && workflow.mode === "sequence" ? 92 : 132,
+    }),
+  );
   edges.forEach((edge) => layout.setEdge(edge.source, edge.target));
   dagre.layout(layout);
   nodes.forEach((node) => {
     const position = layout.node(node.id);
-    node.position = { x: position.x - 111, y: position.y - 66 };
+    node.position = {
+      x: position.x - 111,
+      y:
+        position.y -
+        (lens === "workflows" && workflow.mode === "sequence" ? 46 : 66),
+    };
   });
   return {
     nodes,
     edges,
     total: candidates.length,
-    totalEdges: relevantRelations.length,
+    totalEdges: relevantRelations.length + projectionEdges.length,
   };
 }
 

@@ -22,7 +22,28 @@ export type LanguageStatus = {
   message: string;
   providers?: LanguageProviderStatus[];
 };
+export type WatchedFileChange = {
+  path: string;
+  type: 1 | 2 | 3;
+};
 export type SourceLocation = { path: string; start: Position; end: Position };
+export type OutgoingCall = {
+  name: string;
+  path: string;
+  range: Range;
+  selectionRange: Range;
+  fromRanges: Range[];
+};
+export type CallHierarchy = {
+  provider: LanguageProviderId;
+  caller: {
+    name: string;
+    path: string;
+    range: Range;
+    selectionRange: Range;
+  };
+  outgoing: OutgoingCall[];
+};
 export type DocumentSymbol = {
   name: string;
   detail?: string;

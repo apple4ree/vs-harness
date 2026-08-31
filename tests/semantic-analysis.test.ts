@@ -269,6 +269,93 @@ test("authored conflicts remain provisional questions with recommendation first"
   );
 });
 
+test("language-server disagreements preserve both call targets and open a relation question", async (t) => {
+  const root = await fixture(t);
+  const graph = await analyzeRepository(root, {
+    callCorroborator: async ({ nodes, calls }) => {
+      const caller = nodes
+        .find((node) => node.id === "src/main.py")!
+        .symbols.find((symbol) => symbol.name === "run_agent")!;
+      const inferred = nodes
+        .find((node) => node.id === "src/risk.py")!
+        .symbols.find(
+          (symbol) => symbol.name === "validate_limit" && !symbol.containerId,
+        )!;
+      const observed = nodes
+        .find((node) => node.id === "src/risk.py")!
+        .symbols.find((symbol) => symbol.name === "submit_order")!;
+      const call = calls.find(
+        (item) =>
+          item.fromSourceSymbolId === caller.id &&
+          item.toSourceSymbolId === inferred.id,
+      )!;
+      return {
+        observations: [
+          {
+            fromSourceSymbolId: caller.id,
+            inferredToSourceSymbolId: inferred.id,
+            observedToSourceSymbolId: observed.id,
+            status: "conflicting" as const,
+            provider: "pyright" as const,
+            evidence: call.evidence,
+          },
+        ],
+        warnings: [],
+      };
+    },
+  });
+  const semantic = graph.semantic!;
+  const caller = graph.nodes
+    .find((node) => node.id === "src/main.py")!
+    .symbols.find((symbol) => symbol.name === "run_agent")!;
+  const inferred = graph.nodes
+    .find((node) => node.id === "src/risk.py")!
+    .symbols.find(
+      (symbol) => symbol.name === "validate_limit" && !symbol.containerId,
+    )!;
+  const observed = graph.nodes
+    .find((node) => node.id === "src/risk.py")!
+    .symbols.find((symbol) => symbol.name === "submit_order")!;
+  const inferredRelation = semantic.relations.find(
+    (relation) =>
+      relation.kind === "calls" &&
+      relation.from === `semantic:symbol:${caller.id}` &&
+      relation.to === `semantic:symbol:${inferred.id}`,
+  )!;
+  const observedRelation = semantic.relations.find(
+    (relation) =>
+      relation.kind === "calls" &&
+      relation.from === `semantic:symbol:${caller.id}` &&
+      relation.to === `semantic:symbol:${observed.id}`,
+  )!;
+  assert.equal(inferredRelation.status, "conflicting");
+  assert.equal(observedRelation.status, "corroborated");
+  const question = semantic.questions.find((item) =>
+    item.relationIds?.includes(inferredRelation.id),
+  )!;
+  assert.deepEqual(
+    question.relationIds,
+    [inferredRelation.id, observedRelation.id].sort(),
+  );
+  assert.match(question.recommendation, /pyright call hierarchy/);
+});
+
+test("optional call corroboration failure preserves the source graph", async (t) => {
+  const root = await fixture(t);
+  const graph = await analyzeRepository(root, {
+    callCorroborator: async () => {
+      throw new Error("provider unavailable");
+    },
+  });
+  assert.equal(graph.semantic?.validation.valid, true);
+  assert(
+    graph.semantic?.relations.some((relation) => relation.kind === "calls"),
+  );
+  assert(
+    graph.warnings.some((warning) => warning.includes("provider unavailable")),
+  );
+});
+
 test("semantic revisions are stable for identical scans and record source changes", async (t) => {
   const root = await fixture(t);
   const service = new RepositoryAnalysisService();
@@ -328,6 +415,52 @@ test("meaning view exposes trust, workflow hierarchy, and source context", async
   assert(workflows.nodes.some((node) => node.data.kind === "workflow-step"));
   assert(workflows.nodes.some((node) => node.data.kind === "symbol"));
   assert(workflows.edges.some((edge) => edge.label === "executes"));
+  const workflow = graph.semantic!.nodes.find(
+    (node) => node.kind === "workflow" && node.label.includes("run_agent"),
+  )!;
+  const focused = buildSemanticView(graph, false, "", new Set(), "workflows", {
+    focusId: workflow.id,
+    mode: "graph",
+  });
+  assert.equal(
+    focused.nodes.filter((node) => node.data.kind === "workflow").length,
+    1,
+  );
+  const sequence = buildSemanticView(graph, false, "", new Set(), "workflows", {
+    focusId: workflow.id,
+    mode: "sequence",
+  });
+  assert.equal(
+    sequence.nodes.some((node) => node.data.kind === "symbol"),
+    false,
+  );
+  assert(
+    sequence.edges.every((edge) =>
+      ["contains", "precedes", "branches-to", "retries"].includes(
+        String(edge.label),
+      ),
+    ),
+  );
+  const collapsed = buildSemanticView(
+    graph,
+    false,
+    "",
+    new Set(),
+    "workflows",
+    { focusId: workflow.id, mode: "sequence", collapseBranches: true },
+  );
+  assert(collapsed.nodes.length < sequence.nodes.length);
+  assert(
+    collapsed.nodes.some((node) => node.data.subtitle.includes("branch step")),
+  );
+  assert(
+    collapsed.nodes.some((node) => node.data.label.includes("retry_attempt")),
+    "collapsing a single-arm branch must preserve the post-branch retry flow",
+  );
+  assert(
+    collapsed.edges.some((edge) => edge.id.startsWith("projection:collapsed:")),
+    "a collapsed branch should retain a display-only continuation edge",
+  );
   const calls = buildSemanticView(graph, false, "", new Set(), "calls");
   assert(calls.nodes.every((node) => node.data.kind === "symbol"));
   assert(calls.edges.some((edge) => edge.label === "calls"));

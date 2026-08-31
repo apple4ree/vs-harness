@@ -26,6 +26,11 @@ async function receive(message) {
     send({ id: message.id, result: { capabilities: {} } });
   else if (message.method === "textDocument/didOpen")
     uri = message.params.textDocument.uri;
+  else if (message.method === "workspace/didChangeWatchedFiles")
+    await appendFile(
+      "watched-files.txt",
+      JSON.stringify(message.params.changes) + "\n",
+    );
   else if (message.method === "textDocument/codeAction")
     send({
       id: message.id,

@@ -115,6 +115,59 @@
   color: #c9b2df;
   font-size: 9px;
 }
+.workflow-view-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.workflow-projection-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 38px;
+  padding: 6px 14px;
+  border-bottom: 1px solid #3c2b4f;
+  background: #181020;
+  color: #b895d5;
+  font-size: 9px;
+}
+.workflow-projection-bar > span {
+  flex: 0 0 auto;
+  color: #d7b8ef;
+  font-family: Georgia, serif;
+  letter-spacing: 0.03em;
+}
+.workflow-projection-bar > small {
+  min-width: 0;
+  overflow: hidden;
+  margin-left: auto;
+  color: #7f6e8f;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workflow-view-controls select,
+.workflow-view-controls button,
+.semantic-lens {
+  border: 1px solid #513965;
+  border-radius: 5px;
+  padding: 5px 6px;
+  background: #1d1328;
+  color: #c9b2df;
+  font-size: 9px;
+}
+.workflow-view-controls select:first-child {
+  width: min(240px, 28vw);
+  text-overflow: ellipsis;
+}
+.workflow-view-controls button {
+  white-space: nowrap;
+}
+.workflow-view-controls button.active {
+  border-color: #a579d1;
+  background: #3a2450;
+  color: #f0dcff;
+}
 .graph-breadcrumb {
   display: flex;
   align-items: center;
@@ -228,6 +281,19 @@
   padding: 11px 13px;
   box-shadow: 0 5px 20px #0004;
   color: #e8def4;
+}
+.architecture-card.is-sequence {
+  min-height: 78px;
+  padding: 8px 11px;
+}
+.architecture-card.is-sequence .architecture-card-top {
+  margin-bottom: 5px;
+}
+.architecture-card.is-sequence > small {
+  max-width: 190px;
+}
+.architecture-card.is-sequence footer {
+  margin-top: 6px;
 }
 .architecture-card.is-selected {
   border-color: #c899ff;
@@ -402,6 +468,13 @@
 }
 .architecture-workspace:has(.graph-trace-bar) .component-details {
   top: 92px;
+}
+.architecture-workspace:has(.workflow-projection-bar) .component-details {
+  top: 95px;
+}
+.architecture-workspace:has(.workflow-projection-bar):has(.graph-trace-bar)
+  .component-details {
+  top: 130px;
 }
 .component-details header {
   display: flex;

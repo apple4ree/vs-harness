@@ -23,7 +23,7 @@ import {
 } from "../../shared/semantic-ir";
 import { contentHash } from "./workspace-files";
 
-export const SEMANTIC_ANALYZER_VERSION = "semantic-static-v3";
+export const SEMANTIC_ANALYZER_VERSION = "semantic-static-v4";
 export const SEMANTIC_POLICY_VERSION = "agent-finance-v1";
 
 export type ResolvedSymbolCall = {
@@ -34,6 +34,15 @@ export type ResolvedSymbolCall = {
   confidence?: number;
   resolver?: "typescript" | "python-static" | "rust-static";
   sites?: ResolvedCallSite[];
+};
+
+export type SymbolCallCorroboration = {
+  fromSourceSymbolId: string;
+  inferredToSourceSymbolId: string;
+  observedToSourceSymbolId: string;
+  status: "corroborated" | "conflicting";
+  provider: "pyright" | "rust-analyzer";
+  evidence: SourceEvidence[];
 };
 
 export type ResolvedCallControl = {
@@ -303,6 +312,7 @@ export function buildSemanticGraph({
   previous,
   authoredContent,
   symbolCalls = [],
+  callCorroborations = [],
 }: {
   workspaceRoot: string;
   sourceRevision: string;
@@ -312,6 +322,7 @@ export function buildSemanticGraph({
   previous?: SemanticGraph | null;
   authoredContent?: string | null;
   symbolCalls?: ResolvedSymbolCall[];
+  callCorroborations?: SymbolCallCorroboration[];
 }): { graph: SemanticGraph; warnings: string[] } {
   const warnings: string[] = [];
   const nodes: SemanticNode[] = [];
@@ -474,12 +485,13 @@ export function buildSemanticGraph({
       });
     }
 
+  const callRelations = new Map<string, SemanticRelation>();
   for (const call of symbolCalls) {
     const from = semanticSymbols.get(call.fromSourceSymbolId);
     const to = semanticSymbols.get(call.toSourceSymbolId);
     if (!from || !to || !call.evidence.length) continue;
     const trust = call.trust || "verified";
-    relations.push({
+    const relation: SemanticRelation = {
       id: `semantic:calls:${from}:${to}`,
       from,
       to,
@@ -495,6 +507,83 @@ export function buildSemanticGraph({
             : "TypeScript compiler-resolved direct identifier call.",
       evidence: call.evidence,
       provenance: trust === "verified" ? staticProvenance : inferredProvenance,
+    };
+    relations.push(relation);
+    callRelations.set(
+      `${call.fromSourceSymbolId}:${call.toSourceSymbolId}`,
+      relation,
+    );
+  }
+
+  const callQuestions: SemanticOpenQuestion[] = [];
+  for (const observation of callCorroborations) {
+    const from = semanticSymbols.get(observation.fromSourceSymbolId);
+    const inferredTo = semanticSymbols.get(
+      observation.inferredToSourceSymbolId,
+    );
+    const observedTo = semanticSymbols.get(
+      observation.observedToSourceSymbolId,
+    );
+    const inferredRelation = callRelations.get(
+      `${observation.fromSourceSymbolId}:${observation.inferredToSourceSymbolId}`,
+    );
+    if (!from || !inferredTo || !observedTo || !inferredRelation) continue;
+    if (observation.status === "corroborated") {
+      inferredRelation.status = "corroborated";
+      inferredRelation.confidence = Math.max(inferredRelation.confidence, 0.95);
+      inferredRelation.description = `${inferredRelation.description || "Static call candidate."} ${observation.provider} call hierarchy independently resolves the same internal target.`;
+      continue;
+    }
+    inferredRelation.status = "conflicting";
+    inferredRelation.description = `${inferredRelation.description || "Static call candidate."} ${observation.provider} resolves the same unambiguous source line to a different internal target.`;
+    let observedRelation = callRelations.get(
+      `${observation.fromSourceSymbolId}:${observation.observedToSourceSymbolId}`,
+    );
+    if (!observedRelation) {
+      observedRelation = {
+        id: `semantic:calls:${from}:${observedTo}`,
+        from,
+        to: observedTo,
+        kind: "calls",
+        trust: "inferred",
+        status: "corroborated",
+        confidence: 0.94,
+        description: `${observation.provider} call hierarchy resolves this internal target, while Witch's conservative source binder selected another candidate. Runtime dispatch remains unobserved.`,
+        evidence: observation.evidence,
+        provenance: {
+          source: "language-server",
+          analyzer: `${observation.provider}-call-hierarchy`,
+          policy: SEMANTIC_POLICY_VERSION,
+        },
+      };
+      relations.push(observedRelation);
+      callRelations.set(
+        `${observation.fromSourceSymbolId}:${observation.observedToSourceSymbolId}`,
+        observedRelation,
+      );
+    } else {
+      observedRelation.status = "corroborated";
+      observedRelation.confidence = Math.max(observedRelation.confidence, 0.94);
+      observedRelation.description = `${observedRelation.description || "Static call candidate."} ${observation.provider} call hierarchy independently resolves this target.`;
+    }
+    const callerLabel = nodes.find((node) => node.id === from)?.label || from;
+    const inferredLabel =
+      nodes.find((node) => node.id === inferredTo)?.label || inferredTo;
+    const observedLabel =
+      nodes.find((node) => node.id === observedTo)?.label || observedTo;
+    callQuestions.push({
+      id: `semantic:question:call:${contentHash(`${inferredRelation.id}:${observedRelation.id}`).slice(0, 20)}`,
+      subjectId: from,
+      claimIds: [],
+      relationIds: [inferredRelation.id, observedRelation.id],
+      prompt: `${callerLabel} has conflicting static targets on one source line. Should the active model use Witch's source candidate or ${observation.provider}'s resolved target?`,
+      recommendation: `${observedLabel} (${observation.provider} call hierarchy)`,
+      options: [
+        `${observedLabel} (${observation.provider} call hierarchy)`,
+        `${inferredLabel} (Witch source binder)`,
+      ],
+      status: "open",
+      evidence: observation.evidence,
     });
   }
 
@@ -1009,7 +1098,7 @@ export function buildSemanticGraph({
   }
   const reconciled = reconcileSemanticClaims(inferredClaims, authoredClaims);
   const claims = reconciled.claims;
-  const questions = reconciled.questions;
+  const questions = [...reconciled.questions, ...callQuestions];
   const core = {
     analyzerVersion: SEMANTIC_ANALYZER_VERSION,
     policyVersion: SEMANTIC_POLICY_VERSION,

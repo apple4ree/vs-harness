@@ -60,7 +60,7 @@ export type WorkflowStepKind =
   | "cancel";
 
 export type SemanticProvenance = {
-  source: "static-analysis" | "heuristic" | "authored";
+  source: "static-analysis" | "heuristic" | "language-server" | "authored";
   analyzer: string;
   policy: string;
   model?: string;
@@ -113,6 +113,7 @@ export type SemanticOpenQuestion = {
   id: string;
   subjectId: string;
   claimIds: string[];
+  relationIds?: string[];
   prompt: string;
   recommendation: string;
   options: string[];

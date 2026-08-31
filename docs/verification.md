@@ -4,21 +4,21 @@
 
 이 문서는 실제로 실행한 검증과 아직 실행하지 못한 검증을 구분합니다. VS Code 기능 전체 또는 모든 저장소에 대한 호환성을 보증하지 않습니다.
 
-## Toolchain · Python debug · Polyglot calls/workflow · Meaning/Agent 연속 구현
+## Call hierarchy corroboration · focused Workflow UI · LSP file watching
 
-`feature/python-rust-language-intelligence`의 현재 작업 트리에서 프로젝트별 Python 환경 선택, Python/Rust Task, Python/debugpy DAP, 여섯 Meaning 렌즈, TS/JS verified call, Python/Rust inferred call, provisional 순서·분기·재시도와 semantic Agent dossier를 함께 검증한 결과입니다.
+`feature/python-rust-language-intelligence`의 현재 작업 트리에서 Pyright/optional rust-analyzer call hierarchy 교차 검증, relation-backed OpenQuestion, 한 Workflow 집중, Graph/Sequence 전환, branch-only collapse와 LSP 파일 감시 알림을 기존 ADE 기능과 함께 검증한 결과입니다.
 
-| 검증                                                                 | 결과       | 범위                                                                                                                        |
-| -------------------------------------------------------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `npm run typecheck`                                                  | 통과       | toolchain/debug/semantic main·preload·renderer 계약                                                                         |
-| `npm test`                                                           | 79개 통과  | Python/Rust alias·local call, comment/string·dynamic dispatch 제외, branch/retry evidence, stable revision과 전체 단위 회귀 |
-| `npm run build`                                                      | 통과       | main 35개, preload 2개, renderer 3,273개 module의 production bundle                                                         |
-| `npm run test:e2e`                                                   | 23개 통과  | 실제 Electron에서 polyglot Calls, Workflows `precedes`/`branches-to`/`retries` inspector와 기존 ADE 전체 흐름               |
-| `npm run benchmark -- 5000`                                          | 통과       | 5,000 TS 파일/4,999 import, cold 8,868 ms, cached 7,817 ms, one-file change 7,673 ms, layout 87 ms, peak RSS 298 MB         |
-| `npm run smoke:python-debug -- <temporary-venv-python> <fixture.py>` | 통과       | 임시 venv의 debugpy 1.8.21로 production DAP 경로의 breakpoint, frame, `price`/`symbol` 변수 확인                            |
-| `npm audit --json`                                                   | 취약점 0건 | 현재 lockfile의 505개 production/dev/optional/peer dependency                                                               |
+| 검증                                                                 | 결과       | 범위                                                                                                                                                                 |
+| -------------------------------------------------------------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm run typecheck`                                                  | 통과       | call hierarchy/LSP watcher/semantic main·renderer 계약                                                                                                               |
+| `npm test`                                                           | 82개 통과  | 실제 Pyright call hierarchy, 가짜 provider의 match/conflict, fail-open fallback, relation 질문, focused sequence/branch collapse, watched-file 알림과 전체 단위 회귀 |
+| `npm run build`                                                      | 통과       | main 36개, preload 2개, renderer 3,273개 module의 production bundle                                                                                                  |
+| `npm run test:e2e`                                                   | 23개 통과  | 실제 Electron에서 workflow focus/sequence/collapse, 분석 이후 생성된 Python 파일 navigation과 기존 ADE 전체 흐름                                                     |
+| `npm run benchmark -- 5000`                                          | 통과       | 5,000 TS 파일/4,999 import, cold 8,868 ms, cached 7,817 ms, one-file change 7,673 ms, layout 87 ms, peak RSS 298 MB                                                  |
+| `npm run smoke:python-debug -- <temporary-venv-python> <fixture.py>` | 통과       | 임시 venv의 debugpy 1.8.21로 production DAP 경로의 breakpoint, frame, `price`/`symbol` 변수 확인                                                                     |
+| `npm audit --json`                                                   | 취약점 0건 | 현재 lockfile의 505개 production/dev/optional/peer dependency                                                                                                        |
 
-Python smoke용 임시 venv는 검증 뒤 제거했습니다. Python 환경 탐색은 후보를 실행하지 않으며 debugpy를 자동 설치하지 않습니다. Python/Rust call/workflow 분석도 프로젝트를 import·compile·execute하지 않고 bounded source만 읽습니다. Rust는 이 PC에 rust-analyzer/debug adapter가 없어 실제 LSP call-hierarchy corroboration·디버깅을 주장하지 않습니다. Electron 검증은 로컬 `test-results/witch-polyglot-workflow.png`를 생성했습니다. 이번 검증은 Windows source build이며, 현재 변경을 포함하는 Windows/macOS package와 GitHub Actions 결과는 아직 만들지 않았습니다.
+Python smoke용 임시 venv는 검증 뒤 제거했습니다. Python 환경 탐색은 후보를 실행하지 않으며 debugpy를 자동 설치하지 않습니다. Python/Rust call/workflow 분석과 corroboration은 프로젝트를 import·compile·execute하지 않고 bounded source/LSP만 사용합니다. 실제 번들 Pyright의 `prepareCallHierarchy`/`outgoingCalls`와 새 파일 `didChangeWatchedFiles` 경로는 검증했습니다. 이 PC에는 rust-analyzer/debug adapter가 없어 Rust 실제 call hierarchy·디버깅을 주장하지 않으며, 대신 설치 감지·명령 차단·provider 응답 계약을 검증했습니다. Electron 검증은 `test-results/witch-workflow-sequence-focus.png`를 생성했습니다. 이번 검증은 Windows source build이며, 현재 변경을 포함하는 Windows/macOS package와 GitHub Actions 결과는 아직 만들지 않았습니다.
 
 ## Workspace Intelligence v0 — 기능 브랜치
 

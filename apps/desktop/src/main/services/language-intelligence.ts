@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import type {
   CodeAction,
+  CallHierarchy,
   Completion,
   DocumentSymbol,
   HoverInfo,
@@ -15,6 +16,7 @@ import type {
   SignatureContext,
   SignatureHelpInfo,
   SourceLocation,
+  WatchedFileChange,
 } from "../../shared/language";
 import { LanguageServer } from "./language-server";
 
@@ -134,6 +136,10 @@ export class LanguageIntelligence extends EventEmitter {
     if (server) await server.close(relative);
   }
 
+  watchedFiles(changes: WatchedFileChange[]) {
+    for (const server of this.servers) server.watchedFiles(changes);
+  }
+
   completion(relative: string, position: Position): Promise<Completion[]> {
     return this.serverFor(relative).completion(relative, position);
   }
@@ -160,6 +166,13 @@ export class LanguageIntelligence extends EventEmitter {
     position: Position,
   ): Promise<SourceLocation[]> {
     return this.serverFor(relative).locations(kind, relative, position);
+  }
+
+  outgoingCalls(
+    relative: string,
+    position: Position,
+  ): Promise<CallHierarchy | null> {
+    return this.serverFor(relative).outgoingCalls(relative, position);
   }
 
   documentSymbols(relative: string): Promise<DocumentSymbol[]> {

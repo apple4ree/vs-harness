@@ -22,8 +22,10 @@ import type {
   SignatureHelpInfo,
   SignatureContext,
   DocumentSymbol,
+  CallHierarchy,
   LanguageProviderId,
   LanguageProviderStatus,
+  WatchedFileChange,
 } from "../../shared/language";
 
 export type LanguageServerOptions = {
@@ -343,6 +345,7 @@ export class LanguageServer extends EventEmitter {
               },
               definition: { linkSupport: true },
               references: {},
+              callHierarchy: { dynamicRegistration: false },
               documentSymbol: { hierarchicalDocumentSymbolSupport: true },
               rename: { prepareSupport: true },
               codeAction: {
@@ -361,6 +364,7 @@ export class LanguageServer extends EventEmitter {
             workspace: {
               configuration: true,
               applyEdit: true,
+              didChangeWatchedFiles: { dynamicRegistration: false },
               workspaceEdit: { documentChanges: true },
             },
           },
@@ -443,6 +447,26 @@ export class LanguageServer extends EventEmitter {
     ).toString();
     if (this.documents.delete(uri))
       this.rpc!.notify("textDocument/didClose", { textDocument: { uri } });
+  }
+  watchedFiles(changes: WatchedFileChange[]) {
+    if (!this.connected || !this.rpc || !this.root || !changes.length) return;
+    const root = this.root;
+    const safe = changes.slice(0, 500).flatMap((change) => {
+      try {
+        const relative = normalizedRelative(change.path);
+        if (![1, 2, 3].includes(change.type)) return [];
+        return [
+          {
+            uri: pathToFileURL(path.join(root, relative)).toString(),
+            type: change.type,
+          },
+        ];
+      } catch {
+        return [];
+      }
+    });
+    if (safe.length)
+      this.rpc.notify("workspace/didChangeWatchedFiles", { changes: safe });
   }
   private async documentParams(relative: string, position: Position) {
     if (!this.supports(relative))
@@ -668,6 +692,100 @@ export class LanguageServer extends EventEmitter {
           : [];
       },
     );
+  }
+  async outgoingCalls(
+    relative: string,
+    position: Position,
+  ): Promise<CallHierarchy | null> {
+    const params = await this.documentParams(relative, position);
+    const rpc = this.rpc!;
+    const document = this.documents.get(params.textDocument.uri)!;
+    const version = document.version;
+    const prepared = await rpc.request(
+      "textDocument/prepareCallHierarchy",
+      params,
+      5_000,
+    );
+    if (
+      this.rpc !== rpc ||
+      this.documents.get(params.textDocument.uri) !== document ||
+      document.version !== version
+    )
+      return null;
+    const item = (
+      Array.isArray(prepared) ? prepared : prepared ? [prepared] : []
+    ).find(
+      (candidate: any) =>
+        candidate &&
+        typeof candidate.name === "string" &&
+        this.relative(candidate.uri || "") &&
+        candidate.range &&
+        candidate.selectionRange,
+    );
+    if (!item) return null;
+    const result = await rpc.request(
+      "callHierarchy/outgoingCalls",
+      { item },
+      5_000,
+    );
+    if (
+      this.rpc !== rpc ||
+      this.documents.get(params.textDocument.uri) !== document ||
+      document.version !== version
+    )
+      return null;
+    const validPosition = (value: any) =>
+      value &&
+      Number.isInteger(value.line) &&
+      value.line >= 0 &&
+      Number.isInteger(value.character) &&
+      value.character >= 0;
+    const validRange = (value: any): value is Range =>
+      value && validPosition(value.start) && validPosition(value.end);
+    const callerPath = this.relative(item.uri || "");
+    if (
+      !callerPath ||
+      !validRange(item.range) ||
+      !validRange(item.selectionRange)
+    )
+      return null;
+    const outgoing = (Array.isArray(result) ? result : [])
+      .slice(0, 500)
+      .flatMap((call: any) => {
+        const target = call?.to;
+        const targetPath = this.relative(target?.uri || "");
+        if (
+          !targetPath ||
+          typeof target.name !== "string" ||
+          !validRange(target.range) ||
+          !validRange(target.selectionRange)
+        )
+          return [];
+        const fromRanges = (
+          Array.isArray(call.fromRanges) ? call.fromRanges : []
+        )
+          .filter(validRange)
+          .slice(0, 100);
+        return [
+          {
+            name: target.name.slice(0, 500),
+            path: targetPath,
+            range: target.range,
+            selectionRange: target.selectionRange,
+            fromRanges,
+          },
+        ];
+      });
+    return {
+      provider: this.id,
+      caller: {
+        name: item.name.slice(0, 500),
+        path: callerPath,
+        range: item.range,
+        selectionRange: item.selectionRange,
+      },
+      outgoing,
+    };
   }
   async documentSymbols(relative: string): Promise<DocumentSymbol[]> {
     const params = await this.documentParams(relative, {

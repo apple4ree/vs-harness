@@ -40,6 +40,7 @@ If Rust tooling is absent, TypeScript and Python remain available and the UI rep
 ## Safety boundaries
 
 - LSP documentation is untrusted Markdown with HTML and command trust disabled.
+- The workspace watcher forwards bounded `workspace/didChangeWatchedFiles` create/change/delete notifications to already-connected providers; it does not start a provider merely because a file changed.
 - Definitions, references and refactor edits must resolve inside the active workspace.
 - Documents and resulting edits retain existing Witch file and total-size bounds.
 - Document symbols are limited to 500 entries and 20 nesting levels.
@@ -54,4 +55,4 @@ If Rust tooling is absent, TypeScript and Python remain available and the UI rep
 - Python candidates from `.venv`, `venv`, `env`, active Conda and the system path are discovered without executing them. Witch stores an explicit per-project selection outside the repository and sends the active absolute interpreter path to Pyright.
 - Rust requires a separately installed `rust-analyzer` and has not been executed on this Windows development host because the tool is absent.
 - Python/Rust formatter and test commands are available as confirmed Tasks, and Python uses a bounded debugpy DAP adapter. A test explorer and Rust debugger adapter are not yet implemented.
-- The architecture analyzer produces compiler-verified TypeScript/JavaScript direct calls and conservative inferred Python/Rust internal call candidates. Explicit branch arms and retry-like loops/decorators feed a provisional workflow control-flow projection. It does not yet consume Pyright/rust-analyzer call hierarchy or any provider's type hierarchy; those providers are the next corroboration bridge into the Semantic Graph.
+- The architecture analyzer produces compiler-verified TypeScript/JavaScript direct calls and conservative inferred Python/Rust internal call candidates. A bounded second pass consumes Pyright and installed rust-analyzer call hierarchy: matches become inferred/corroborated, while a one-line unambiguous mismatch preserves both targets and creates an OpenQuestion. Absence remains provisional. Explicit branch arms and retry-like loops/decorators feed a workflow projection with workflow focus, graph/sequence modes, and reversible branch-only collapsing. Provider type hierarchy and runtime traces are not yet consumed.

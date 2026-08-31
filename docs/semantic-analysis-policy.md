@@ -3,10 +3,10 @@
 > Python · Rust · TypeScript를 중심으로 한 Agent/금융 시스템 분석 계약
 
 - 결정일: 2026-08-30
-- 상태: v1 공통 IR·polyglot call·정적 workflow control-flow·Meaning UI 구현, 심층 corroboration adapter는 진행 중
+- 상태: v1 공통 IR·polyglot call·정적 workflow control-flow·bounded Pyright/rust-analyzer corroboration·focused workflow UI 구현
 - 범위: 구조 분석, Workflow, Inferred/Authored 대조, 자동 승인과 이력
-- 현재 구현: `witch.semantic/v1`, Python/Rust/TS 심볼, 확인된 containment/import/export와 TS/JS direct call, Python/Rust inferred call, provisional `precedes`/`branches-to`/`retries`, Authored 충돌 질문, revision delta, Meaning 렌즈, 검증된 Agent dossier
-- 다음 범위: Pyright/rust-analyzer call hierarchy corroboration, framework adapter, authored/observed ordering, runtime trace, GUI question resolution
+- 현재 구현: `witch.semantic/v1`, Python/Rust/TS 심볼, 확인된 containment/import/export와 TS/JS direct call, Python/Rust inferred call 및 bounded LSP corroboration, relation/claim 충돌 질문, provisional `precedes`/`branches-to`/`retries`, focused graph/sequence/branch-collapse Workflows, revision delta, Meaning 렌즈, 검증된 Agent dossier
+- 다음 범위: framework adapter, authored/observed ordering, runtime trace, GUI question resolution, provider type hierarchy
 
 ## 1. 결정 요약
 
@@ -121,7 +121,7 @@ Conflict detected
 | `Artifact`       | message, order, quote, feature, position 등 흐르는 값 |
 | `ExternalSystem` | broker, exchange, model provider, database, API       |
 | `Evidence`       | file range, config, test, trace, log 등 근거          |
-| `OpenQuestion`   | 아직 해결되지 않은 Authored/Inferred 충돌             |
+| `OpenQuestion`   | 아직 해결되지 않은 claim 또는 relation 충돌           |
 
 ### 3.2 공통 관계
 
@@ -392,6 +392,8 @@ Options
 
 질문이 해결되기 전까지 AI는 recommended inference를 사용할 수 있지만, Agent context에는 반드시 `provisional`, question ID와 반대 evidence를 함께 전달한다.
 
+OpenQuestion은 claim 충돌이면 `claimIds`, source binder와 language-server target 충돌이면 `relationIds`로 양쪽을 참조한다. LSP 응답 부재나 다중 target이 있는 모호한 한 줄은 질문을 만들지 않는다.
+
 ## 8. 자동 승인 정책
 
 ### 8.1 기본값
@@ -533,13 +535,13 @@ inference:
 - Inferred/Authored 대조와 추천 우선 OpenQuestion
 - 동일 분석 중복을 만들지 않는 부모 revision/delta 기록
 - 6개 Meaning 렌즈와 claim/evidence/reasoning inspector
-- TypeChecker-resolved TS/JS direct call, Python/Rust inferred call과 provisional Workflow control-flow
+- TypeChecker-resolved TS/JS direct call, Python/Rust inferred/corroborated/conflicting call과 provisional Workflow control-flow
 - 검증된 Meaning 선택을 source 범위와 semantic dossier로 Agent에 전달
 
 다음 심층 단계에는 아래 항목이 필요하다.
 
-1. Pyright와 rust-analyzer의 bounded call hierarchy corroboration adapter
-2. Agent/금융 framework registration adapter
+1. Agent/금융 framework registration adapter
+2. provider type hierarchy와 cross-language bridge
 3. authored/observed Workflow 순서·선택 branch·error contract
 4. OpenQuestion 답변과 상태 전이 UI
 5. semantic auto-approval rollback

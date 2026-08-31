@@ -266,7 +266,7 @@ export class AgentService extends EventEmitter {
       revision: semantic.revision,
       sourceRevision: semantic.sourceRevision,
       boundary:
-        "Verified, inferred, and authored items remain distinct. Static workflow order, branch membership, and retry structure are provisional control-flow evidence, not runtime proof.",
+        "Verified, inferred, and authored items remain distinct. Language-server corroboration is a second static observer, not runtime proof. Static workflow order, branch membership, and retry structure remain provisional control-flow evidence.",
       selected: [...selected],
       nodes,
       relations: semantic.relations
@@ -307,7 +307,12 @@ export class AgentService extends EventEmitter {
         )
         .slice(0, 30)
         .map((question) => ({
+          id: question.id,
           subjectId: question.subjectId,
+          claimIds: question.claimIds,
+          ...(question.relationIds
+            ? { relationIds: question.relationIds }
+            : {}),
           prompt: question.prompt,
           recommendation: question.recommendation,
           options: question.options,

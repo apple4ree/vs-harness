@@ -8,6 +8,7 @@ import type { SemanticGraph } from "../../shared/semantic";
 
 type Pending = {
   root: string;
+  callCorroborator?: AnalysisOptions["callCorroborator"];
   resolve: (graph: ArchitectureGraph) => void;
   reject: (reason: unknown) => void;
 };
@@ -26,11 +27,19 @@ export class RepositoryAnalysisService {
       options: AnalysisOptions,
     ) => Promise<ArchitectureGraph> = analyzeRepository,
   ) {}
-  analyze(root: string) {
+  analyze(
+    root: string,
+    options: Pick<AnalysisOptions, "callCorroborator"> = {},
+  ) {
     if (this.closed)
       return Promise.reject(new Error("Repository analyzer is closed"));
     return new Promise<ArchitectureGraph>((resolve, reject) => {
-      this.pending.push({ root, resolve, reject });
+      this.pending.push({
+        root,
+        callCorroborator: options.callCorroborator,
+        resolve,
+        reject,
+      });
       if (this.running && root !== this.currentRoot)
         this.controller?.abort(
           new Error("Analysis superseded by a different project"),
@@ -62,6 +71,7 @@ export class RepositoryAnalysisService {
             cache: this.cache,
             signal: this.controller.signal,
             previousSemantic: this.previousSemantic,
+            callCorroborator: all.at(-1)!.callCorroborator,
           });
           this.controller.signal.throwIfAborted();
           this.previousSemantic = graph.semantic || null;

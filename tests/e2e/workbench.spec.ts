@@ -387,6 +387,28 @@ test("architecture edges and drag-to-chat source context work in Electron", asyn
   );
   await expect(page.locator(".semantic-inspector")).toContainText("retries");
   await page.screenshot({ path: "test-results/witch-polyglot-workflow.png" });
+  await page
+    .getByLabel("Workflow focus")
+    .selectOption({ label: "run_agent workflow" });
+  await page.getByLabel("Workflow view mode").selectOption("sequence");
+  await expect(page.getByLabel("Workflow view mode")).toHaveValue("sequence");
+  const expandedWorkflowSteps = await page
+    .locator(".architecture-card")
+    .count();
+  await page.getByLabel("Collapse workflow branches").click();
+  await expect(page.getByLabel("Collapse workflow branches")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(
+    page.locator(".architecture-card").filter({ hasText: "branch step" }),
+  ).toContainText(/branch steps? collapsed/);
+  expect(await page.locator(".architecture-card").count()).toBeLessThan(
+    expandedWorkflowSteps,
+  );
+  await page.screenshot({
+    path: "test-results/witch-workflow-sequence-focus.png",
+  });
   await page.getByLabel("Meaning lens").selectOption("components");
   await expect(semanticComponent).toBeVisible();
   await semanticComponent.click();
@@ -659,17 +681,23 @@ test("Pyright powers Python diagnostics, navigation and the visible outline", as
   await expect(page.locator(".problems-list").first()).toContainText(
     "not assignable",
   );
-  const definition = await page.evaluate(() =>
-    window.witch.lsp.definition(
-      "use_model.py",
-      { line: 2, character: 8 },
-      undefined,
-    ),
-  );
-  expect(definition[0]).toMatchObject({
-    path: "model.py",
-    start: { line: 0 },
-  });
+  await expect
+    .poll(async () => {
+      const definition = await page.evaluate(() =>
+        window.witch.lsp.definition(
+          "use_model.py",
+          { line: 2, character: 8 },
+          undefined,
+        ),
+      );
+      return definition[0]
+        ? {
+            path: definition[0].path,
+            line: definition[0].start.line,
+          }
+        : null;
+    })
+    .toEqual({ path: "model.py", line: 0 });
   await files.getByRole("button", { name: "model.py", exact: true }).click();
   await expect(page.locator(".outline-list")).toContainText("forecast", {
     timeout: 15_000,

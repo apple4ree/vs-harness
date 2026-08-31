@@ -19,6 +19,7 @@ import pty, { IPty } from "node-pty";
 import chokidar, { type FSWatcher } from "chokidar";
 import { searchRepository } from "./services/workspace-search";
 import { RepositoryAnalysisService } from "./services/repository-analysis";
+import { corroborateSymbolCalls } from "./services/call-corroboration";
 import { LanguageServer } from "./services/language-server";
 import {
   findRustAnalyzerExecutable,
@@ -892,7 +893,10 @@ async function createTerminalSession(
 
 async function updateArchitecture(root: string): Promise<ArchitectureGraph> {
   const generation = ++graphGeneration;
-  const graph = await repositoryAnalysis.analyze(root);
+  const graph = await repositoryAnalysis.analyze(root, {
+    callCorroborator: (input) =>
+      corroborateSymbolCalls(input, getLanguageServer()),
+  });
   if (generation === graphGeneration && currentWorkspace?.root === root) {
     latestGraph = graph;
     if (!applicationWindow?.isDestroyed())
@@ -944,7 +948,7 @@ async function activateWorkspace(root: string): Promise<Workspace> {
   acceptingSessionUpdates = true;
   getLanguageServer().setWorkspace(resolved);
   await refreshWorkspaceTooling(resolved);
-  const changed = new Set<string>();
+  const changed = new Map<string, 1 | 2 | 3>();
   workspaceWatcher = chokidar.watch(resolved, {
     ignoreInitial: true,
     ignored: (file) =>
@@ -954,14 +958,29 @@ async function activateWorkspace(root: string): Promise<Workspace> {
         .some((part) => DEFAULT_IGNORES.has(part) || isEditorTemporary(part)),
     awaitWriteFinish: { stabilityThreshold: 200, pollInterval: 75 },
   });
-  workspaceWatcher.on("all", (_event, filename) => {
+  workspaceWatcher.on("all", (event, filename) => {
     const relative = path.relative(resolved, filename).replaceAll("\\", "/");
     if (!relative || currentWorkspace?.root !== resolved) return;
-    changed.add(relative);
+    const nextType: 1 | 2 | 3 = event.startsWith("add")
+      ? 1
+      : event.startsWith("unlink")
+        ? 3
+        : 2;
+    const previousType = changed.get(relative);
+    changed.set(
+      relative,
+      previousType === 1 && nextType === 2
+        ? 1
+        : previousType === 3 && nextType === 1
+          ? 2
+          : nextType,
+    );
     if (watcherTimer) clearTimeout(watcherTimer);
     watcherTimer = setTimeout(() => {
-      const paths = [...changed];
+      const changes = [...changed].map(([path, type]) => ({ path, type }));
+      const paths = changes.map((change) => change.path);
       changed.clear();
+      languageService?.watchedFiles(changes);
       if (!applicationWindow?.isDestroyed())
         applicationWindow?.webContents.send("workspace:changed", {
           root: resolved,
@@ -1366,9 +1385,7 @@ app.whenReady().then(() => {
   handleDesktop("remote:list", () => getRemoteProfiles().list());
   handleDesktop("remote:status", () => getRemoteProfiles().status());
   handleDesktop("tooling:status", () =>
-    currentWorkspace
-      ? getWorkspaceTooling().get(currentWorkspace.root)
-      : null,
+    currentWorkspace ? getWorkspaceTooling().get(currentWorkspace.root) : null,
   );
   handleDesktop(
     "tooling:select-python",
@@ -2005,9 +2022,8 @@ app.whenReady().then(() => {
               id: "active",
               name: "Debug active file",
               source: "active editor",
-              type: (/\.py$/i.test(activeFile || "")
-                ? "python"
-                : "node") as "python" | "node",
+              type: (/\.py$/i.test(activeFile || "") ? "python" : "node") as
+                "python" | "node",
               program: activeFile || "",
               args: [],
               stopOnEntry: true,

@@ -19,6 +19,7 @@ import {
   type CardNode,
   type ArchitectureScope,
   type SemanticLens,
+  type WorkflowViewMode,
 } from "./architecture-view";
 import {
   Box,
@@ -63,7 +64,7 @@ function ComponentCard({ data, selected }: NodeProps<CardNode>) {
               : FileCode2;
   return (
     <div
-      className={`architecture-card ${selected ? "is-selected" : ""} ${data.changed ? "has-changed" : ""} ${data.traced ? "is-traced" : ""} ${data.dimmed ? "is-dimmed" : ""} ${data.trust ? `semantic-${data.trust}` : ""}`}
+      className={`architecture-card ${data.sequence ? "is-sequence" : ""} ${selected ? "is-selected" : ""} ${data.changed ? "has-changed" : ""} ${data.traced ? "is-traced" : ""} ${data.dimmed ? "is-dimmed" : ""} ${data.trust ? `semantic-${data.trust}` : ""}`}
     >
       <Handle type="target" position={Position.Left} />
       <div className="architecture-card-top">
@@ -129,6 +130,11 @@ export function ArchitectureCanvas({
 }) {
   const [scope, setScope] = useState<ArchitectureScope>("modules");
   const [semanticLens, setSemanticLens] = useState<SemanticLens>("overview");
+  const [workflowFocus, setWorkflowFocus] = useState<string | null>(null);
+  const [workflowViewMode, setWorkflowViewMode] =
+    useState<WorkflowViewMode>("graph");
+  const [collapseWorkflowBranches, setCollapseWorkflowBranches] =
+    useState(false);
   const [module, setModule] = useState<string | null>(null);
   const [external, setExternal] = useState(false);
   const [query, setQuery] = useState("");
@@ -145,7 +151,7 @@ export function ArchitectureCanvas({
         : null,
     [graph?.revision, graph?.workspaceRoot, activeFile, external],
   );
-  const layoutKey = `${graph?.workspaceRoot}|${scope}|${semanticLens}|${module}|${external}|${query}|${scope === "focus" ? projection?.focus.id || "missing" : ""}`;
+  const layoutKey = `${graph?.workspaceRoot}|${scope}|${semanticLens}|${workflowFocus}|${workflowViewMode}|${collapseWorkflowBranches}|${module}|${external}|${query}|${scope === "focus" ? projection?.focus.id || "missing" : ""}`;
   const previousLayout = useRef("");
   const previous = useRef<ArchitectureGraph | null>(null);
   const changed = useMemo(() => {
@@ -168,6 +174,9 @@ export function ArchitectureCanvas({
   useEffect(() => {
     setScope("modules");
     setSemanticLens("overview");
+    setWorkflowFocus(null);
+    setWorkflowViewMode("graph");
+    setCollapseWorkflowBranches(false);
     setModule(null);
     setQuery("");
     setSelection(null);
@@ -176,6 +185,20 @@ export function ArchitectureCanvas({
     setRouteStart(null);
     setTraceNotice("");
   }, [graph?.workspaceRoot]);
+  const workflows = useMemo(
+    () =>
+      (graph?.semantic?.nodes || [])
+        .filter((node) => node.kind === "workflow")
+        .sort((left, right) => left.label.localeCompare(right.label)),
+    [graph?.semantic?.revision],
+  );
+  useEffect(() => {
+    if (
+      workflowFocus &&
+      !workflows.some((workflow) => workflow.id === workflowFocus)
+    )
+      setWorkflowFocus(null);
+  }, [workflowFocus, workflows]);
   const revealActiveFile = () => {
     if (!projection) return;
     setScope("focus");
@@ -204,6 +227,11 @@ export function ArchitectureCanvas({
             changed,
             projection,
             semanticLens,
+            {
+              focusId: workflowFocus,
+              mode: workflowViewMode,
+              collapseBranches: collapseWorkflowBranches,
+            },
           )
         : { nodes: [], edges: [], total: 0, totalEdges: 0 },
     [
@@ -216,6 +244,9 @@ export function ArchitectureCanvas({
       changed,
       projection,
       semanticLens,
+      workflowFocus,
+      workflowViewMode,
+      collapseWorkflowBranches,
     ],
   );
   const [nodes, setNodes, onNodesChange] = useNodesState<CardNode>([]);
@@ -461,6 +492,51 @@ export function ArchitectureCanvas({
           <Maximize2 size={14} />
         </button>
       </div>
+      {scope === "semantics" && semanticLens === "workflows" && (
+        <div className="workflow-projection-bar">
+          <span>Workflow projection</span>
+          <div className="workflow-view-controls">
+            <select
+              aria-label="Workflow focus"
+              value={workflowFocus || ""}
+              onChange={(event) => setWorkflowFocus(event.target.value || null)}
+            >
+              <option value="">All workflows</option>
+              {workflows.map((workflow) => (
+                <option key={workflow.id} value={workflow.id}>
+                  {workflow.label}
+                </option>
+              ))}
+            </select>
+            <select
+              aria-label="Workflow view mode"
+              value={workflowViewMode}
+              onChange={(event) =>
+                setWorkflowViewMode(event.target.value as WorkflowViewMode)
+              }
+            >
+              <option value="graph">Graph</option>
+              <option value="sequence">Sequence</option>
+            </select>
+            <button
+              className={collapseWorkflowBranches ? "active" : ""}
+              aria-pressed={collapseWorkflowBranches}
+              aria-label="Collapse workflow branches"
+              title="Hide branch-only steps while keeping guards and convergence visible"
+              onClick={() =>
+                setCollapseWorkflowBranches((collapsed) => !collapsed)
+              }
+            >
+              {collapseWorkflowBranches
+                ? "Expand branches"
+                : "Collapse branches"}
+            </button>
+          </div>
+          <small>
+            Static projection · runtime branch choice remains unobserved
+          </small>
+        </div>
+      )}
       {(trace || routeStart || traceNotice) && (
         <div className="graph-trace-bar" role="status">
           <span>
