@@ -17,12 +17,20 @@ async function eventually<T>(
 ) {
   const deadline = Date.now() + timeout;
   let last: T | undefined;
+  let transientError: string | undefined;
   do {
-    last = await probe();
-    if (accepts(last)) return last;
+    try {
+      last = await probe();
+      transientError = undefined;
+      if (accepts(last)) return last;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!/content modified/i.test(message)) throw error;
+      transientError = message;
+    }
     await new Promise((resolve) => setTimeout(resolve, 250));
   } while (Date.now() < deadline);
-  throw new Error(`${label}: ${JSON.stringify(last)}`);
+  throw new Error(`${label}: ${transientError || JSON.stringify(last)}`);
 }
 
 test("rust-analyzer discovery uses explicit or standard absolute locations", () => {
