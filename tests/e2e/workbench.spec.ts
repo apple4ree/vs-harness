@@ -152,6 +152,10 @@ test.beforeAll(async () => {
     { root: fixture, exportTargets },
   );
   page = await application.firstWindow();
+  if (process.env.WITCH_E2E_COMPACT === "1")
+    await application.evaluate(({ BrowserWindow }) => {
+      BrowserWindow.getAllWindows()[0]?.setSize(980, 680);
+    });
   page.on("pageerror", (error) => {
     errors.push(error.message);
     console.error("Renderer exception:", error.stack);
@@ -314,17 +318,18 @@ test("architecture edges and drag-to-chat source context work in Electron", asyn
   await page.screenshot({ path: "test-results/witch-framework-routes.png" });
   await page.getByRole("button", { name: "Modules", exact: true }).click();
   await expect(page.locator(".react-flow__edge")).toHaveCount(1);
-  const edgePoint = await page
-    .locator(".react-flow__edge-interaction")
-    .first()
-    .evaluate((element) => {
-      const path = element as SVGPathElement;
-      const point = path.getPointAtLength(path.getTotalLength() / 2);
-      const position = new DOMPoint(point.x, point.y).matrixTransform(
-        path.getScreenCTM()!,
-      );
-      return { x: position.x, y: position.y };
-    });
+  const moduleEdge = page.locator(".react-flow__edge-interaction").first();
+  await page.locator(".architecture-workspace").evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+  });
+  const edgePoint = await moduleEdge.evaluate((element) => {
+    const path = element as SVGPathElement;
+    const point = path.getPointAtLength(path.getTotalLength() / 2);
+    const position = new DOMPoint(point.x, point.y).matrixTransform(
+      path.getScreenCTM()!,
+    );
+    return { x: position.x, y: position.y };
+  });
   await page.mouse.click(edgePoint.x, edgePoint.y);
   await expect(page.locator(".relationship-details")).toContainText(
     "src/ui/view.ts:1",
@@ -977,20 +982,28 @@ test("panel dividers resize by mouse and keyboard and restore after reload", asy
   await chat.focus();
   await page.keyboard.press("ArrowLeft");
   await expect(chat).toHaveAttribute("aria-valuenow", "360");
+  const terminalMaximum = Number(await terminal.getAttribute("aria-valuemax"));
+  const terminalTarget = Math.min(250, terminalMaximum);
   await terminal.focus();
   await page.keyboard.press("Shift+ArrowUp");
-  await expect(terminal).toHaveAttribute("aria-valuenow", "250");
+  await expect(terminal).toHaveAttribute(
+    "aria-valuenow",
+    String(terminalTarget),
+  );
   await expect
     .poll(() =>
       page.evaluate(
         async () => (await window.witch.settings.get()).preferences.layout,
       ),
     )
-    .toEqual({ left: 250, right: 360, terminal: 250 });
+    .toEqual({ left: 250, right: 360, terminal: terminalTarget });
   await page.reload();
   await expect(project).toHaveAttribute("aria-valuenow", "250");
   await expect(chat).toHaveAttribute("aria-valuenow", "360");
-  await expect(terminal).toHaveAttribute("aria-valuenow", "250");
+  await expect(terminal).toHaveAttribute(
+    "aria-valuenow",
+    String(terminalTarget),
+  );
   await page.screenshot({ path: "test-results/witch-resized-panels.png" });
   expect(errors).toEqual([]);
 });

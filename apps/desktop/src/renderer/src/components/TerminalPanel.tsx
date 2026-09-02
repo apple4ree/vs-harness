@@ -53,18 +53,46 @@ function TerminalView({
     });
     const fit = new FitAddon();
     let pendingInput = "";
-    let writeQueue = Promise.resolve();
-    const writeInput = (data: string) => {
-      if (!sessionId) {
-        pendingInput += data;
+    let inputTimer: ReturnType<typeof setTimeout> | null = null;
+    let inputInFlight = false;
+    const scheduleInput = () => {
+      if (
+        disposed ||
+        !sessionId ||
+        inputInFlight ||
+        inputTimer ||
+        !pendingInput
+      )
         return;
-      }
+      inputTimer = setTimeout(() => {
+        inputTimer = null;
+        void flushInput();
+      }, 4);
+    };
+    const flushInput = async () => {
+      if (disposed || !sessionId || inputInFlight || !pendingInput) return;
       const targetSession = sessionId;
-      writeQueue = writeQueue
-        .then(() => window.witch.terminal.write(targetSession, data))
-        .catch((error) => {
-          if (!disposed) terminal.writeln(`\r\n${error}`);
-        });
+      const data = pendingInput;
+      pendingInput = "";
+      inputInFlight = true;
+      try {
+        await window.witch.terminal.write(targetSession, data);
+      } catch (error) {
+        if (!disposed) terminal.writeln(`\r\n${error}`);
+      } finally {
+        inputInFlight = false;
+        scheduleInput();
+      }
+    };
+    const writeInput = (data: string) => {
+      pendingInput += data;
+      if (/\r|\n/.test(data)) {
+        if (inputTimer) clearTimeout(inputTimer);
+        inputTimer = null;
+        void flushInput();
+      } else {
+        scheduleInput();
+      }
     };
     terminal.loadAddon(fit);
     terminal.open(container.current);
@@ -117,11 +145,7 @@ function TerminalView({
           return;
         }
         sessionId = session.id;
-        if (pendingInput) {
-          const bufferedInput = pendingInput;
-          pendingInput = "";
-          writeInput(bufferedInput);
-        }
+        scheduleInput();
         if (session.buffer) terminal.write(session.buffer);
         for (const chunk of waiting.get(session.id) || [])
           if (chunk.sequence > session.sequence) terminal.write(chunk.data);
@@ -144,6 +168,8 @@ function TerminalView({
       });
     return () => {
       disposed = true;
+      if (inputTimer) clearTimeout(inputTimer);
+      pendingInput = "";
       observer.disconnect();
       input.dispose();
       unsubscribe();
