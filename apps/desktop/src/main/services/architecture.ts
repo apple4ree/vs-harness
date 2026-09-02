@@ -79,7 +79,7 @@ const DEEP_EXTENSIONS = new Set([
   ".py",
   ".rs",
 ]);
-export const ARCHITECTURE_ANALYZER_VERSION = "polyglot-static-v17";
+export const ARCHITECTURE_ANALYZER_VERSION = "polyglot-static-v18";
 
 function coverageLanguage(extension: string) {
   if ([".ts", ".tsx", ".mts", ".cts"].includes(extension)) return "typescript";

@@ -1,0 +1,11 @@
+{
+  "name": "SWARM-CG Python development set",
+  "language": "python",
+  "role": "development",
+  "scale": "micro",
+  "frozen": true,
+  "source": "https://github.com/secure-software-engineering/SWARM-CG",
+  "commit": "5929c0a36a9c8e8c6c7539dc412336cdf6c09e58",
+  "subpath": "benchmarks/python/pycg_extended",
+  "policy": "Regression measurement only. Do not select or tune new analysis rules from this corpus."
+}

@@ -81,7 +81,15 @@ function addCall(
       )
     )
       existing.evidence.push(site.evidence);
-    if ((existing.sites?.length || 0) < 40) existing.sites!.push(site);
+    if (
+      (existing.sites?.length || 0) < 40 &&
+      !existing.sites?.some(
+        (item) =>
+          item.evidence.path === site.evidence.path &&
+          item.ordinal === site.ordinal,
+      )
+    )
+      existing.sites!.push(site);
     existing.confidence = Math.min(
       existing.confidence || confidence,
       confidence,

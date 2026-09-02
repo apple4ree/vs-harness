@@ -1,6 +1,9 @@
 {
   "name": "Witch Rust call-graph ground truth v1",
   "language": "rust",
+  "role": "development",
+  "scale": "micro",
+  "frozen": true,
   "caseCount": 12,
   "oracle": "Manually authored expected internal function and method edges",
   "scope": [

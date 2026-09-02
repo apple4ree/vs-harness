@@ -24,7 +24,7 @@ import {
 } from "../../shared/semantic-ir";
 import { contentHash } from "./workspace-files";
 
-export const SEMANTIC_ANALYZER_VERSION = "semantic-static-v12";
+export const SEMANTIC_ANALYZER_VERSION = "semantic-static-v13";
 export const SEMANTIC_POLICY_VERSION = "evidence-first-workflow-v2";
 
 export type ResolvedSymbolCall = {
@@ -862,6 +862,7 @@ export function buildSemanticGraph({
       evidence,
       provenance: inferredProvenance,
     });
+    const participantKeys = new Set<string>();
     const participants = (callsBySource.get(symbol.id) || [])
       .filter((call) => call.toSourceSymbolId !== symbol.id)
       .flatMap((call) =>
@@ -878,6 +879,12 @@ export function buildSemanticGraph({
           a.site.ordinal - b.site.ordinal ||
           a.call.toSourceSymbolId.localeCompare(b.call.toSourceSymbolId),
       )
+      .filter(({ call, site }) => {
+        const key = `${call.toSourceSymbolId}:${site.evidence.path}:${site.ordinal}`;
+        if (participantKeys.has(key)) return false;
+        participantKeys.add(key);
+        return true;
+      })
       .slice(0, Math.max(0, Math.min(16, 800 - workflowParticipantCount)));
     if (
       (callsBySource.get(symbol.id) || []).length > participants.length ||

@@ -1,7 +1,9 @@
 # Python dispatch and Rust ground-truth benchmark
 
-Date: 2026-09-02  
-Analyzer: `polyglot-static-v17` / `semantic-static-v12`
+Date: 2026-09-02
+
+Analyzer at original measurement: `polyglot-static-v17` / `semantic-static-v12`
+Current analyzer after the duplicate-site fix: `polyglot-static-v18` / `semantic-static-v13`
 
 ## Implemented analysis
 
@@ -24,21 +26,24 @@ promoted to authored or verified evidence.
 
 ## External Python measurement
 
-The external SWARM-CG `pycg_extended` Python suite contains 126 cases. Witch
-only scores edges whose two endpoint symbols are represented by its source
-index; this is the `scoped` metric and prevents missing module pseudo-symbols
-from being counted as parser errors.
+The external SWARM-CG `pycg_extended` Python suite contains 126 development
+cases. Evaluation contract v2 restricts both the oracle and Witch predictions
+to the same declared-symbol universe. It also reports how much of the oracle is
+actually in that universe, so a high scoped score cannot hide low coverage.
 
-| Metric | Before class/property work | Current |
-| --- | ---: | ---: |
-| Scoped precision | 88.00% | 97.50% |
-| Scoped recall | 51.16% | 78.00% |
-| Scoped F1 | 64.71% | 86.67% |
-| Scoped exact cases | 109/126 | 117/126 |
-| Analysis failures | 0 | 0 |
+| Metric                  | Before class/property work |         Current |
+| ----------------------- | -------------------------: | --------------: |
+| Scoped precision        |                     88.00% |         100.00% |
+| Scoped recall           |                     51.16% |          78.00% |
+| Scoped F1               |                     64.71% |          87.64% |
+| Non-vacuous exact cases |               not recorded |           25/33 |
+| Oracle edge coverage    |               not recorded | 50/278 (17.99%) |
+| Non-vacuous cases       |               not recorded | 33/126 (26.19%) |
+| Analysis failures       |                          0 |               0 |
 
-The remaining scoped misses are primarily container propagation through lists,
-dictionaries, generators, constructor arguments, and default argument values.
+The score is therefore a useful development regression signal, not a claim of
+87.64% performance over the complete corpus. Ninety-three cases have no
+comparable internal edge and are excluded from non-vacuous exact accuracy.
 
 ## Rust ground truth v1
 
@@ -47,15 +52,15 @@ internal edges. The corpus covers direct, module-qualified, aliased, instance,
 associated, and trait-implementation calls plus branch/retry controls. Two
 intentional hard cases measure callable parameters and returned callables.
 
-| Metric | Result |
-| --- | ---: |
-| Cases | 12 |
-| Exact cases | 10 |
-| Precision | 100.00% |
-| Recall | 88.24% |
-| F1 | 93.75% |
-| False positives | 0 |
-| False negatives | 2 |
+| Metric          |  Result |
+| --------------- | ------: |
+| Cases           |      12 |
+| Exact cases     |      10 |
+| Precision       | 100.00% |
+| Recall          |  88.24% |
+| F1              |  93.75% |
+| False positives |       0 |
+| False negatives |       2 |
 
 Run the reproducible benchmark with:
 
@@ -65,5 +70,6 @@ npm run benchmark:callgraph:rust
 
 The detailed machine-readable receipt is written to
 `docs/benchmarks/rust-callgraph-ground-truth.json`. The regression test keeps
-the exact v1 score and the two declared hard cases visible rather than silently
-lowering the oracle.
+minimum precision, recall, F1, coverage, and exact-case floors. The two current
+hard cases remain visible, while a legitimate fix may improve the result
+without rewriting an exact expected score.

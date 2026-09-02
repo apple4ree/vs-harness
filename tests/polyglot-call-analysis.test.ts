@@ -396,7 +396,9 @@ test("Python MRO, decorator composition, and returned callables retain bounded t
   const graph = await analyzeRepository(root);
   const node = graph.nodes.find((candidate) => candidate.id === "main.py")!;
   const symbol = (qualifiedName: string) =>
-    node.symbols.find((candidate) => candidate.qualifiedName === qualifiedName)!;
+    node.symbols.find(
+      (candidate) => candidate.qualifiedName === qualifiedName,
+    )!;
   const call = (from: CodeSymbol, to: CodeSymbol) =>
     graph.semantic!.relations.find(
       (relation) =>
@@ -429,4 +431,40 @@ test("Python MRO, decorator composition, and returned callables retain bounded t
     call(symbol("Child.relay"), symbol("Base.execute"))?.trust,
     "inferred",
   );
+});
+
+test("fixed-point Python calls create one workflow participant per source site", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "witch-call-site-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  await fs.writeFile(
+    path.join(root, "main.py"),
+    [
+      "from external_cli import command",
+      "",
+      "@command()",
+      "def cli():",
+      "    return True",
+      "",
+      "def callback():",
+      "    return True",
+      "",
+      "def invoke(action):",
+      "    return action()",
+      "",
+      "def main():",
+      "    invoke(callback)",
+      "    cli()",
+      "",
+    ].join("\n"),
+  );
+
+  const graph = await analyzeRepository(root);
+  assert.equal(graph.semantic!.validation.valid, true);
+  const participants = graph.semantic!.nodes.filter(
+    (node) =>
+      node.kind === "workflow-step" &&
+      node.id.includes("main.py#main:13:participant:"),
+  );
+  assert.equal(participants.length, 2);
+  assert.equal(new Set(participants.map((node) => node.id)).size, 2);
 });
