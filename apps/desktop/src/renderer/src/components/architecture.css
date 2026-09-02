@@ -402,9 +402,12 @@
 }
 .workflow-view-controls {
   display: flex;
+  flex: 0 1 auto;
   align-items: center;
   gap: 4px;
   min-width: 0;
+  position: relative;
+  z-index: 1;
 }
 .workflow-projection-bar {
   display: flex;
@@ -424,12 +427,25 @@
   letter-spacing: 0.03em;
 }
 .workflow-projection-bar > small {
+  flex: 1 1 0;
   min-width: 0;
   overflow: hidden;
-  margin-left: auto;
   color: #7f6e8f;
+  pointer-events: none;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.workflow-view-controls select[aria-label="Workflow focus"] {
+  flex: 1 1 140px;
+  min-width: 80px;
+  max-width: 220px;
+}
+.workflow-view-controls select[aria-label="Workflow view mode"] {
+  flex: 0 1 82px;
+  min-width: 64px;
+}
+.workflow-view-controls button {
+  flex: 0 0 auto;
 }
 .workflow-view-controls select,
 .workflow-view-controls button,
