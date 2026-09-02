@@ -1475,6 +1475,14 @@ test("accepting a TypeScript auto-import completion changes the editor buffer be
       window.witch.settings.save({ ...preferences, autoSave: false }),
     preferences,
   );
+  const sourceRelative = "src/api/auto-import-source.ts";
+  const source =
+    'export function welcome(name: string) { return `Welcome ${name}` }\n';
+  await fs.writeFile(path.join(fixture, sourceRelative), source);
+  await page.evaluate(
+    ({ path, content, root }) => window.witch.lsp.change(path, content, root),
+    { path: sourceRelative, content: source, root: fixture },
+  );
   const relative = "src/auto-import.ts";
   await fs.writeFile(path.join(fixture, relative), "export {};\n");
   await page.keyboard.press(`${mod}+p`);
@@ -1503,7 +1511,7 @@ test("accepting a TypeScript auto-import completion changes the editor buffer be
   expect(await fs.readFile(path.join(fixture, relative), "utf8")).toBe(
     "export {};\n",
   );
-  await page.keyboard.press(`${mod}+Alt+s`);
+  await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect
     .poll(() => fs.readFile(path.join(fixture, relative), "utf8"))
     .toContain("import { welcome }");

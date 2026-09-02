@@ -125,7 +125,13 @@ export class LanguageServer extends EventEmitter {
   private actions = new Map<string, { item: any; validate: () => void }>();
   private completions = new Map<
     string,
-    { item: any; uri: string; version: number; root: string }
+    {
+      item: any;
+      uri: string;
+      version: number;
+      root: string;
+      resolved: boolean;
+    }
   >();
   private capturedEdits: any[] | null = null;
   private id: LanguageProviderId;
@@ -520,7 +526,7 @@ export class LanguageServer extends EventEmitter {
       [position.line]?.slice(0, position.character)
       .match(/[\p{L}\p{N}_$]+$/u)?.[0]
       .toLowerCase();
-    return (Array.isArray(result) ? result : result?.items || [])
+    const candidates = (Array.isArray(result) ? result : result?.items || [])
       .filter(
         (item: any) =>
           !prefix ||
@@ -528,19 +534,53 @@ export class LanguageServer extends EventEmitter {
             .toLowerCase()
             .startsWith(prefix),
       )
-      .slice(0, 250)
-      .map((item: any) => {
+      .slice(0, 250);
+    // Monaco can accept a focused item while its lazy detail still reads
+    // "Loading…". Resolve a deliberately small, narrowed TypeScript result set
+    // up front so auto-import edits are present at the acceptance boundary.
+    const resolvedCandidates: { item: any; resolved: boolean }[] =
+      this.id === "typescript" && candidates.length <= 12
+        ? await Promise.all(
+            candidates.map(async (item: any) => {
+              try {
+                const resolved = await rpc.request(
+                  "completionItem/resolve",
+                  item,
+                );
+                this.validateCompletionEdits(document.content, resolved);
+                return { item: resolved, resolved: true };
+              } catch {
+                return { item, resolved: false };
+              }
+            }),
+          )
+        : candidates.map((item: any) => ({ item, resolved: false }));
+    if (
+      this.rpc !== rpc ||
+      this.documents.get(params.textDocument.uri) !== document ||
+      document.version !== version
+    )
+      return [];
+    return resolvedCandidates.map(({ item, resolved }) => {
         const id = `${this.id}:${randomUUID()}`;
         this.completions.set(id, {
           item,
           uri: params.textDocument.uri,
           version,
           root: this.root!,
+          resolved,
         });
         while (this.completions.size > 1000)
           this.completions.delete(this.completions.keys().next().value!);
         return this.completionValue(item, id);
       });
+  }
+  private validateCompletionEdits(content: string, item: any) {
+    const edits = item.additionalTextEdits || [];
+    if (!Array.isArray(edits) || edits.length > 100)
+      throw new Error("Too many completion edits");
+    if (Buffer.byteLength(applyTextEdits(content, edits)) > TEXT_LIMIT)
+      throw new Error("Completion exceeds the editor size limit");
   }
   private completionValue(item: any, id: string): Completion {
     return {
@@ -566,20 +606,20 @@ export class LanguageServer extends EventEmitter {
       completion &&
       completion.root === this.root &&
       this.documents.get(completion.uri)?.version === completion.version;
-    if (!valid() || !completion || !this.rpc)
+    if (!valid() || !completion)
       throw new Error("Completion expired; request it again");
+    if (completion.resolved) return this.completionValue(completion.item, id);
+    if (!this.rpc) throw new Error("Completion expired; request it again");
     const item = await this.rpc.request(
       "completionItem/resolve",
       completion.item,
     );
     if (!valid())
       throw new Error("The document changed while resolving completion");
-    const edits = item.additionalTextEdits || [];
-    if (!Array.isArray(edits) || edits.length > 100)
-      throw new Error("Too many completion edits");
     const content = this.documents.get(completion.uri)!.content;
-    if (Buffer.byteLength(applyTextEdits(content, edits)) > TEXT_LIMIT)
-      throw new Error("Completion exceeds the editor size limit");
+    this.validateCompletionEdits(content, item);
+    completion.item = item;
+    completion.resolved = true;
     // Only same-document text edits are returned. Server commands are never executed.
     return this.completionValue(item, id);
   }
