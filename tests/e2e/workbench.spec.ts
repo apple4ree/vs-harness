@@ -1520,6 +1520,10 @@ test("accepting a TypeScript auto-import completion changes the editor buffer be
     .first();
   await expect(welcome).toBeVisible();
   await welcome.click();
+  // Monaco can treat a single row click as selection rather than acceptance
+  // on macOS. Finish the same user action explicitly when the widget remains.
+  if (await suggestions.isVisible()) await page.keyboard.press("Enter");
+  await expect(suggestions).not.toBeVisible();
   await expect(editor).toContainText("import { welcome }");
   expect(await fs.readFile(path.join(fixture, relative), "utf8")).toBe(
     "export {};\n",
