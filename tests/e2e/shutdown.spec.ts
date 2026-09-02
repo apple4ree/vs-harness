@@ -43,6 +43,8 @@ test("app quit completes after stopping the language server and flushing profile
     await page
       .getByRole("button", { name: "Open repository", exact: true })
       .click();
+    await expect(page.locator(".analysis-coverage-summary")).toBeVisible();
+    await page.getByRole("button", { name: "Modules", exact: true }).click();
     await expect(page.locator(".architecture-card")).toHaveCount(1);
     await page.evaluate(async () => {
       await window.witch.lsp.open("main.ts", "export const value = 1;\n");

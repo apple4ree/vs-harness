@@ -3,10 +3,10 @@
 > Python · Rust · TypeScript를 중심으로 한 Agent/금융 시스템 분석 계약
 
 - 결정일: 2026-08-30
-- 상태: v1 공통 IR·정적 추출·Meaning UI 구현, 심층 adapter는 진행 중
+- 상태: v1 공통 IR·polyglot call·정적 workflow control-flow·bounded Pyright/rust-analyzer corroboration·evidence-first workflow rooting·coverage UI·progressive overview·persistent incremental symbol index 구현
 - 범위: 구조 분석, Workflow, Inferred/Authored 대조, 자동 승인과 이력
-- 현재 구현: `witch.semantic/v1`, Python/Rust/TS 심볼, 확인된 containment/import/export, provisional Component/Workflow, Authored 충돌 질문, revision delta
-- 다음 범위: compiler/LSP call resolution, framework adapter, multi-step ordering, runtime trace, GUI question resolution
+- 현재 구현: `witch.semantic/v1`, Python/Rust/TS 심볼, 확인된 containment/import/export와 TS/JS direct call, Python/Rust inferred call 및 bounded LSP corroboration, relation/claim 충돌 질문, provisional `precedes`/`branches-to`/`retries`, focused graph/sequence/branch-collapse Workflows, revision delta, Meaning 렌즈, 검증된 Agent dossier
+- 다음 범위: framework adapter, authored/observed ordering, runtime trace, GUI question resolution, provider type hierarchy, cross-language artifact flow
 
 ## 1. 결정 요약
 
@@ -121,7 +121,7 @@ Conflict detected
 | `Artifact`       | message, order, quote, feature, position 등 흐르는 값 |
 | `ExternalSystem` | broker, exchange, model provider, database, API       |
 | `Evidence`       | file range, config, test, trace, log 등 근거          |
-| `OpenQuestion`   | 아직 해결되지 않은 Authored/Inferred 충돌             |
+| `OpenQuestion`   | 아직 해결되지 않은 claim 또는 relation 충돌           |
 
 ### 3.2 공통 관계
 
@@ -392,6 +392,8 @@ Options
 
 질문이 해결되기 전까지 AI는 recommended inference를 사용할 수 있지만, Agent context에는 반드시 `provisional`, question ID와 반대 evidence를 함께 전달한다.
 
+OpenQuestion은 claim 충돌이면 `claimIds`, source binder와 language-server target 충돌이면 `relationIds`로 양쪽을 참조한다. LSP 응답 부재나 다중 target이 있는 모호한 한 줄은 질문을 만들지 않는다.
+
 ## 8. 자동 승인 정책
 
 ### 8.1 기본값
@@ -454,6 +456,25 @@ Before
 
 필터는 출처를 숨길 수 있지만 canonical data를 변경하지 않는다. 모든 Workflow step에서 `왜 이 순서인가?`, `어떤 코드가 수행하는가?`, `반대 근거가 있는가?`를 열 수 있어야 한다.
 
+현재 UI는 한 화면에 모든 의미 노드를 섞지 않고 다음 읽기 렌즈를 제공한다.
+
+| 렌즈                | 표시 목적                                               |
+| ------------------- | ------------------------------------------------------- |
+| Overview            | System, Component, Workflow, WorkflowStep의 고수준 지도 |
+| Components          | System→Component→File 경계와 소스 범위                  |
+| Workflows           | Workflow/Step, provisional 순서·branch·retry와 근거     |
+| Calls               | verified TS/JS와 inferred Python/Rust 내부 call         |
+| Questions           | open question의 subject와 인접 근거                     |
+| Verified / Authored | inferred-only 항목을 제외한 확인·선언 계층              |
+
+선택 노드 inspector는 인접 reasoning relation의 방향, kind, trust, status, confidence와 첫 source evidence를 표시한다. 이는 관계를 설명하는 UI이며 정적 관계를 런타임 순서로 승격하지 않는다.
+
+### 9.1 Agent context 계약
+
+Meaning 카드를 Agent에 첨부할 때 renderer의 drag payload는 권한 있는 데이터로 취급하지 않는다. 메인 프로세스는 현재 source revision과 semantic validation receipt를 다시 확인하고, node ID를 기준으로 label과 source path를 재구성한다. stale/invalid semantic graph는 거부한다.
+
+Agent에는 선택한 의미 노드와 제한된 인접 노드·relation·claim·open question·evidence만 `witch.semantic/v1` dossier로 전달한다. `Verified`, `Inferred`, `Authored`와 `accepted`, `provisional`, `conflicting` 상태를 유지하고, static workflow order·branch membership·retry structure가 runtime proof가 아니라는 boundary 문구와 관계별 설명을 포함한다. 따라서 Agent가 의미 계층을 활용할 수는 있지만 불확실성을 검증 사실처럼 전달받지는 않는다.
+
 ## 10. 사용자 정의 규칙 방향
 
 현재 첫 계약은 의존성을 늘리지 않는 `.witch/analysis.json`의 Authored claim이다.
@@ -513,20 +534,22 @@ inference:
 - Python/Rust/TypeScript 최소 정적 fixture
 - Inferred/Authored 대조와 추천 우선 OpenQuestion
 - 동일 분석 중복을 만들지 않는 부모 revision/delta 기록
-- Meaning 그래프와 claim/evidence inspector
+- 6개 Meaning 렌즈와 claim/evidence/reasoning inspector
+- TypeChecker-resolved TS/JS direct call, Python/Rust inferred/corroborated/conflicting call과 provisional Workflow control-flow
+- 검증된 Meaning 선택을 source 범위와 semantic dossier로 Agent에 전달
 
 다음 심층 단계에는 아래 항목이 필요하다.
 
-1. 공통 IR과 Python/Rust/TypeScript extension schema
-2. claim provenance와 AnalysisRevision schema
-3. Workflow/Step validator
-4. Inferred/Authored comparison algorithm
-5. OpenQuestion 상태 전이
-6. auto-approval과 rollback contract
-7. graph status별 시각·접근성 규칙
-8. 세 언어별 최소 fixture와 expected graph
-9. Agent/금융 reference workflow fixture
-10. false positive, dynamic dispatch, stale evidence 시험 기준
+1. Agent/금융 framework registration adapter
+2. provider type hierarchy와 cross-language bridge
+3. authored/observed Workflow 순서·선택 branch·error contract
+4. OpenQuestion 답변과 상태 전이 UI
+5. semantic auto-approval rollback
+6. Artifact와 read/write/publish data-flow IR
+7. Agent/금융 reference workflow fixture
+8. false positive, dynamic dispatch, stale evidence 평가 corpus
+9. opt-in runtime trace와 static/observed 대조
+10. 대형 저장소용 persistent incremental symbol index
 
 ## 12. 승인된 방향과 남은 제품 질문
 

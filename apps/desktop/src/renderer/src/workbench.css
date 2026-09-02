@@ -262,6 +262,57 @@ body {
   color: #9f8bad;
   line-height: 1.6;
 }
+.language-provider-list {
+  display: grid;
+  gap: 3px;
+  margin: 6px 0;
+}
+.language-provider {
+  align-items: center;
+  color: #a997b8;
+  display: flex;
+  font-size: 10px;
+  gap: 6px;
+  margin: 0;
+  min-width: 0;
+}
+.language-provider span {
+  color: #887394;
+  flex: none;
+}
+.language-provider.connected span {
+  color: #8ed8b1;
+}
+.language-provider.ready span {
+  color: #d5b8f1;
+}
+.language-provider.missing {
+  color: #826f8f;
+}
+.python-environment-picker {
+  display: grid;
+  gap: 4px;
+  margin: 8px 0 4px;
+  color: #a997b8;
+  font-size: 9px;
+}
+.python-environment-picker select {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid #49305b;
+  border-radius: 5px;
+  padding: 5px 6px;
+  background: #160e20;
+  color: #d8c4e7;
+  font-size: 9px;
+}
+.python-environment-picker small {
+  overflow: hidden;
+  color: #806d8d;
+  font: 8px "Cascadia Code", monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .problems-list {
   font-size: 10px;
   color: #c0a2d3;
@@ -286,6 +337,25 @@ body {
   display: block;
   overflow-wrap: anywhere;
   margin: 2px 0;
+}
+.outline-list button {
+  background: transparent;
+  border-color: transparent;
+  margin: 0;
+  padding-bottom: 4px;
+  padding-top: 4px;
+}
+.outline-list button:hover {
+  background: #2a1936;
+  border-color: #4c3260;
+}
+.outline-list strong {
+  color: #d5c0e4;
+  font-weight: 500;
+}
+.outline-list strong span {
+  color: #b390d0;
+  display: inline;
 }
 .center-pane {
   display: flex;

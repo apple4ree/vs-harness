@@ -174,7 +174,7 @@ export function DebugPanel({
           disabled={running || busy}
           onChange={(event) => setSelected(event.target.value)}
         >
-          <option value="">Active JavaScript file</option>
+          <option value="">Active JavaScript / Python file</option>
           {catalog.launches.map((launch) => (
             <option key={launch.id} value={launch.id}>
               {launch.name}
@@ -192,7 +192,7 @@ export function DebugPanel({
             disabled={
               busy ||
               !root ||
-              (!selected && !/\.[cm]?js$/i.test(activeFile || ""))
+              (!selected && !/(?:\.[cm]?js|\.py)$/i.test(activeFile || ""))
             }
             aria-label="Start debugging"
           >
@@ -254,8 +254,9 @@ export function DebugPanel({
         {state.reason ? ` · ${state.reason}` : ""}
       </p>
       <p className="rail-note">
-        Node / JavaScript · F9 toggles a breakpoint. TypeScript source maps and
-        other debug adapters are not yet supported.
+        {state.adapter === "python" ? "Python / debugpy" : "Node / JavaScript"}
+        {" · "}F9 toggles a breakpoint. Python uses the selected environment;
+        TypeScript source maps and Rust debugging are not yet supported.
       </p>
       {state.error && <p className="debug-error">{state.error}</p>}
       {!!catalog.warnings.length && (

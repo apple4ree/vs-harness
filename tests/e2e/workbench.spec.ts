@@ -46,12 +46,72 @@ test.beforeAll(async () => {
     'function compute() {\n  const left = 2;\n  const right = 3;\n  const answer = left + right;\n  console.log("WITCH_TASK_" + answer);\n}\ncompute();\n',
   );
   await fs.writeFile(
+    path.join(fixture, "trace.cjs"),
+    [
+      'const emit = (value) => console.log("WITCH_TRACE_V1 " + JSON.stringify(value));',
+      "function inner() {",
+      '  emit({ phase: "enter", path: "trace.cjs", symbol: "inner" });',
+      '  emit({ phase: "exit", path: "trace.cjs", symbol: "inner", outcome: "ok" });',
+      "}",
+      "function outer() {",
+      '  emit({ phase: "enter", path: "trace.cjs", symbol: "outer" });',
+      "  inner();",
+      '  emit({ phase: "exit", path: "trace.cjs", symbol: "outer", outcome: "ok" });',
+      "}",
+      "outer();",
+      "",
+    ].join("\n"),
+  );
+  await fs.writeFile(
     path.join(fixture, "src/api/client.ts"),
     "export function greet(name: string) { return `Hello ${name}` }\n",
   );
   await fs.writeFile(
+    path.join(fixture, "src/api/risk.py"),
+    "def validate_order():\n    return True\n\ndef submit_order():\n    return True\n",
+  );
+  await fs.writeFile(
+    path.join(fixture, "src/api/agent.py"),
+    [
+      "from .risk import validate_order, submit_order",
+      "from fastapi import FastAPI",
+      "app = FastAPI()",
+      "",
+      "@app.post('/agent/run')",
+      "async def run_agent():",
+      "    validate_order()",
+      "    if approved:",
+      "        submit_order()",
+      "    for retry_attempt in range(3):",
+      "        submit_order()",
+      "",
+    ].join("\n"),
+  );
+  await fs.writeFile(
+    path.join(fixture, "src/api/broker.rs"),
+    "pub fn validate_order() {}\npub fn submit_order() {}\n",
+  );
+  await fs.writeFile(
+    path.join(fixture, "src/api/lib.rs"),
+    [
+      "mod broker;",
+      "use self::broker::{validate_order, submit_order};",
+      "",
+      "pub fn run() {",
+      "    validate_order();",
+      "    if approved {",
+      "        submit_order();",
+      "    }",
+      "    for retry_attempt in 0..2 {",
+      "        submit_order();",
+      "    }",
+      "}",
+      "",
+    ].join("\n"),
+  );
+  await fs.writeFile(
     path.join(fixture, "src/ui/view.ts"),
-    'import { greet } from "../api/client"\nexport const greeting = greet("Witch")\n',
+    'import { greet } from "../api/client"\nexport function renderGreeting() { return greet("Witch") }\nexport const greeting = renderGreeting()\n',
   );
   await fs.writeFile(
     path.join(fixture, "tsconfig.json"),
@@ -92,6 +152,10 @@ test.beforeAll(async () => {
     { root: fixture, exportTargets },
   );
   page = await application.firstWindow();
+  if (process.env.WITCH_E2E_COMPACT === "1")
+    await application.evaluate(({ BrowserWindow }) => {
+      BrowserWindow.getAllWindows()[0]?.setSize(980, 680);
+    });
   page.on("pageerror", (error) => {
     errors.push(error.message);
     console.error("Renderer exception:", error.stack);
@@ -100,6 +164,12 @@ test.beforeAll(async () => {
   await page
     .getByRole("button", { name: "Open repository", exact: true })
     .click();
+  await expect(page.locator(".analysis-coverage-summary")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Meaning", exact: true }),
+  ).toHaveClass(/active/);
+  await expect(page.getByLabel("Meaning lens")).toHaveValue("overview");
+  await page.getByRole("button", { name: "Modules", exact: true }).click();
   await expect(page.locator(".architecture-card")).toHaveCount(3);
 });
 
@@ -207,18 +277,59 @@ test("architecture edges and drag-to-chat source context work in Electron", asyn
       image.complete ? image.naturalWidth : 0,
     ),
   ).toBeGreaterThan(0);
+  await expect(page.locator(".analysis-coverage-summary")).toContainText(
+    "semantic coverage",
+  );
+  await page.locator(".analysis-coverage-summary").click();
+  await expect(page.locator(".analysis-coverage-panel")).toContainText(
+    "File-level only",
+  );
+  await expect(page.locator(".analysis-coverage-panel")).toContainText(
+    "Framework adapters",
+  );
+  await expect(page.locator(".analysis-coverage-panel")).toContainText(
+    "fastapi",
+  );
+  await page.locator(".analysis-coverage-summary").click();
+  await page.getByRole("button", { name: "Meaning", exact: true }).click();
+  await page.getByLabel("Meaning lens").selectOption("behavior");
+  await expect(page.getByLabel("Meaning lens")).toHaveValue("behavior");
+  await expect(page.locator(".graph-metrics")).toContainText(
+    "behavior relations",
+  );
+  await expect(
+    page
+      .locator(".react-flow__edge-text")
+      .filter({ hasText: "passes" })
+      .first(),
+  ).toContainText("passes");
+  await page.screenshot({ path: "test-results/witch-behavior-data-flow.png" });
+  await page.getByLabel("Meaning lens").selectOption("frameworks");
+  await expect(page.getByLabel("Meaning lens")).toHaveValue("frameworks");
+  await expect(page.locator(".graph-metrics")).toContainText(
+    "framework candidates",
+  );
+  await expect(
+    page
+      .locator(".react-flow__edge-text")
+      .filter({ hasText: "handles" })
+      .first(),
+  ).toContainText("handles");
+  await page.screenshot({ path: "test-results/witch-framework-routes.png" });
+  await page.getByRole("button", { name: "Modules", exact: true }).click();
   await expect(page.locator(".react-flow__edge")).toHaveCount(1);
-  const edgePoint = await page
-    .locator(".react-flow__edge-interaction")
-    .first()
-    .evaluate((element) => {
-      const path = element as SVGPathElement;
-      const point = path.getPointAtLength(path.getTotalLength() / 2);
-      const position = new DOMPoint(point.x, point.y).matrixTransform(
-        path.getScreenCTM()!,
-      );
-      return { x: position.x, y: position.y };
-    });
+  const moduleEdge = page.locator(".react-flow__edge-interaction").first();
+  await page.locator(".architecture-workspace").evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+  });
+  const edgePoint = await moduleEdge.evaluate((element) => {
+    const path = element as SVGPathElement;
+    const point = path.getPointAtLength(path.getTotalLength() / 2);
+    const position = new DOMPoint(point.x, point.y).matrixTransform(
+      path.getScreenCTM()!,
+    );
+    return { x: position.x, y: position.y };
+  });
   await page.mouse.click(edgePoint.x, edgePoint.y);
   await expect(page.locator(".relationship-details")).toContainText(
     "src/ui/view.ts:1",
@@ -249,6 +360,38 @@ test("architecture edges and drag-to-chat source context work in Electron", asyn
   await expect(page.locator(".component-details")).toContainText("client.ts");
   await page.screenshot({ path: "test-results/witch-source-neighborhood.png" });
   await page.getByRole("button", { name: "Modules", exact: true }).click();
+  await expect(page.getByLabel("Graph detail")).toHaveValue("readable");
+  await expect(
+    page.getByRole("button", {
+      name: "Open visual quality diagnostics",
+      exact: true,
+    }),
+  ).toContainText("pass");
+  await page
+    .getByRole("button", {
+      name: "Open visual quality diagnostics",
+      exact: true,
+    })
+    .click();
+  await expect(page.locator(".graph-quality-panel")).toContainText(
+    "No node overlap",
+  );
+  await page.getByLabel("Close visual quality diagnostics").click();
+  await page.getByLabel("Graph detail").selectOption("complete");
+  await expect(page.getByLabel("Graph detail")).toHaveValue("complete");
+  await page.getByLabel("Graph detail").selectOption("readable");
+  await page.getByLabel("Semantic Composer provider").selectOption("rules");
+  await page
+    .getByRole("button", { name: "Compose meaning", exact: true })
+    .click();
+  await expect(page.locator(".semantic-composer-receipt")).toContainText(
+    "rules",
+  );
+  await expect(page.locator(".semantic-composer-receipt")).toContainText(
+    "audited",
+  );
+  await expect(page.getByLabel("Meaning lens")).toHaveValue("components");
+  await page.getByRole("button", { name: "Modules", exact: true }).click();
   const sourceModule = page.locator(
     '.react-flow__node[data-id="module:src/ui"]',
   );
@@ -278,11 +421,13 @@ test("architecture edges and drag-to-chat source context work in Electron", asyn
   await page.screenshot({ path: "test-results/witch-architecture-route.png" });
   await page.getByRole("button", { name: "Clear trace", exact: true }).click();
   await page.getByRole("button", { name: "Meaning", exact: true }).click();
+  await page.getByLabel("Meaning lens").selectOption("overview");
+  await expect(page.getByLabel("Meaning lens")).toHaveValue("overview");
   await expect(
-    page.locator('.react-flow__node[data-id="semantic:system:workspace"]'),
+    page.locator('.react-flow__node[data-id="compose:system:workspace"]'),
   ).toBeVisible();
   const semanticComponent = page.locator(
-    '.react-flow__node[data-id="semantic:component:src/api"]',
+    '.react-flow__node[data-id="compose:component:src-api"]',
   );
   await semanticComponent.click();
   await expect(page.locator(".semantic-inspector")).toContainText(
@@ -292,10 +437,124 @@ test("architecture edges and drag-to-chat source context work in Electron", asyn
     "Semantic claims",
   );
   await expect(page.locator(".graph-metrics")).toContainText("verified");
+  await page
+    .getByRole("button", { name: "Explore component files", exact: true })
+    .click();
+  await expect(page.getByLabel("Meaning lens")).toHaveValue("components");
+  await expect(page.locator(".graph-breadcrumb")).toContainText("src/api");
+  await page
+    .getByRole("button", { name: "Meaning overview", exact: false })
+    .click();
+  await page.getByLabel("Meaning lens").selectOption("calls");
+  expect(
+    await page.locator(".architecture-card").count(),
+  ).toBeGreaterThanOrEqual(6);
+  await expect(page.locator(".architecture-card")).toContainText([
+    "greet",
+    "renderGreeting",
+  ]);
+  await expect(
+    page.locator(".react-flow__edge-text").filter({ hasText: "calls" }).first(),
+  ).toContainText("calls");
+  await page
+    .locator(".architecture-card")
+    .filter({ hasText: "renderGreeting" })
+    .click();
+  await expect(page.locator(".semantic-inspector")).toContainText(
+    "calls · greet",
+  );
+  await expect(
+    page
+      .locator(".semantic-reasoning button")
+      .filter({ hasText: "calls · greet" })
+      .locator("code"),
+  ).toContainText("src/ui/view.ts:2");
+  await page.screenshot({ path: "test-results/witch-symbol-calls.png" });
+  await page.getByLabel("Meaning lens").selectOption("workflows");
+  await expect(page.locator(".workflow-projection-bar")).toContainText(
+    "Workflow catalog",
+  );
+  const workflowSummary = page
+    .locator(".architecture-card.is-workflow-summary")
+    .filter({ hasText: "run_agent workflow" });
+  await expect(workflowSummary).toContainText("steps");
+  await page.screenshot({ path: "test-results/witch-workflow-catalog.png" });
+  await workflowSummary.click();
+  await page
+    .getByRole("button", { name: "Explore workflow steps", exact: true })
+    .click();
+  await expect(page.getByLabel("Workflow focus")).toHaveValue(
+    "semantic:workflow:src/api/agent.py#run_agent:6",
+  );
+  await expect(page.getByLabel("Workflow view mode")).toHaveValue("sequence");
+  await expect(page.getByLabel("Collapse workflow branches")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(page.locator(".graph-breadcrumb")).toContainText(
+    "Workflow catalog",
+  );
+  await page.getByLabel("Collapse workflow branches").click();
+  await expect(page.getByLabel("Collapse workflow branches")).toHaveAttribute(
+    "aria-pressed",
+    "false",
+  );
+  await expect(
+    page
+      .locator(".react-flow__edge-text")
+      .filter({ hasText: "branches-to" })
+      .first(),
+  ).toContainText("branches-to");
+  await expect(
+    page
+      .locator(".react-flow__edge-text")
+      .filter({ hasText: "retries" })
+      .first(),
+  ).toContainText("retries");
+  await expect(
+    page
+      .locator(".react-flow__edge-text")
+      .filter({ hasText: "precedes" })
+      .first(),
+  ).toContainText("precedes");
+  const retryController = page
+    .locator(".architecture-card")
+    .filter({ hasText: "retry_attempt" })
+    .first();
+  await retryController.click();
+  await expect(page.locator(".semantic-inspector")).toContainText(
+    "Workflow step · retry",
+  );
+  await expect(page.locator(".semantic-inspector")).toContainText("retries");
+  await page.screenshot({ path: "test-results/witch-polyglot-workflow.png" });
+  const expandedWorkflowSteps = await page
+    .locator(".architecture-card")
+    .count();
+  await page.getByLabel("Collapse workflow branches").click();
+  await expect(page.getByLabel("Collapse workflow branches")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(
+    page.locator(".architecture-card").filter({ hasText: "branch step" }),
+  ).toContainText(/branch steps? collapsed/);
+  expect(await page.locator(".architecture-card").count()).toBeLessThan(
+    expandedWorkflowSteps,
+  );
+  await page.screenshot({
+    path: "test-results/witch-workflow-sequence-focus.png",
+  });
+  await page.getByLabel("Meaning lens").selectOption("components");
+  await expect(semanticComponent).toBeVisible();
+  await semanticComponent.click();
+  await page
+    .getByRole("button", { name: "Add to Agent context", exact: true })
+    .click();
+  await expect(page.locator(".context-chip")).toHaveCount(1);
   await page.screenshot({ path: "test-results/witch-semantic-meaning.png" });
   await page.getByRole("button", { name: "Modules", exact: true }).click();
   const handle = page.getByRole("button", {
-    name: "Drag src/api to chat",
+    name: "Drag src/api context to chat",
     exact: true,
   });
   const transfer = await page.evaluateHandle(() => new DataTransfer());
@@ -303,7 +562,11 @@ test("architecture edges and drag-to-chat source context work in Electron", asyn
   await page
     .getByRole("region", { name: "Component chat" })
     .dispatchEvent("drop", { dataTransfer: transfer });
-  await expect(page.locator(".context-chip")).toContainText("src/api");
+  await expect(page.locator(".context-chip")).toHaveCount(2);
+  await expect(page.locator(".context-chip")).toContainText([
+    "src/api",
+    "src/api",
+  ]);
   await expect(page.getByLabel("Agent mode")).toHaveValue("ask");
   await page.getByLabel("Agent mode").selectOption("change");
   await expect(page.getByLabel("Agent mode")).toHaveValue("change");
@@ -517,6 +780,79 @@ test("language server diagnostics, rename review and multiple terminal sessions 
   expect(errors).toEqual([]);
 });
 
+test("Pyright powers Python diagnostics, navigation and the visible outline", async () => {
+  const model =
+    'def forecast(symbol: str) -> str:\n    """Build a bounded market forecast."""\n    return symbol.upper()\n';
+  const consumer =
+    'from model import forecast\nposition: int = "invalid"\nprint(forecast("witch"))\n';
+  await fs.writeFile(path.join(fixture, "model.py"), model);
+  await fs.writeFile(path.join(fixture, "use_model.py"), consumer);
+  const files = page.locator(".file-list");
+  const consumerButton = files.getByRole("button", {
+    name: "use_model.py",
+    exact: true,
+  });
+  await expect(consumerButton).toBeVisible();
+  await consumerButton.click();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        async () =>
+          (await window.witch.lsp.status()).providers?.find(
+            (provider) => provider.id === "python",
+          )?.connected,
+      ),
+    )
+    .toBe(true);
+  await expect(
+    page.locator(".language-provider.connected", {
+      hasText: "Python · Pyright",
+    }),
+  ).toContainText("Python · Pyright");
+  await expect(page.locator(".problems-list").first()).toContainText(
+    "use_model.py",
+    { timeout: 15_000 },
+  );
+  await expect(page.locator(".problems-list").first()).toContainText(
+    "not assignable",
+  );
+  await expect
+    .poll(async () => {
+      const definition = await page.evaluate(() =>
+        window.witch.lsp.definition(
+          "use_model.py",
+          { line: 2, character: 8 },
+          undefined,
+        ),
+      );
+      return definition[0]
+        ? {
+            path: definition[0].path,
+            line: definition[0].start.line,
+          }
+        : null;
+    })
+    .toEqual({ path: "model.py", line: 0 });
+  await files.getByRole("button", { name: "model.py", exact: true }).click();
+  await expect(page.locator(".outline-list")).toContainText("forecast", {
+    timeout: 15_000,
+  });
+  const tooling = await page.evaluate(() => window.witch.tooling.status());
+  expect(tooling?.root).toBe(fixture);
+  await expect(page.getByLabel("Python environment")).toBeVisible();
+  if (tooling?.python.candidates.length) {
+    const active = tooling.python.candidates.find(
+      (item) => item.id === tooling.python.activeId,
+    );
+    expect(active && path.isAbsolute(active.path)).toBe(true);
+    await expect(
+      page.getByLabel("Run project task").locator("option"),
+    ).toContainText(["Run task…", "Python: Run active file"]);
+  }
+  await page.screenshot({ path: "test-results/witch-python-outline.png" });
+  expect(errors).toEqual([]);
+});
+
 test("canceling app quit leaves terminal processes and the language server running", async () => {
   const terminals = await page.evaluate(() => window.witch.terminal.list());
   expect(terminals).toHaveLength(2);
@@ -646,20 +982,28 @@ test("panel dividers resize by mouse and keyboard and restore after reload", asy
   await chat.focus();
   await page.keyboard.press("ArrowLeft");
   await expect(chat).toHaveAttribute("aria-valuenow", "360");
+  const terminalMaximum = Number(await terminal.getAttribute("aria-valuemax"));
+  const terminalTarget = Math.min(250, terminalMaximum);
   await terminal.focus();
   await page.keyboard.press("Shift+ArrowUp");
-  await expect(terminal).toHaveAttribute("aria-valuenow", "250");
+  await expect(terminal).toHaveAttribute(
+    "aria-valuenow",
+    String(terminalTarget),
+  );
   await expect
     .poll(() =>
       page.evaluate(
         async () => (await window.witch.settings.get()).preferences.layout,
       ),
     )
-    .toEqual({ left: 250, right: 360, terminal: 250 });
+    .toEqual({ left: 250, right: 360, terminal: terminalTarget });
   await page.reload();
   await expect(project).toHaveAttribute("aria-valuenow", "250");
   await expect(chat).toHaveAttribute("aria-valuenow", "360");
-  await expect(terminal).toHaveAttribute("aria-valuenow", "250");
+  await expect(terminal).toHaveAttribute(
+    "aria-valuenow",
+    String(terminalTarget),
+  );
   await page.screenshot({ path: "test-results/witch-resized-panels.png" });
   expect(errors).toEqual([]);
 });
@@ -739,6 +1083,82 @@ test("Node debugger and project tasks are connected to the desktop UI", async ()
     .selectOption({ label: "Run active file" });
   await executed;
   await expect(page.locator(".terminal-tab.selected")).toContainText("exited");
+  expect(errors).toEqual([]);
+});
+
+test("approved Task runtime trace separates static, observed, and compare readings", async () => {
+  await fs.mkdir(path.join(fixture, ".witch"), { recursive: true });
+  await fs.writeFile(
+    path.join(fixture, ".witch/tasks.json"),
+    JSON.stringify(
+      {
+        version: "2.0.0",
+        tasks: [
+          {
+            label: "Run active file",
+            type: "process",
+            command: "node",
+            args: ["${file}"],
+          },
+          {
+            label: "Trace fixture",
+            type: "process",
+            command: process.execPath,
+            args: ["trace.cjs"],
+          },
+        ],
+      },
+      null,
+      2,
+    ) + "\n",
+  );
+  await expect
+    .poll(async () =>
+      (await page.evaluate(() => window.witch.execution.catalog())).tasks.map(
+        (task) => task.label,
+      ),
+    )
+    .toContain("Trace fixture");
+  await page.getByRole("button", { name: "Constellation", exact: true }).click();
+  await page.getByRole("button", { name: "Meaning", exact: true }).click();
+  await page.getByLabel("Meaning lens").selectOption("behavior");
+  await expect(page.locator(".runtime-trace-bar")).toBeVisible();
+  await page.getByLabel("Runtime trace task").selectOption({
+    label: "Trace fixture",
+  });
+  await page.getByRole("button", { name: "Run & trace", exact: true }).click();
+  await expect
+    .poll(async () => {
+      const sessions = await page.evaluate(() => window.witch.trace.list());
+      return sessions.find((session) => session.taskLabel === "Trace fixture")
+        ?.status;
+    })
+    .toBe("completed");
+  await expect(page.locator(".runtime-trace-receipt")).toContainText(
+    "4 events",
+  );
+  await expect(page.locator(".runtime-trace-receipt")).toContainText(
+    "1 observed calls",
+  );
+  await expect(
+    page.getByRole("button", { name: "Observed", exact: true }),
+  ).toHaveClass(/active/);
+  await expect(
+    page.locator(".react-flow__edge-text").filter({ hasText: "calls" }).first(),
+  ).toContainText("calls");
+  await page.getByRole("button", { name: "Compare", exact: true }).click();
+  await expect(page.locator(".runtime-trace-receipt")).toContainText(
+    "observed-only",
+  );
+  const sessions = await page.evaluate(() => window.witch.trace.list());
+  const trace = sessions.find(
+    (session) => session.taskLabel === "Trace fixture",
+  );
+  expect(trace?.validation.actualValueCount).toBe(0);
+  expect(JSON.stringify(trace)).not.toContain("WITCH_TRACE_V1");
+  await page.screenshot({
+    path: "test-results/witch-runtime-trace-compare.png",
+  });
   expect(errors).toEqual([]);
 });
 
@@ -1045,6 +1465,8 @@ test("quick open and the project tree support keyboard navigation without losing
     tree.getByRole("button", { name: "client.ts", exact: true }),
   ).toBeVisible();
   await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowDown");
   const file = tree.getByRole("button", { name: "client.ts", exact: true });
   await expect(file).toBeFocused();
   await page.keyboard.press("F2");
@@ -1065,6 +1487,14 @@ test("accepting a TypeScript auto-import completion changes the editor buffer be
     (preferences) =>
       window.witch.settings.save({ ...preferences, autoSave: false }),
     preferences,
+  );
+  const sourceRelative = "src/api/auto-import-source.ts";
+  const source =
+    'export function welcome(name: string) { return `Welcome ${name}` }\n';
+  await fs.writeFile(path.join(fixture, sourceRelative), source);
+  await page.evaluate(
+    ({ path, content, root }) => window.witch.lsp.change(path, content, root),
+    { path: sourceRelative, content: source, root: fixture },
   );
   const relative = "src/auto-import.ts";
   await fs.writeFile(path.join(fixture, relative), "export {};\n");
@@ -1094,7 +1524,7 @@ test("accepting a TypeScript auto-import completion changes the editor buffer be
   expect(await fs.readFile(path.join(fixture, relative), "utf8")).toBe(
     "export {};\n",
   );
-  await page.keyboard.press(`${mod}+Alt+s`);
+  await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect
     .poll(() => fs.readFile(path.join(fixture, relative), "utf8"))
     .toContain("import { welcome }");

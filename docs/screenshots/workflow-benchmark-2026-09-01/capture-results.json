@@ -1,0 +1,75 @@
+{
+  "generatedAt": "2026-09-01T05:49:04.338Z",
+  "results": [
+    {
+      "rank": 1,
+      "repository": "THU-MAIC/OpenMAIC",
+      "root": "C:\\Users\\cdi65\\witch-benchmarks\\github-trending-2026-08-31\\01-THU-MAIC--OpenMAIC",
+      "screenshot": "C:\\Users\\cdi65\\vs-harness\\docs\\screenshots\\workflow-benchmark-2026-09-01\\01-THU-MAIC--OpenMAIC.png",
+      "view": "semantic-workflows"
+    },
+    {
+      "rank": 2,
+      "repository": "K-Dense-AI/scientific-agent-skills",
+      "root": "C:\\Users\\cdi65\\witch-benchmarks\\github-trending-2026-08-31\\02-K-Dense-AI--scientific-agent-skills",
+      "screenshot": "C:\\Users\\cdi65\\vs-harness\\docs\\screenshots\\workflow-benchmark-2026-09-01\\02-K-Dense-AI--scientific-agent-skills.png",
+      "view": "semantic-workflows"
+    },
+    {
+      "rank": 3,
+      "repository": "Lakr233/vphone-cli",
+      "root": "C:\\Users\\cdi65\\witch-benchmarks\\github-trending-2026-08-31\\03-Lakr233--vphone-cli",
+      "screenshot": "C:\\Users\\cdi65\\vs-harness\\docs\\screenshots\\workflow-benchmark-2026-09-01\\03-Lakr233--vphone-cli.png",
+      "view": "semantic-workflows"
+    },
+    {
+      "rank": 4,
+      "repository": "tt-a1i/archify",
+      "root": "C:\\Users\\cdi65\\witch-benchmarks\\github-trending-2026-08-31\\04-tt-a1i--archify",
+      "screenshot": "C:\\Users\\cdi65\\vs-harness\\docs\\screenshots\\workflow-benchmark-2026-09-01\\04-tt-a1i--archify.png",
+      "view": "semantic-workflows"
+    },
+    {
+      "rank": 5,
+      "repository": "p-e-w/heretic",
+      "root": "C:\\Users\\cdi65\\witch-benchmarks\\github-trending-2026-08-31\\05-p-e-w--heretic",
+      "screenshot": "C:\\Users\\cdi65\\vs-harness\\docs\\screenshots\\workflow-benchmark-2026-09-01\\05-p-e-w--heretic.png",
+      "view": "semantic-workflows"
+    },
+    {
+      "rank": 6,
+      "repository": "unclecode/crawl4ai",
+      "root": "C:\\Users\\cdi65\\witch-benchmarks\\github-trending-2026-08-31\\06-unclecode--crawl4ai",
+      "screenshot": "C:\\Users\\cdi65\\vs-harness\\docs\\screenshots\\workflow-benchmark-2026-09-01\\06-unclecode--crawl4ai.png",
+      "view": "semantic-workflows"
+    },
+    {
+      "rank": 7,
+      "repository": "mvanhorn/last30days-skill",
+      "root": "C:\\Users\\cdi65\\witch-benchmarks\\github-trending-2026-08-31\\07-mvanhorn--last30days-skill",
+      "screenshot": "C:\\Users\\cdi65\\vs-harness\\docs\\screenshots\\workflow-benchmark-2026-09-01\\07-mvanhorn--last30days-skill.png",
+      "view": "semantic-workflows"
+    },
+    {
+      "rank": 8,
+      "repository": "majd/ipatool",
+      "root": "C:\\Users\\cdi65\\witch-benchmarks\\github-trending-2026-08-31\\08-majd--ipatool",
+      "screenshot": "C:\\Users\\cdi65\\vs-harness\\docs\\screenshots\\workflow-benchmark-2026-09-01\\08-majd--ipatool.png",
+      "view": "semantic-workflows"
+    },
+    {
+      "rank": 9,
+      "repository": "punkpeye/awesome-mcp-servers",
+      "root": "C:\\Users\\cdi65\\witch-benchmarks\\github-trending-2026-08-31\\09-punkpeye--awesome-mcp-servers",
+      "screenshot": "C:\\Users\\cdi65\\vs-harness\\docs\\screenshots\\workflow-benchmark-2026-09-01\\09-punkpeye--awesome-mcp-servers.png",
+      "view": "semantic-workflows"
+    },
+    {
+      "rank": 10,
+      "repository": "checkstyle/checkstyle",
+      "root": "C:\\Users\\cdi65\\witch-benchmarks\\github-trending-2026-08-31\\10-checkstyle--checkstyle",
+      "screenshot": "C:\\Users\\cdi65\\vs-harness\\docs\\screenshots\\workflow-benchmark-2026-09-01\\10-checkstyle--checkstyle.png",
+      "view": "semantic-workflows"
+    }
+  ]
+}

@@ -10,7 +10,7 @@ import type {
 export type SemanticGraphDraft = Omit<SemanticGraph, "validation">;
 
 const evidenceKey = (evidence: SourceEvidence) =>
-  `${evidence.path}:${evidence.line}:${evidence.endLine || evidence.line}:${evidence.hash}:${evidence.excerpt || ""}`;
+  `${evidence.path}:${String(evidence.line).padStart(12, "0")}:${String(evidence.endLine || evidence.line).padStart(12, "0")}:${evidence.hash}:${evidence.excerpt || ""}`;
 
 function diagnostic(
   diagnostics: SemanticDiagnostic[],
@@ -262,6 +262,14 @@ export function validateSemanticGraph(
         question.id,
         "Question references an unknown claim",
       );
+    if (question.relationIds?.some((id) => !relations.has(id)))
+      diagnostic(
+        diagnostics,
+        "SEMANTIC_QUESTION_RELATION_MISSING",
+        "error",
+        question.id,
+        "Question references an unknown relation",
+      );
     if (!question.recommendation || question.options.length < 2)
       diagnostic(
         diagnostics,
@@ -322,6 +330,9 @@ export function finalizeSemanticGraph(
       .map((question) => ({
         ...question,
         claimIds: [...new Set(question.claimIds)].sort(),
+        ...(question.relationIds
+          ? { relationIds: [...new Set(question.relationIds)].sort() }
+          : {}),
         options: [...new Set(question.options)],
         evidence: sortEvidence(question.evidence),
       })),

@@ -131,9 +131,9 @@ export function SourceEditor(props: Props) {
   }, []);
   useEffect(() => {
     const provider = monaco.languages.registerCompletionItemProvider(
-      ["typescript", "javascript"],
+      ["typescript", "javascript", "python", "rust"],
       {
-        triggerCharacters: [".", '"', "'", "/", "@"],
+        triggerCharacters: [".", ":", '"', "'", "/", "@"],
         async provideCompletionItems(model, position, _context, token) {
           const current = latest.current;
           const tab = current.tabs.find(
@@ -290,7 +290,7 @@ export function SourceEditor(props: Props) {
         : null;
     };
     const hover = monaco.languages.registerHoverProvider(
-      ["typescript", "javascript"],
+      ["typescript", "javascript", "python", "rust"],
       {
         async provideHover(model, position, token) {
           try {
@@ -314,7 +314,7 @@ export function SourceEditor(props: Props) {
       },
     );
     const signatures = monaco.languages.registerSignatureHelpProvider(
-      ["typescript", "javascript"],
+      ["typescript", "javascript", "python", "rust"],
       {
         signatureHelpTriggerCharacters: ["(", ",", "<"],
         signatureHelpRetriggerCharacters: [")"],

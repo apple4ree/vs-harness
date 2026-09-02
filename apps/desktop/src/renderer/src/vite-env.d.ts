@@ -18,7 +18,7 @@ declare global {
     source?: string;
     code?: string | number;
   };
-  type LspStatus = { installed: boolean; connected: boolean; message: string };
+  type LspStatus = import("../../shared/language").LanguageStatus;
   type LspLocation = { path: string; start: LspPosition; end: LspPosition };
   type LspCompletion = import("../../shared/language").Completion;
   type GraphNode = import("../../shared/architecture").ArchitectureNode;
@@ -45,6 +45,7 @@ declare global {
     installed: boolean;
     executable?: string;
     version?: string;
+    authenticated: boolean;
     connected: boolean;
     running: boolean;
     message: string;
@@ -53,6 +54,7 @@ declare global {
     installed: boolean;
     executable?: string;
     version?: string;
+    authenticated: boolean;
     message: string;
   };
   type ApiProviderStatus = {
@@ -67,6 +69,7 @@ declare global {
     openaiApi: ApiProviderStatus;
     anthropicApi: ApiProviderStatus;
   };
+  type CliProviderId = "codex" | "claude";
   type ApiProviderId = "openai" | "anthropic";
   interface Window {
     witch: {
@@ -97,6 +100,45 @@ declare global {
           kind: "launch" | "tasks",
           activeFile?: string,
         ): Promise<string>;
+      };
+      trace: {
+        list(): Promise<
+          import("../../shared/runtime-trace").RuntimeTraceSession[]
+        >;
+        get(
+          id: string,
+        ): Promise<import("../../shared/runtime-trace").RuntimeTraceSession>;
+        start(
+          id: string,
+          activeFile?: string,
+        ): Promise<{
+          trace: import("../../shared/runtime-trace").RuntimeTraceSession;
+          terminal: import("../../shared/execution").TerminalSnapshot;
+        }>;
+        stop(
+          id: string,
+        ): Promise<
+          import("../../shared/runtime-trace").RuntimeTraceSession | null
+        >;
+        onUpdated(
+          listener: (
+            session: import("../../shared/runtime-trace").RuntimeTraceSession,
+          ) => void,
+        ): () => void;
+      };
+      tooling: {
+        status(): Promise<
+          import("../../shared/tooling").WorkspaceToolingSnapshot | null
+        >;
+        selectPython(
+          id: string | null,
+          root?: string,
+        ): Promise<import("../../shared/tooling").WorkspaceToolingSnapshot>;
+        onChanged(
+          listener: (
+            snapshot: import("../../shared/tooling").WorkspaceToolingSnapshot,
+          ) => void,
+        ): () => void;
       };
       debug: {
         status(): Promise<import("../../shared/execution").DebugState>;
@@ -176,6 +218,12 @@ declare global {
       };
       analysis: {
         start(): Promise<ArchitectureGraph & { snapshot: Snapshot }>;
+        clearIndex(): Promise<ArchitectureGraph>;
+        compose(
+          request: import("../../shared/semantic-composer").SemanticComposerRequest,
+        ): Promise<
+          import("../../shared/semantic-composer").SemanticComposerResult
+        >;
         snapshots(): Promise<Snapshot[]>;
         current(): Promise<ArchitectureGraph | null>;
         delta(snapshotId: string): Promise<ArchitectureDelta>;
@@ -184,9 +232,19 @@ declare global {
         onError(listener: (error: string) => void): () => void;
       };
       agent: {
+        status(): Promise<import("../../shared/agent").AgentHostStatus>;
         list(): Promise<import("../../shared/agent").AgentRun[]>;
         start(
           request: import("../../shared/agent").AgentRequest,
+        ): Promise<import("../../shared/agent").AgentRun>;
+        resume(
+          id: string,
+          prompt: string,
+        ): Promise<import("../../shared/agent").AgentRun>;
+        fork(
+          id: string,
+          providerId: import("../../shared/agent").AgentProviderId,
+          prompt: string,
         ): Promise<import("../../shared/agent").AgentRun>;
         stop(): Promise<void>;
         apply(
@@ -194,6 +252,7 @@ declare global {
           paths: string[],
         ): Promise<import("../../shared/agent").AgentRun>;
         archive(id: string): Promise<import("../../shared/agent").AgentRun>;
+        restore(id: string): Promise<import("../../shared/agent").AgentRun>;
         onEvent(
           listener: (event: import("../../shared/agent").AgentEvent) => void,
         ): () => void;
@@ -230,6 +289,10 @@ declare global {
           position: LspPosition,
           root?: string,
         ): Promise<LspLocation[]>;
+        symbols(
+          path: string,
+          root?: string,
+        ): Promise<import("../../shared/language").DocumentSymbol[]>;
         rename(
           path: string,
           position: LspPosition,
@@ -247,6 +310,7 @@ declare global {
         onStatus(listener: (status: LspStatus) => void): () => void;
         onDiagnostics(
           listener: (event: {
+            language?: import("../../shared/language").LanguageProviderId;
             path: string;
             diagnostics: LspDiagnostic[];
           }) => void,
@@ -255,6 +319,7 @@ declare global {
       tasks: { list(): Promise<TaskRecord[]> };
       providers: {
         status(): Promise<ProviderStatus>;
+        connectCli(provider: CliProviderId): Promise<ProviderStatus>;
         saveApiKey(
           provider: ApiProviderId,
           key: string,

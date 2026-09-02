@@ -4,14 +4,22 @@ Witch의 구조 탐색은 하나의 검증된 `witch.architecture/v1` IR을 여�
 
 ## 현재 지원하는 관점
 
-| 관점                        | 표시하는 사실                                                                               | 의도적으로 표시하지 않는 것               |
-| --------------------------- | ------------------------------------------------------------------------------------------- | ----------------------------------------- |
-| Modules                     | 파일의 정적 모듈 묶음과 묶음 사이의 실제 import/re-export 합계                              | 런타임 호출 횟수, 중요도                  |
-| Files                       | 분석된 파일과 실제 import/re-export 관계                                                    | 동적 dispatch, 실행 순서                  |
-| Focus / source neighborhood | 활성 파일, 그 파일을 직접 import하는 파일, 그 파일이 직접 import하는 대상, 각 evidence line | 간접 영향, blast radius, 런타임 data flow |
-| Upstream / downstream reach | 현재 화면에 존재하는 authored directed relation의 도달 가능성                               | 변경 영향이나 위험도                      |
-| Route                       | 현재 화면의 authored relation만 사용한 결정적 최단 경로                                     | 실제 실행 call sequence                   |
-| Before · Delta · After      | 두 검증된 reading 사이의 정확한 노드·관계 추가/변경/삭제                                    | 회귀 위험이나 의미 변화 추정              |
+| 관점                        | 표시하는 사실                                                                                                                                  | 의도적으로 표시하지 않는 것                    |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| Modules                     | 파일의 정적 모듈 묶음과 묶음 사이의 실제 import/re-export 합계                                                                                 | 런타임 호출 횟수, 중요도                       |
+| Files                       | 분석된 파일과 실제 import/re-export 관계                                                                                                       | 동적 dispatch, 실행 순서                       |
+| Focus / source neighborhood | 활성 파일, 그 파일을 직접 import하는 파일, 그 파일이 직접 import하는 대상, 각 evidence line                                                    | 간접 영향, blast radius, 런타임 data flow      |
+| Upstream / downstream reach | 현재 화면에 존재하는 authored directed relation의 도달 가능성                                                                                  | 변경 영향이나 위험도                           |
+| Route                       | 현재 화면의 authored relation만 사용한 결정적 최단 경로                                                                                        | 실제 실행 call sequence                        |
+| Before · Delta · After      | 두 검증된 reading 사이의 정확한 노드·관계 추가/변경/삭제                                                                                       | 회귀 위험이나 의미 변화 추정                   |
+| Meaning · Calls             | TS checker verified call과 Python/Rust inferred internal call, call-site evidence                                                              | 임의 property/dynamic dispatch, 실제 실행 횟수 |
+| Meaning · Workflows         | production-first summary catalog, Component grouping, provisional call step, lexical `precedes`, explicit `branches-to`/`retries`, one-workflow sequence and branch collapse projection | 관측된 실행, exception/return/data flow        |
+
+## Workflow summary-first 탐색
+
+Workflow lens의 기본 상태는 모든 step을 펼치는 전체 control-flow graph가 아니다. source-grounded Workflow를 Component 아래의 summary card로 투영하고 production 항목을 먼저 최대 12개 보여준다. 각 summary는 단계·분기·재시도 수, production/support 구분과 source context를 유지한다. test/docs/example 계열은 기본적으로 숨기며 사용자가 명시적으로 확장할 수 있다.
+
+summary를 열면 해당 Workflow 하나만 sequence로 투영하고 branch-only 구간은 기본 접기 상태로 시작한다. breadcrumb는 `Workflow catalog → Workflow detail` 왕복을 제공한다. 동일 source Workflow가 정적 분석과 Semantic Composer 양쪽에 존재하면 카탈로그에서만 하나로 합치며, 자세한 branch/retry 근거를 보존하는 정적 Workflow를 detail 대상으로 우선한다. canonical semantic IR과 두 provenance는 삭제하거나 합치지 않는다.
 
 ## Source ↔ Constellation 왕복 탐색
 
@@ -21,12 +29,16 @@ Dependencies 옵션을 끄면 외부 package 노드와 그 관계만 투영에�
 
 ## Capability boundary
 
-정적 import만으로 workflow, sequence, data flow, lifecycle을 만들면 그럴듯하지만 확인되지 않은 동작을 주장하게 됩니다. Witch는 다음 authored input이 생기기 전까지 이런 뷰를 생성하지 않습니다.
+정적 import만으로 workflow, sequence, data flow, lifecycle을 만들면 그럴듯하지만 확인되지 않은 동작을 주장하게 됩니다. Witch는 import가 아니라 source-resolved call site와 명시적 제어 구문이 있는 경우에만 provisional Workflow control-flow를 만듭니다. 다음 항목을 accepted/observed 사실로 승격하려면 여전히 authored input이나 runtime trace가 필요합니다.
 
-- Workflow: 명시적 step 순서, branch, exception
+- Workflow: 확정 step 순서, 실제 선택 branch, exception/return
 - Sequence: 관측되거나 작성된 call/return과 participant
 - Data flow: source, transform, store, trust boundary
 - Lifecycle: state, event, retry, cancel transition
+
+TS/JS direct call은 `witch.semantic/v1`의 verified relation으로, Python/Rust 보수적 source binding은 inferred relation으로 저장됩니다. Workflow participant와 `precedes`/`branches-to`/`retries` 해석은 모두 provisional Meaning 계층에 남고 관계 설명에 runtime 비관측 경계를 표시합니다.
+
+Pyright와 설치된 rust-analyzer의 call hierarchy가 같은 내부 target을 독립적으로 가리키면 Python/Rust call relation은 `inferred/corroborated`가 됩니다. 하나의 명확한 call line에서 서로 다른 내부 target을 가리킬 때만 두 관계를 모두 보존하고 relation-backed OpenQuestion을 생성합니다. LSP 응답 부재나 외부/dynamic target은 충돌 근거가 아닙니다.
 
 향후 각 입력은 별도의 typed IR과 validator를 가져야 합니다. AI는 근거 후보를 제안할 수 있지만, 검증되지 않은 제안을 canonical graph에 자동 합치지 않습니다.
 

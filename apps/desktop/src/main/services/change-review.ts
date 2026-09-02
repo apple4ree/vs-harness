@@ -28,6 +28,21 @@ export type WorkspaceCopy = {
   warnings: string[];
 };
 
+export interface WorkspaceIsolationBackend {
+  readonly id: "workspace-copy";
+  create(
+    source: string,
+    runDirectory: string,
+    signal?: AbortSignal,
+  ): Promise<WorkspaceCopy>;
+  collect(source: string, copy: WorkspaceCopy): Promise<ProposedChange[]>;
+  apply(
+    root: string,
+    changes: ProposedChange[],
+    recoveryDirectory: string,
+  ): Promise<string[]>;
+}
+
 export async function createWorkspaceCopy(
   source: string,
   runDirectory: string,
@@ -273,3 +288,10 @@ export async function applyReviewedChanges(
   );
   return changes.map((change) => change.path);
 }
+
+export const workspaceCopyBackend: WorkspaceIsolationBackend = {
+  id: "workspace-copy",
+  create: createWorkspaceCopy,
+  collect: collectChanges,
+  apply: applyReviewedChanges,
+};

@@ -22,6 +22,7 @@ import {
 } from "../../shared/settings";
 import { monaco } from "./components/editor-runtime";
 import type { DebugState, Breakpoint } from "../../shared/execution";
+import type { WorkspaceToolingSnapshot } from "../../shared/tooling";
 import { ReviewDialog, type ReviewFile } from "./components/ReviewDialog";
 import {
   FileActionDialog,
@@ -32,8 +33,10 @@ import {
   type FileActionKind,
 } from "./components/WorkspaceDialogs";
 import type { ComponentContext } from "../../shared/architecture";
+import type { SemanticComposerRequest } from "../../shared/semantic-composer";
 import type {
   CodeAction,
+  DocumentSymbol,
   Position,
   Range,
   RefactorPreview,
@@ -45,6 +48,10 @@ import "./astral-theme.css";
 
 function errorText(reason: unknown) {
   return reason instanceof Error ? reason.message : String(reason);
+}
+
+function isLanguageFile(file: string) {
+  return /\.(?:[cm]?[jt]sx?|pyi?|rs)$/i.test(file);
 }
 
 export function Workbench() {
@@ -62,6 +69,7 @@ export function Workbench() {
   const [lineTarget, setLineTarget] = useState<number | null>(null);
   const [graph, setGraph] = useState<ArchitectureGraph | null>(null);
   const [graphBusy, setGraphBusy] = useState(false);
+  const [compositionBusy, setCompositionBusy] = useState(false);
   const [contexts, setContexts] = useState<ComponentContext[]>([]);
   const [recentProjects, setRecentProjects] = useState<ProjectRecord[]>([]);
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
@@ -156,6 +164,9 @@ export function Workbench() {
   });
   const [breakpoints, setBreakpoints] = useState<Breakpoint[]>([]);
   const [lsp, setLsp] = useState<LspStatus | null>(null);
+  const [tooling, setTooling] = useState<WorkspaceToolingSnapshot | null>(null);
+  const [toolingBusy, setToolingBusy] = useState(false);
+  const [outline, setOutline] = useState<DocumentSymbol[]>([]);
   const [diagnostics, setDiagnostics] = useState<
     Record<string, LspDiagnostic[]>
   >({});
@@ -368,13 +379,51 @@ export function Workbench() {
         ].slice(0, 20),
       );
       setStatus(
-        `Structure indexed: ${result.scannedFiles} files · ${result.edges.length} evidence-backed relations · ${result.revision.slice(0, 8)}`,
+        `Structure indexed: ${result.coverage?.deepFiles ?? result.scannedFiles}/${result.coverage?.indexedFiles ?? result.scannedFiles} deep files · ${result.edges.length} evidence-backed relations · ${result.revision.slice(0, 8)}`,
       );
     } catch (reason) {
       if (root === rootRef.current)
         setStatus(`Structure analysis: ${errorText(reason)}`);
     } finally {
       if (root === rootRef.current) setGraphBusy(false);
+    }
+  }
+  async function clearAnalysisIndex() {
+    const root = rootRef.current;
+    if (!root || graphBusy) return;
+    setGraphBusy(true);
+    try {
+      const result = await window.witch.analysis.clearIndex();
+      if (root !== rootRef.current) return;
+      setGraph(result);
+      setStatus(
+        `Local analysis index rebuilt · ${result.coverage?.deepFiles ?? result.scannedFiles} deep files · ${result.revision.slice(0, 8)}`,
+      );
+    } catch (reason) {
+      if (root === rootRef.current)
+        setStatus(`Rebuild analysis index: ${errorText(reason)}`);
+    } finally {
+      if (root === rootRef.current) setGraphBusy(false);
+    }
+  }
+  async function composeMeaning(request: SemanticComposerRequest) {
+    const root = rootRef.current;
+    if (!root || !graph || compositionBusy) return false;
+    setCompositionBusy(true);
+    try {
+      const result = await window.witch.analysis.compose(request);
+      if (root !== rootRef.current) return false;
+      setGraph(result.graph);
+      setStatus(
+        `Semantic composition: ${result.receipt.componentCount} components · ${result.receipt.relationCount} relations · ${result.receipt.workflowCount} workflows · ${result.receipt.provider}${result.receipt.fallback ? " → rules fallback" : ""}.`,
+      );
+      return true;
+    } catch (reason) {
+      if (root === rootRef.current)
+        setStatus(`Semantic Composer: ${errorText(reason)}`);
+      return false;
+    } finally {
+      if (root === rootRef.current) setCompositionBusy(false);
     }
   }
   async function compareSnapshot(snapshot: Snapshot) {
@@ -636,12 +685,32 @@ export function Workbench() {
       }),
       window.witch.workspace.onWarning(setRecoveryWarning),
       window.witch.lsp.onStatus(setLsp),
+      window.witch.tooling.onChanged((snapshot) => {
+        if (snapshot.root === rootRef.current) setTooling(snapshot);
+      }),
       window.witch.lsp.onDiagnostics(({ path, diagnostics: items }) =>
         setDiagnostics((previous) => ({ ...previous, [path]: items })),
       ),
     ];
     return () => subscriptions.forEach((unsubscribe) => unsubscribe());
   }, []);
+  useEffect(() => {
+    let disposed = false;
+    setTooling(null);
+    if (workspace?.root)
+      void window.witch.tooling
+        .status()
+        .then((snapshot) => {
+          if (!disposed && snapshot?.root === rootRef.current)
+            setTooling(snapshot);
+        })
+        .catch((reason) => {
+          if (!disposed) setStatus(`Toolchains: ${errorText(reason)}`);
+        });
+    return () => {
+      disposed = true;
+    };
+  }, [workspace?.root]);
   useEffect(() => {
     void window.witch.workspace
       .dirty(
@@ -654,7 +723,7 @@ export function Workbench() {
     const languageRoot = rootRef.current;
     const timer = setTimeout(() => {
       for (const tab of tabs)
-        if (/\.[cm]?[jt]sx?$/i.test(tab.path))
+        if (isLanguageFile(tab.path))
           void window.witch.lsp
             .change(tab.path, tab.content, languageRoot)
             .catch((reason) =>
@@ -663,6 +732,37 @@ export function Workbench() {
     }, 300);
     return () => clearTimeout(timer);
   }, [tabs]);
+  useEffect(() => {
+    const tab = activeTab;
+    const root = rootRef.current;
+    if (!tab || !isLanguageFile(tab.path)) {
+      setOutline([]);
+      return;
+    }
+    let disposed = false;
+    const timer = setTimeout(() => {
+      void window.witch.lsp
+        .symbols(tab.path, root)
+        .then((symbols) => {
+          const current = tabsRef.current.find(
+            (candidate) => candidate.path === tab.path,
+          );
+          if (
+            !disposed &&
+            root === rootRef.current &&
+            current?.content === tab.content
+          )
+            setOutline(symbols);
+        })
+        .catch(() => {
+          if (!disposed) setOutline([]);
+        });
+    }, 500);
+    return () => {
+      disposed = true;
+      clearTimeout(timer);
+    };
+  }, [activeTab?.path, activeTab?.content]);
   async function selectFile(path: string, line?: number) {
     const root = rootRef.current;
     if (root && sessionReady.current !== root) {
@@ -722,33 +822,33 @@ export function Workbench() {
         root,
       );
       if (root !== rootRef.current) return;
-      setTabs((previous) =>
-        previous.map((item) =>
-          item.path === path
-            ? {
-                ...item,
-                savedContent: tab.content,
-                hash: saved.hash,
-                conflict: undefined,
-              }
-            : item,
-        ),
+      const nextTabs = tabsRef.current.map((item) =>
+        item.path === path
+          ? {
+              ...item,
+              savedContent: tab.content,
+              hash: saved.hash,
+              conflict: undefined,
+            }
+          : item,
       );
+      tabsRef.current = nextTabs;
+      setTabs(nextTabs);
       setStatus(`${path} saved. The structure map updates automatically.`);
     } catch (reason) {
       if (root !== rootRef.current) return;
       setStatus(errorText(reason));
-      setTabs((previous) =>
-        previous.map((item) =>
-          item.path === path
-            ? {
-                ...item,
-                conflict:
-                  "Save could not complete. Check the disk version before retrying.",
-              }
-            : item,
-        ),
+      const nextTabs = tabsRef.current.map((item) =>
+        item.path === path
+          ? {
+              ...item,
+              conflict:
+                "Save could not complete. Check the disk version before retrying.",
+            }
+          : item,
       );
+      tabsRef.current = nextTabs;
+      setTabs(nextTabs);
     } finally {
       saving.current.delete(path);
     }
@@ -795,7 +895,7 @@ export function Workbench() {
   }
   async function syncDocuments(root = rootRef.current) {
     for (const tab of tabsRef.current)
-      if (/\.[cm]?[jt]sx?$/i.test(tab.path))
+      if (isLanguageFile(tab.path))
         await window.witch.lsp.change(tab.path, tab.content, root);
   }
   async function findLocations(
@@ -937,6 +1037,13 @@ export function Workbench() {
     }
     setFileBusy(true);
     try {
+      if (["rename", "move", "delete"].includes(action.kind))
+        await window.witch.workspace.dirty(
+          tabsRef.current
+            .filter((tab) => tab.content !== tab.savedContent)
+            .map((tab) => tab.path),
+          root,
+        );
       if (action.kind === "create-file")
         await window.witch.workspace.createFile(target, undefined, root);
       else if (action.kind === "create-folder")
@@ -1220,21 +1327,84 @@ export function Workbench() {
               Save all<small>{preferences.keybindings.saveAll}</small>
             </button>
           </section>
-          <DebugPanel
-            root={workspace?.root}
-            activeFile={selectedFile}
-            state={debugState}
-            onNavigate={(path, line) => void selectFile(path, line)}
-            onConfigure={() => void configureExecution("launch")}
-            onError={setStatus}
-          />
           <section>
             <h2>Language intelligence</h2>
-            <p className="rail-note">
-              {lsp?.connected
-                ? "● TypeScript / JavaScript connected"
-                : "TypeScript / JavaScript starts when a source file opens"}
-            </p>
+            <div className="language-provider-list">
+              {(lsp?.providers || []).map((provider) => (
+                <p
+                  className={`language-provider ${provider.connected ? "connected" : provider.installed ? "ready" : "missing"}`}
+                  key={provider.id}
+                  title={provider.message}
+                >
+                  <span>
+                    {provider.connected ? "●" : provider.installed ? "○" : "×"}
+                  </span>
+                  {provider.label}
+                  {!provider.installed && " — not installed"}
+                </p>
+              ))}
+              {!lsp?.providers?.length && (
+                <p className="rail-note">Language services start on demand.</p>
+              )}
+            </div>
+            <label className="python-environment-picker">
+              <span>Python environment</span>
+              <select
+                aria-label="Python environment"
+                value={tooling?.python.selectedId || ""}
+                disabled={
+                  !workspace ||
+                  toolingBusy ||
+                  !tooling?.python.candidates.length
+                }
+                title={tooling?.python.message}
+                onChange={(event) => {
+                  const id = event.target.value || null;
+                  const root = rootRef.current;
+                  if (!root) return;
+                  setToolingBusy(true);
+                  void window.witch.tooling
+                    .selectPython(id, root)
+                    .then((snapshot) => {
+                      if (snapshot.root === rootRef.current) {
+                        setTooling(snapshot);
+                        const active = snapshot.python.candidates.find(
+                          (item) => item.id === snapshot.python.activeId,
+                        );
+                        setStatus(
+                          active
+                            ? `Python environment: ${active.label}`
+                            : snapshot.python.message,
+                        );
+                      }
+                    })
+                    .catch((reason) =>
+                      setStatus(`Toolchains: ${errorText(reason)}`),
+                    )
+                    .finally(() => setToolingBusy(false));
+                }}
+              >
+                <option value="">
+                  Auto
+                  {tooling?.python.selection === "automatic"
+                    ? ` · ${tooling.python.candidates.find((item) => item.id === tooling.python.activeId)?.label || "detect"}`
+                    : ""}
+                </option>
+                {tooling?.python.candidates.map((environment) => (
+                  <option key={environment.id} value={environment.id}>
+                    {environment.label}
+                  </option>
+                ))}
+              </select>
+              <small>
+                {tooling?.python.candidates.find(
+                  (item) => item.id === tooling.python.activeId,
+                )?.source || "No interpreter detected"}
+              </small>
+            </label>
+            {!!tooling?.warnings.length && (
+              <p className="rail-note">{tooling.warnings.join(" ")}</p>
+            )}
             <details className="problems-list">
               <summary>{problems.length} diagnostics</summary>
               {problems.map((problem, index) => (
@@ -1252,7 +1422,39 @@ export function Workbench() {
                 </button>
               ))}
             </details>
+            <details className="problems-list outline-list" open>
+              <summary>
+                {outline.length} symbols
+                {selectedFile ? ` · ${selectedFile.split("/").at(-1)}` : ""}
+              </summary>
+              {outline.map((symbol, index) => (
+                <button
+                  key={`${symbol.path}:${symbol.selectionRange.start.line}:${index}`}
+                  style={{ paddingLeft: 10 + symbol.depth * 12 }}
+                  title={symbol.detail || symbol.name}
+                  onClick={() =>
+                    void selectFile(
+                      symbol.path,
+                      symbol.selectionRange.start.line + 1,
+                    )
+                  }
+                >
+                  <strong>
+                    <span aria-hidden="true">◇</span> {symbol.name}
+                  </strong>
+                  {symbol.detail && <span>{symbol.detail}</span>}
+                </button>
+              ))}
+            </details>
           </section>
+          <DebugPanel
+            root={workspace?.root}
+            activeFile={selectedFile}
+            state={debugState}
+            onNavigate={(path, line) => void selectFile(path, line)}
+            onConfigure={() => void configureExecution("launch")}
+            onError={setStatus}
+          />
           <section>
             <h2>Recent projects</h2>
             {recentProjects.slice(0, 5).map((project) => (
@@ -1376,9 +1578,52 @@ export function Workbench() {
                 graph={graph}
                 busy={graphBusy}
                 onAnalyze={() => void analyze()}
+                onClearIndex={() => void clearAnalysisIndex()}
                 onOpenFile={(path, line) => void selectFile(path, line)}
                 onAttach={attach}
                 onExport={(format) => void exportArchitecture(format)}
+                composerProviders={[
+                  {
+                    id: "codex",
+                    label: "Codex CLI",
+                    available: Boolean(providers?.codex.authenticated),
+                    detail:
+                      providers?.codex.message || "Codex CLI is unavailable.",
+                  },
+                  {
+                    id: "claude",
+                    label: "Claude Code CLI",
+                    available: Boolean(providers?.claude.authenticated),
+                    detail:
+                      providers?.claude.message ||
+                      "Claude Code CLI is unavailable.",
+                  },
+                  {
+                    id: "openai",
+                    label: "OpenAI API",
+                    available: Boolean(providers?.openaiApi.configured),
+                    detail:
+                      providers?.openaiApi.message ||
+                      "OpenAI API key is not configured.",
+                  },
+                  {
+                    id: "anthropic",
+                    label: "Anthropic API",
+                    available: Boolean(providers?.anthropicApi.configured),
+                    detail:
+                      providers?.anthropicApi.message ||
+                      "Anthropic API key is not configured.",
+                  },
+                  {
+                    id: "rules",
+                    label: "Rules only",
+                    available: true,
+                    detail:
+                      "Deterministic local fallback. No project metadata leaves this computer.",
+                  },
+                ]}
+                compositionBusy={compositionBusy}
+                onCompose={composeMeaning}
                 activeFile={selectedFile}
                 revealRequest={architectureReveal}
               />
@@ -1510,6 +1755,7 @@ export function Workbench() {
             attachments={contexts}
             onAttachments={setContexts}
             available={Boolean(providers?.codex.installed)}
+            providerStatus={providers}
             onOpenFile={(path, line) => void selectFile(path, line)}
           />
         </aside>
@@ -1538,6 +1784,19 @@ export function Workbench() {
         <ProviderDialog
           providers={providers}
           onClose={() => setProvidersOpen(false)}
+          onConnect={async (provider) => {
+            setStatus(
+              `Waiting for ${provider === "codex" ? "Codex" : "Claude Code"} browser sign-in…`,
+            );
+            setProviders(await window.witch.providers.connectCli(provider));
+            setStatus(
+              `${provider === "codex" ? "Codex" : "Claude Code"} is signed in and available to Witch.`,
+            );
+          }}
+          onRefresh={async () => {
+            setProviders(await window.witch.providers.status());
+            setStatus("AI provider status refreshed.");
+          }}
           onSave={async (provider, key) => {
             setProviders(
               await window.witch.providers.saveApiKey(provider, key),

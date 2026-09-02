@@ -41,6 +41,7 @@ export class NodeDebugService extends EventEmitter {
   private generation = 0;
   private state: DebugState = {
     root: null,
+    adapter: "node",
     status: "idle",
     frames: [],
     output: "",
@@ -372,6 +373,7 @@ export class NodeDebugService extends EventEmitter {
         throw new Error("Debug start canceled");
       this.state = {
         root,
+        adapter: "node",
         status: "starting",
         name: launch.name,
         frames: [],

@@ -214,6 +214,14 @@ test(
     });
     const item = items.find((item) => item.label === "computeWitchValue");
     assert(item?.id, JSON.stringify(items.map((item) => item.label)));
+    assert(
+      item.additionalTextEdits?.some(
+        (edit) =>
+          edit.newText.includes("import") &&
+          edit.newText.includes("computeWitchValue"),
+      ),
+      "A narrowed TypeScript completion should be acceptance-ready",
+    );
     const resolved = await server.resolveCompletion(item.id);
     assert(
       resolved.additionalTextEdits?.some(

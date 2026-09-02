@@ -4,6 +4,8 @@ import type {
   ArchitectureValidationReceipt,
 } from "./architecture";
 import { finalizeSemanticGraph, validateSemanticGraph } from "./semantic-ir";
+import { finalizeBehaviorGraph, validateBehaviorGraph } from "./behavior-ir";
+import { finalizeFrameworkGraph, validateFrameworkGraph } from "./framework-ir";
 
 export type ArchitectureGraphDraft = Omit<ArchitectureGraph, "validation">;
 
@@ -255,6 +257,118 @@ export function validateArchitectureGraph(
         item.message,
       );
   }
+  if (graph.behavior) {
+    if (!graph.semantic)
+      diagnostic(
+        diagnostics,
+        "IR_BEHAVIOR_SEMANTIC_MISSING",
+        "error",
+        "behavior",
+        "The behavior overlay requires a semantic graph",
+      );
+    if (graph.behavior.workspaceRoot !== graph.workspaceRoot)
+      diagnostic(
+        diagnostics,
+        "IR_BEHAVIOR_ROOT_MISMATCH",
+        "error",
+        "behavior",
+        "The behavior overlay belongs to a different workspace",
+      );
+    if (graph.behavior.sourceRevision !== graph.revision)
+      diagnostic(
+        diagnostics,
+        "IR_BEHAVIOR_REVISION_MISMATCH",
+        "error",
+        "behavior",
+        "The behavior overlay was not produced from this source revision",
+      );
+    const behavior = validateBehaviorGraph(
+      graph.behavior,
+      graph.semantic,
+      graph.nodes,
+    );
+    for (const item of behavior.diagnostics)
+      diagnostic(
+        diagnostics,
+        `IR_${item.code}`,
+        item.severity,
+        `behavior:${item.subject}`,
+        item.message,
+      );
+  }
+  if (graph.frameworks) {
+    if (!graph.semantic)
+      diagnostic(
+        diagnostics,
+        "IR_FRAMEWORK_SEMANTIC_MISSING",
+        "error",
+        "framework",
+        "Framework analysis requires a semantic graph",
+      );
+    if (!graph.behavior)
+      diagnostic(
+        diagnostics,
+        "IR_FRAMEWORK_BEHAVIOR_MISSING",
+        "error",
+        "framework",
+        "Framework candidates require a behavior overlay",
+      );
+    if (graph.frameworks.workspaceRoot !== graph.workspaceRoot)
+      diagnostic(
+        diagnostics,
+        "IR_FRAMEWORK_ROOT_MISMATCH",
+        "error",
+        "framework",
+        "Framework analysis belongs to a different workspace",
+      );
+    if (graph.frameworks.sourceRevision !== graph.revision)
+      diagnostic(
+        diagnostics,
+        "IR_FRAMEWORK_REVISION_MISMATCH",
+        "error",
+        "framework",
+        "Framework analysis was not produced from this source revision",
+      );
+    const framework = validateFrameworkGraph(
+      graph.frameworks,
+      graph.semantic,
+      graph.nodes,
+    );
+    for (const item of framework.diagnostics)
+      diagnostic(
+        diagnostics,
+        `IR_${item.code}`,
+        item.severity,
+        `framework:${item.subject}`,
+        item.message,
+      );
+    const behaviorRelations = new Map(
+      graph.behavior?.relations.map((relation) => [relation.id, relation]) || [],
+    );
+    for (const candidate of graph.frameworks.candidates) {
+      const relation = behaviorRelations.get(candidate.relationId);
+      if (!relation)
+        diagnostic(
+          diagnostics,
+          "IR_FRAMEWORK_RELATION_MISSING",
+          "error",
+          candidate.id,
+          "Validated framework candidate is missing from the behavior overlay",
+        );
+      else if (
+        relation.provenance.framework !== candidate.framework ||
+        relation.provenance.ruleId !== candidate.ruleId ||
+        relation.provenance.candidateId !== candidate.id
+      )
+        diagnostic(
+          diagnostics,
+          "IR_FRAMEWORK_RELATION_PROVENANCE_MISMATCH",
+          "error",
+          candidate.id,
+          "Framework behavior provenance does not match its source candidate",
+        );
+    }
+  }
 
   diagnostics.sort(
     (a, b) =>
@@ -306,6 +420,22 @@ export function finalizeArchitectureGraph(
   if (graph.semantic) {
     const { validation: _validation, ...semanticDraft } = graph.semantic;
     graph.semantic = finalizeSemanticGraph(semanticDraft, graph.nodes);
+  }
+  if (graph.behavior && graph.semantic) {
+    const { validation: _validation, ...behaviorDraft } = graph.behavior;
+    graph.behavior = finalizeBehaviorGraph(
+      behaviorDraft,
+      graph.semantic,
+      graph.nodes,
+    );
+  }
+  if (graph.frameworks && graph.semantic) {
+    const { validation: _validation, ...frameworkDraft } = graph.frameworks;
+    graph.frameworks = finalizeFrameworkGraph(
+      frameworkDraft,
+      graph.semantic,
+      graph.nodes,
+    );
   }
   const validation = validateArchitectureGraph(graph);
   if (!validation.valid) {

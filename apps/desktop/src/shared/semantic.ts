@@ -33,9 +33,12 @@ export type SemanticRelationKind =
   | "routes-to"
   | "executes"
   | "precedes"
+  | "branches-to"
+  | "retries"
   | "depends-on"
   | "extends"
   | "implements"
+  | "overrides"
   | "guards"
   | "observes";
 
@@ -58,7 +61,12 @@ export type WorkflowStepKind =
   | "cancel";
 
 export type SemanticProvenance = {
-  source: "static-analysis" | "heuristic" | "authored";
+  source:
+    | "static-analysis"
+    | "heuristic"
+    | "language-server"
+    | "ai-composer"
+    | "authored";
   analyzer: string;
   policy: string;
   model?: string;
@@ -89,6 +97,7 @@ export type SemanticRelation = {
   trust: SemanticTrust;
   status: SemanticStatus;
   confidence: number;
+  description?: string;
   evidence: SourceEvidence[];
   provenance: SemanticProvenance;
 };
@@ -110,6 +119,7 @@ export type SemanticOpenQuestion = {
   id: string;
   subjectId: string;
   claimIds: string[];
+  relationIds?: string[];
   prompt: string;
   recommendation: string;
   options: string[];
@@ -135,6 +145,7 @@ export type SemanticRevision = {
   parentRevision?: string;
   sourceRevision: string;
   createdAt: string;
+  analyzerVersion?: string;
   policyVersion: string;
   approval: "provisional-inference";
   changedIds: string[];

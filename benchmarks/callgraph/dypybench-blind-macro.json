@@ -1,0 +1,45 @@
+{
+  "name": "DyPyBench dynamic Python blind macro set",
+  "language": "python",
+  "role": "blind-holdout",
+  "scale": "macro",
+  "frozen": true,
+  "source": "https://github.com/sola-st/DyPyBench",
+  "commit": "bccfda78e3b7e4d8a65dfa58d1b0cd3bd35c127d",
+  "subpath": "experiments/DynaPyt_callgraphs.zip",
+  "oracle": "Released dynamic call graphs produced by project test suites",
+  "oracleFormat": "dypybench-dynapyt",
+  "sourceRoots": ["src"],
+  "status": "released-results-pilot",
+  "sourceRevisionRule": "Last commit on or before 2023-01-18, as pinned by DyPyBench scripts/install-all-projects.sh",
+  "runtime": "Use released call graphs for the pilot; regenerate only in the DyPyBench v2 isolated Docker environment",
+  "downloadSize": "approximately 55 GB only when regenerating all dynamic traces",
+  "policy": "Keep dynamic-observation coverage separate from curated static ground truth. Never tune from per-edge blind-holdout failures.",
+  "cases": [
+    {
+      "id": "flask-api",
+      "root": "dypybench-projects/flask-api",
+      "callgraph": "DyPyBench/experiments/DynaPyt_output/dynapyt_3.json"
+    },
+    {
+      "id": "schedule",
+      "root": "dypybench-projects/schedule",
+      "callgraph": "DyPyBench/experiments/DynaPyt_output/dynapyt_4.json"
+    },
+    {
+      "id": "click",
+      "root": "dypybench-projects/click",
+      "callgraph": "DyPyBench/experiments/DynaPyt_output/dynapyt_10.json"
+    },
+    {
+      "id": "python-patterns",
+      "root": "dypybench-projects/python-patterns",
+      "callgraph": "DyPyBench/experiments/DynaPyt_output/dynapyt_12.json"
+    },
+    {
+      "id": "requests",
+      "root": "dypybench-projects/requests",
+      "callgraph": "DyPyBench/experiments/DynaPyt_output/dynapyt_33.json"
+    }
+  ]
+}

@@ -52,6 +52,48 @@ function TerminalView({
       },
     });
     const fit = new FitAddon();
+    let pendingInput = "";
+    let inputTimer: ReturnType<typeof setTimeout> | null = null;
+    let inputInFlight = false;
+    const scheduleInput = () => {
+      if (
+        disposed ||
+        !sessionId ||
+        inputInFlight ||
+        inputTimer ||
+        !pendingInput
+      )
+        return;
+      inputTimer = setTimeout(() => {
+        inputTimer = null;
+        void flushInput();
+      }, 4);
+    };
+    const flushInput = async () => {
+      if (disposed || !sessionId || inputInFlight || !pendingInput) return;
+      const targetSession = sessionId;
+      const data = pendingInput;
+      pendingInput = "";
+      inputInFlight = true;
+      try {
+        await window.witch.terminal.write(targetSession, data);
+      } catch (error) {
+        if (!disposed) terminal.writeln(`\r\n${error}`);
+      } finally {
+        inputInFlight = false;
+        scheduleInput();
+      }
+    };
+    const writeInput = (data: string) => {
+      pendingInput += data;
+      if (/\r|\n/.test(data)) {
+        if (inputTimer) clearTimeout(inputTimer);
+        inputTimer = null;
+        void flushInput();
+      } else {
+        scheduleInput();
+      }
+    };
     terminal.loadAddon(fit);
     terminal.open(container.current);
     const resize = () => {
@@ -70,12 +112,7 @@ function TerminalView({
     resizeRef.current = resize;
     const observer = new ResizeObserver(resize);
     observer.observe(container.current);
-    const input = terminal.onData((data) => {
-      if (sessionId)
-        void window.witch.terminal
-          .write(sessionId, data)
-          .catch((error) => terminal.writeln(`\r\n${error}`));
-    });
+    const input = terminal.onData(writeInput);
     const unsubscribe = window.witch.terminal.onData(
       ({ id, data, sequence }) => {
         if (sessionId === id) terminal.write(data);
@@ -108,6 +145,7 @@ function TerminalView({
           return;
         }
         sessionId = session.id;
+        scheduleInput();
         if (session.buffer) terminal.write(session.buffer);
         for (const chunk of waiting.get(session.id) || [])
           if (chunk.sequence > session.sequence) terminal.write(chunk.data);
@@ -130,6 +168,8 @@ function TerminalView({
       });
     return () => {
       disposed = true;
+      if (inputTimer) clearTimeout(inputTimer);
+      pendingInput = "";
       observer.disconnect();
       input.dispose();
       unsubscribe();
@@ -184,6 +224,13 @@ export function TerminalPanel({
   const [selected, setSelected] = useState(0);
   const [collapsed, setCollapsed] = useState(false);
   const [restoring, setRestoring] = useState(false);
+  const availableTasks = tasks.filter(
+    (task) =>
+      !task.requiresActiveFile ||
+      (task.requiresActiveFile === "python"
+        ? /\.pyi?$/i.test(activeFile || "")
+        : /\.[cm]?js$/i.test(activeFile || "")),
+  );
   const counter = useRef(0);
   function add(task?: ProjectTask, remoteProfile?: SshProfile) {
     const id = ++counter.current;
@@ -257,14 +304,23 @@ export function TerminalPanel({
       if (
         event.root === root &&
         event.paths.some(
-          (path) => path.endsWith("tasks.json") || path === "package.json",
+          (path) =>
+            path.endsWith("tasks.json") ||
+            path === "package.json" ||
+            /(^|\/)(?:pyproject\.toml|uv\.lock|poetry\.lock|Cargo\.toml|pyvenv\.cfg|pytest\.ini|tox\.ini)$/i.test(
+              path,
+            ),
         )
       )
         refresh();
     });
+    const offTooling = window.witch.tooling.onChanged((snapshot) => {
+      if (snapshot.root === root) refresh();
+    });
     return () => {
       disposed = true;
       off();
+      offTooling();
     };
   }, [root]);
   function close(id: number) {
@@ -321,7 +377,7 @@ export function TerminalPanel({
             }}
           >
             <option value="">Run task…</option>
-            {tasks.map((task) => (
+            {availableTasks.map((task) => (
               <option key={task.id} value={task.id}>
                 {task.label}
               </option>

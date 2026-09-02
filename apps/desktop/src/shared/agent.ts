@@ -1,5 +1,58 @@
 import type { ComponentContext } from "./architecture";
+import type { HarnessRunState } from "./engineering-run";
 export type AgentMode = "ask" | "change";
+export type AgentProviderId = "codex" | "claude";
+export type AgentProviderCapabilities = {
+  modes: AgentMode[];
+  streaming: boolean;
+  toolEvents: boolean;
+  fileChanges: boolean;
+  approvals: boolean;
+  questions: boolean;
+  sessionResume: boolean;
+  fork: boolean;
+  modelSelection: boolean;
+  thinkingSelection: boolean;
+  permissionModes: boolean;
+};
+export type AgentProviderDescriptor = {
+  id: AgentProviderId;
+  label: string;
+  available: boolean;
+  message: string;
+  capabilities: AgentProviderCapabilities;
+};
+export type AgentNativeSessionRef = {
+  providerId: AgentProviderId;
+  sessionId: string;
+  turnId?: string;
+};
+export type AgentEngineeringRunSummary = {
+  contract: "witch.engineering-run/v1";
+  state: HarnessRunState;
+  eventCount: number;
+  lastSequence: number;
+  eventDigest: string;
+  checkpointCount: number;
+  verificationPassed: number;
+  verificationFailed: number;
+  repairAttempts: number;
+  planUnexpectedFiles: number;
+  repairStopReason?:
+    | "same-fingerprint"
+    | "budget-exhausted"
+    | "provider-interrupted";
+  analysisStatus?: "completed" | "failed" | "skipped";
+  analysisChangedNodes?: number;
+  analysisChangedRelations?: number;
+  healthy: boolean;
+  error?: string;
+};
+export type AgentHostStatus = {
+  defaultProviderId: AgentProviderId;
+  activeProviderId?: AgentProviderId;
+  providers: AgentProviderDescriptor[];
+};
 export type AgentRunStatus =
   | "preparing"
   | "running"
@@ -18,6 +71,9 @@ export type ProposedChange = {
 };
 export type AgentRun = {
   id: string;
+  providerId: AgentProviderId;
+  providerLabel: string;
+  nativeSession?: AgentNativeSessionRef;
   workspaceRoot: string;
   workspaceName: string;
   prompt: string;
@@ -35,10 +91,13 @@ export type AgentRun = {
   appliedPaths?: string[];
   archivePath?: string;
   archivedAt?: string;
+  parentRunId?: string;
+  engineering?: AgentEngineeringRunSummary;
 };
 export type AgentEvent = { run: AgentRun };
 export type AgentRequest = {
   prompt: string;
   mode: AgentMode;
   contexts: ComponentContext[];
+  providerId?: AgentProviderId;
 };

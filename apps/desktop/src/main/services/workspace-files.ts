@@ -31,6 +31,8 @@ export type WorkspaceEntry = {
   kind: "file" | "directory";
   extension: string;
   size: number;
+  /** Used only as an incremental-index hint; source hashes remain canonical. */
+  mtimeMs?: number;
 };
 export type FileListing = {
   entries: WorkspaceEntry[];
@@ -195,6 +197,7 @@ export async function listWorkspace(
             kind: "file",
             extension: path.extname(child.name).toLowerCase(),
             size: stat.size,
+            mtimeMs: stat.mtimeMs,
           });
       }
     }

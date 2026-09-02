@@ -1,0 +1,4 @@
+{
+  "src.lib.run": ["src.worker.execute"],
+  "src.worker.execute": []
+}

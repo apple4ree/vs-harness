@@ -1,0 +1,39 @@
+{
+  "name": "PyAnalyzer curated Python macro hold-out C",
+  "language": "python",
+  "role": "holdout",
+  "scale": "macro",
+  "frozen": true,
+  "source": "https://github.com/2024icse/PyAnalyzer",
+  "commit": "ea143ef8bdec2b5f8841bb600b348f0975b90349",
+  "subpath": "Data/RQ3/macro-benchmark C",
+  "oracle": "Manually curated call graphs for five real-world Python projects",
+  "policy": "Run only at release evaluation checkpoints. Keep project-level results separate from micro-benchmarks.",
+  "cases": [
+    {
+      "id": "Sublist3r",
+      "root": "projects/Sublist3r",
+      "callgraph": "ground-truth-cgs/Sublist3r.json"
+    },
+    {
+      "id": "asciinema",
+      "root": "projects/asciinema",
+      "callgraph": "ground-truth-cgs/asciinema.json"
+    },
+    {
+      "id": "autojump",
+      "root": "projects/autojump",
+      "callgraph": "ground-truth-cgs/autojump.json"
+    },
+    {
+      "id": "fabric",
+      "root": "projects/fabric",
+      "callgraph": "ground-truth-cgs/fabric.json"
+    },
+    {
+      "id": "face_classification",
+      "root": "projects/face_classification",
+      "callgraph": "ground-truth-cgs/face_classification.json"
+    }
+  ]
+}

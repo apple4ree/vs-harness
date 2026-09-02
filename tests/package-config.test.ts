@@ -23,6 +23,8 @@ test("macOS preview packaging requests local ad-hoc signing and never automatic 
 
 test("desktop builds use one cross-platform memory-stable entry point", async () => {
   const config = JSON.parse(await fs.readFile("package.json", "utf8"));
+  assert.match(config.dependencies.pyright, /^\d+\.\d+\.\d+$/);
+  assert(config.build.asarUnpack.includes("node_modules/pyright/**/*"));
   assert.equal(config.scripts.build, "node scripts/build-desktop.cjs");
   assert.match(config.scripts["package:win"], /npm run build/);
   assert.match(config.scripts["package:mac"], /npm run build/);

@@ -117,14 +117,11 @@ export function languageFor(file: string): string {
   const extension = file.split(".").at(-1)?.toLowerCase() || "";
   if (["ts", "tsx", "mts", "cts"].includes(extension)) return "typescript";
   if (["js", "jsx", "mjs", "cjs"].includes(extension)) return "javascript";
-  if (extension === "py") return "python";
+  if (["py", "pyi"].includes(extension)) return "python";
+  if (extension === "rs") return "rust";
   if (["json", "jsonc"].includes(extension)) return "json";
   if (["md", "mdx"].includes(extension)) return "markdown";
-  if (
-    ["css", "scss", "less", "html", "xml", "sql", "rust", "go"].includes(
-      extension,
-    )
-  )
+  if (["css", "scss", "less", "html", "xml", "sql", "go"].includes(extension))
     return extension;
   if (["yml", "yaml"].includes(extension)) return "yaml";
   if (["sh", "bash"].includes(extension)) return "shell";

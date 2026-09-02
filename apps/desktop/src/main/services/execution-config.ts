@@ -86,6 +86,7 @@ function platformItem(value: any) {
 }
 export async function executionCatalog(
   root: string,
+  detectedTasks: ProjectTask[] = [],
 ): Promise<ExecutionCatalog> {
   const result: ExecutionCatalog = { tasks: [], launches: [], warnings: [] };
   for (const source of [".witch/tasks.json", ".vscode/tasks.json"]) {
@@ -135,6 +136,9 @@ export async function executionCatalog(
   } catch (error) {
     result.warnings.push(`package.json: ${String(error)}`);
   }
+  const configuredLabels = new Set(result.tasks.map((task) => task.label));
+  for (const task of detectedTasks)
+    if (!configuredLabels.has(task.label)) result.tasks.push(task);
   for (const source of [".witch/launch.json", ".vscode/launch.json"]) {
     try {
       const value = await config(root, source);
@@ -145,12 +149,17 @@ export async function executionCatalog(
         try {
           const launch = platformItem(item);
           if (
-            !["node", "pwa-node"].includes(launch.type) ||
+            !["node", "pwa-node", "python", "debugpy"].includes(
+              launch.type,
+            ) ||
             launch.request !== "launch"
           )
             throw new Error(
-              "Only Node.js launch configurations are currently supported",
+              "Only Node.js and Python launch configurations are supported",
             );
+          const debugType = ["python", "debugpy"].includes(launch.type)
+            ? "python"
+            : "node";
           for (const key of [
             "runtimeExecutable",
             "runtimeArgs",
@@ -180,6 +189,7 @@ export async function executionCatalog(
             id: `${source}:${index}`,
             name: text(launch.name, "name"),
             source,
+            type: debugType,
             program: text(launch.program, "program"),
             args: strings(launch.args, "args"),
             cwd: launch.cwd,
@@ -238,9 +248,12 @@ export async function resolveLaunch(
   activeFile?: string,
 ) {
   const program = await executionPath(root, launch.program, false, activeFile);
-  if (!/\.[cm]?js$/i.test(program))
+  if (launch.type === "python") {
+    if (!/\.py$/i.test(program))
+      throw new Error("The Python debugger runs .py files");
+  } else if (!/\.[cm]?js$/i.test(program))
     throw new Error(
-      "The built-in debugger runs JavaScript (.js, .cjs, .mjs). Compile TypeScript first; source-map debugging is not yet supported.",
+      "The built-in Node debugger runs JavaScript (.js, .cjs, .mjs). Compile TypeScript first; source-map debugging is not yet supported.",
     );
   return {
     ...launch,
@@ -262,6 +275,16 @@ export async function resolveTask(
   task: ProjectTask,
   activeFile?: string,
 ) {
+  if (
+    task.requiresActiveFile === "python" &&
+    (!activeFile || !/\.pyi?$/i.test(activeFile))
+  )
+    throw new Error("This task requires an active Python file");
+  if (
+    task.requiresActiveFile === "javascript" &&
+    (!activeFile || !/\.[cm]?js$/i.test(activeFile))
+  )
+    throw new Error("This task requires an active JavaScript file");
   const command = substitute(task.command, root, activeFile);
   const args = task.args.map((arg) => substitute(arg, root, activeFile));
   const shellCommand =

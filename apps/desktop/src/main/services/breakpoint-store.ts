@@ -4,7 +4,10 @@ import { contentHash, normalizedRelative } from "./workspace-files";
 import type { Breakpoint } from "../../shared/execution";
 
 export class BreakpointStore {
-  constructor(private directory: string) {}
+  constructor(
+    private directory: string,
+    private supportedFile: RegExp = /\.[cm]?js$/i,
+  ) {}
   private target(root: string) {
     const absolute = path.resolve(root);
     return path.join(
@@ -21,7 +24,7 @@ export class BreakpointStore {
     return value.map((item) => {
       const file = normalizedRelative(item?.path);
       if (
-        !/\.[cm]?js$/i.test(file) ||
+        !this.supportedFile.test(file) ||
         !Number.isSafeInteger(item.line) ||
         item.line < 1 ||
         item.line > 1000000
@@ -49,7 +52,7 @@ export class BreakpointStore {
       );
     }
   }
-  // NodeDebugService serializes mutations, including persistence, before calling this method.
+  // Debug services serialize mutations, including persistence, before calling this method.
   async save(root: string, breakpoints: Breakpoint[]) {
     const value = { version: 1, breakpoints: this.validate(breakpoints) };
     await fs.mkdir(this.directory, { recursive: true });

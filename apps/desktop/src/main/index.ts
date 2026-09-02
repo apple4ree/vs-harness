@@ -7,6 +7,7 @@ import {
   shell,
 } from "electron";
 import {
+  ChildProcess,
   ChildProcessWithoutNullStreams,
   spawn,
   spawnSync,
@@ -19,10 +20,24 @@ import pty, { IPty } from "node-pty";
 import chokidar, { type FSWatcher } from "chokidar";
 import { searchRepository } from "./services/workspace-search";
 import { RepositoryAnalysisService } from "./services/repository-analysis";
+import { corroborateSymbolCalls } from "./services/call-corroboration";
 import { LanguageServer } from "./services/language-server";
-import { AgentService } from "./services/agent-service";
+import {
+  findRustAnalyzerExecutable,
+  LanguageIntelligence,
+  rustAnalyzerCandidates,
+} from "./services/language-intelligence";
+import { AgentHost } from "./services/agent-service";
+import { CodexAgentAdapter } from "./services/codex-agent-adapter";
+import { ClaudeCodeAgentAdapter } from "./services/claude-code-agent-adapter";
 import { NodeDebugService } from "./services/node-debugger";
+import { PythonDebugService } from "./services/python-debugger";
+import { DebugService } from "./services/debug-service";
 import { SettingsService } from "./services/settings-service";
+import {
+  detectedExecutionTasks,
+  WorkspaceToolingService,
+} from "./services/workspace-tooling";
 import {
   buildSshInvocation,
   findSshExecutable,
@@ -36,11 +51,19 @@ import {
   ProviderKeyStore,
   type ApiProviderId,
 } from "./services/provider-key-store";
+import { SemanticComposerService } from "./services/semantic-composer";
+import { RuntimeTraceService } from "./services/runtime-trace-service";
+import type { SemanticComposerRequest } from "../shared/semantic-composer";
 import type {
   SnapshotMetadata as Snapshot,
   TaskRecord,
 } from "../shared/history";
-import { cliEnvironment, findCliExecutable } from "./services/cli-discovery";
+import {
+  cliEnvironment,
+  findCliExecutable,
+  prepareCliCommand,
+  windowsSystemExecutable,
+} from "./services/cli-discovery";
 import type { SessionUpdate } from "../shared/session";
 import {
   validateExtension,
@@ -70,7 +93,7 @@ import type {
   ArchitectureEdge,
 } from "../shared/architecture";
 import type { Range, SignatureContext } from "../shared/language";
-import type { AgentRequest } from "../shared/agent";
+import type { AgentProviderId, AgentRequest } from "../shared/agent";
 import { compareArchitectureGraphs } from "../shared/architecture-delta";
 import {
   renderArchitectureHtml,
@@ -124,6 +147,7 @@ type CodexStatus = {
   installed: boolean;
   executable?: string;
   version?: string;
+  authenticated: boolean;
   connected: boolean;
   running: boolean;
   message: string;
@@ -132,8 +156,10 @@ type CliProviderStatus = {
   installed: boolean;
   executable?: string;
   version?: string;
+  authenticated: boolean;
   message: string;
 };
+type CliProviderId = "codex" | "claude";
 type ApiProviderStatus = {
   configured: boolean;
   encryptionAvailable: boolean;
@@ -148,6 +174,24 @@ type ProviderStatus = {
 };
 
 const terminalSessions = new Map<string, IPty>();
+const providerLoginProcesses = new Map<CliProviderId, ChildProcess>();
+
+function stopProviderLoginProcess(child: ChildProcess) {
+  if (child.killed) return;
+  if (
+    process.platform === "win32" &&
+    Number.isInteger(child.pid) &&
+    Number(child.pid) > 0
+  ) {
+    spawnSync(
+      windowsSystemExecutable("taskkill.exe"),
+      ["/pid", String(child.pid), "/t", "/f"],
+      { windowsHide: true, stdio: "ignore", shell: false },
+    );
+    return;
+  }
+  child.kill();
+}
 const terminalSnapshots = new Map<
   string,
   {
@@ -156,6 +200,7 @@ const terminalSnapshots = new Map<
     shell: string;
     root: string;
     remoteProfileId?: string;
+    traceSessionId?: string;
     buffer: string;
     sequence: number;
   }
@@ -166,18 +211,22 @@ let quitRequested = false;
 let shutdownStarted = false;
 let shutdownComplete = false;
 const pendingDesktopCalls = new Set<Promise<unknown>>();
-let languageService: LanguageServer | null = null;
+let languageService: LanguageIntelligence | null = null;
 let workspaceWatcher: FSWatcher | null = null;
 let watcherTimer: NodeJS.Timeout | null = null;
 let latestGraph: ArchitectureGraph | null = null;
 let searchController: AbortController | null = null;
 let graphGeneration = 0;
-let agentService: AgentService | null = null;
-let debugService: NodeDebugService | null = null;
+let agentService: AgentHost | null = null;
+let debugService: DebugService | null = null;
 let executionBusy = false;
+let compositionBusy = false;
 let settingsService: SettingsService | null = null;
 let remoteProfileService: RemoteProfileService | null = null;
+let workspaceToolingService: WorkspaceToolingService | null = null;
 let providerKeyStore: ProviderKeyStore | null = null;
+let semanticComposerService: SemanticComposerService | null = null;
+let runtimeTraceService: RuntimeTraceService | null = null;
 let sessionStore: SessionStore | null = null;
 const repositoryAnalysis = new RepositoryAnalysisService();
 const workspaceOperation = new WorkspaceOperation();
@@ -372,13 +421,43 @@ function currentCuaStatus(
 function findCodexExecutable(): string | null {
   return findCliExecutable("codex", process.env.WITCH_CODEX_PATH);
 }
+function cliProbe(executable: string, args: string[]) {
+  try {
+    const prepared = prepareCliCommand(executable, args, {
+      env: cliEnvironment(executable),
+      windowsHide: true,
+    });
+    const result = spawnSync(prepared.command, prepared.args, {
+      ...prepared.options,
+      encoding: "utf8",
+      timeout: 3_000,
+      maxBuffer: 256_000,
+    });
+    return {
+      ok: result.status === 0 && !result.error,
+      stdout: String(result.stdout || "").trim(),
+    };
+  } catch {
+    return { ok: false, stdout: "" };
+  }
+}
+function cliVersion(executable: string) {
+  const result = cliProbe(executable, ["--version"]);
+  return result.ok ? result.stdout.slice(0, 160) : undefined;
+}
 function currentCodexStatus(): CodexStatus {
   const executable = findCodexExecutable();
-  const running = Boolean(agentService?.isRunning());
-  const connected = Boolean(agentService?.isConnected());
+  const running = Boolean(agentService?.isProviderRunning("codex"));
+  const connected = Boolean(agentService?.isProviderConnected("codex"));
+  const authenticated = Boolean(
+    executable && cliProbe(executable, ["login", "status"]).ok,
+  );
+  const version = executable ? cliVersion(executable) : undefined;
   return {
     installed: Boolean(executable),
     ...(executable ? { executable } : {}),
+    ...(version ? { version } : {}),
+    authenticated,
     connected,
     running,
     message: executable
@@ -386,7 +465,9 @@ function currentCodexStatus(): CodexStatus {
         ? "Codex is connected for the current restricted agent request."
         : running
           ? "Witch is preparing or finishing the current agent request."
-          : "Codex executable detected. Sign-in and connection are verified when starting a request."
+          : authenticated
+            ? "Codex CLI is signed in. Agent work and structured Semantic Composer requests are available."
+            : "Codex CLI is detected but not signed in. Connect it from Witch AI providers to use the official browser flow."
       : "Codex CLI was not found. Install it, or set WITCH_CODEX_PATH to its absolute executable path.",
   };
 }
@@ -395,19 +476,151 @@ function findClaudeExecutable(): string | null {
 }
 function currentClaudeStatus(): CliProviderStatus {
   const executable = findClaudeExecutable();
+  let authenticated = false;
+  if (executable) {
+    const result = cliProbe(executable, ["auth", "status", "--json"]);
+    if (result.ok)
+      try {
+        authenticated = JSON.parse(result.stdout).loggedIn === true;
+      } catch {
+        authenticated = false;
+      }
+  }
+  const version = executable ? cliVersion(executable) : undefined;
   return {
     installed: Boolean(executable),
     ...(executable ? { executable } : {}),
+    ...(version ? { version } : {}),
+    authenticated,
     message: executable
-      ? "Claude Code executable detected. Its runtime adapter is not connected in this preview."
-      : "Claude Code CLI was not found. Its runtime adapter is not connected in this preview.",
+      ? authenticated
+        ? "Claude Code is signed in. Restricted Agent work and Semantic Composer requests are available."
+        : "Claude Code is detected but not signed in. Connect it from Witch AI providers to use the official browser flow."
+      : "Claude Code CLI was not found. Install it, or set WITCH_CLAUDE_PATH to its absolute executable path.",
   };
+}
+
+function cliProviderAuthenticated(provider: CliProviderId, executable: string) {
+  if (provider === "codex") return cliProbe(executable, ["login", "status"]).ok;
+  const result = cliProbe(executable, ["auth", "status", "--json"]);
+  if (!result.ok) return false;
+  try {
+    return JSON.parse(result.stdout).loggedIn === true;
+  } catch {
+    return false;
+  }
+}
+
+async function connectCliProvider(value: unknown): Promise<ProviderStatus> {
+  if (value !== "codex" && value !== "claude")
+    throw new Error("Unsupported CLI provider");
+  const provider: CliProviderId = value;
+  const executable =
+    provider === "codex" ? findCodexExecutable() : findClaudeExecutable();
+  if (!executable)
+    throw new Error(
+      `${provider === "codex" ? "Codex" : "Claude Code"} CLI is not installed`,
+    );
+  if (cliProviderAuthenticated(provider, executable)) return providerStatus();
+  if (providerLoginProcesses.has(provider))
+    throw new Error(
+      `${provider === "codex" ? "Codex" : "Claude Code"} sign-in is already running`,
+    );
+
+  const args = provider === "codex" ? ["login"] : ["auth", "login"];
+  const prepared = prepareCliCommand(executable, args, {
+    cwd: app.getPath("userData"),
+    env: cliEnvironment(executable),
+    windowsHide: true,
+  });
+  const process = spawn(prepared.command, prepared.args, {
+    ...prepared.options,
+    stdio: "ignore",
+  });
+  providerLoginProcesses.set(provider, process);
+
+  return new Promise<ProviderStatus>((resolve, reject) => {
+    let settled = false;
+    const finish = async (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      providerLoginProcesses.delete(provider);
+      if (error) {
+        reject(error);
+        return;
+      }
+      // Some credential stores become readable just after the login process
+      // exits. Retry briefly before reporting a failed connection.
+      for (let attempt = 0; attempt < 6; attempt++) {
+        if (cliProviderAuthenticated(provider, executable)) {
+          resolve(await providerStatus());
+          return;
+        }
+        await new Promise((done) => setTimeout(done, 350));
+      }
+      reject(
+        new Error(
+          `${provider === "codex" ? "Codex" : "Claude Code"} sign-in did not complete. Try again or run the CLI login command directly.`,
+        ),
+      );
+    };
+    const timeout = setTimeout(() => {
+      try {
+        stopProviderLoginProcess(process);
+      } catch {
+        // The login process may have exited between the timeout and cleanup.
+      }
+      void finish(new Error("AI provider sign-in timed out after 10 minutes"));
+    }, 10 * 60_000);
+    process.once("error", () => {
+      void finish(
+        new Error(
+          `${provider === "codex" ? "Codex" : "Claude Code"} sign-in process could not start`,
+        ),
+      );
+    });
+    process.once("exit", (exitCode) => {
+      void finish(
+        exitCode === 0
+          ? undefined
+          : new Error(
+              `${provider === "codex" ? "Codex" : "Claude Code"} sign-in was canceled or failed`,
+            ),
+      );
+    });
+  });
 }
 
 function getProviderKeys() {
   return (providerKeyStore ||= new ProviderKeyStore(
     path.join(app.getPath("userData"), "providers"),
   ));
+}
+
+async function readApiKey(provider: ApiProviderId): Promise<string | null> {
+  if (!safeStorage.isEncryptionAvailable()) return null;
+  const entry = (await getProviderKeys().read()).keys[provider];
+  if (!entry) return null;
+  try {
+    return safeStorage.decryptString(Buffer.from(entry.encrypted, "base64"));
+  } catch {
+    throw new Error(
+      `Stored ${provider} credentials could not be decrypted on this operating-system account`,
+    );
+  }
+}
+
+function getSemanticComposer() {
+  return (semanticComposerService ||= new SemanticComposerService({
+    codexCommand: findCodexExecutable,
+    claudeCommand: findClaudeExecutable,
+    readApiKey,
+    defaults: {
+      openai: process.env.WITCH_OPENAI_MODEL || "gpt-5.4-mini",
+      anthropic: process.env.WITCH_ANTHROPIC_MODEL || "claude-sonnet-4-6",
+    },
+  }));
 }
 
 async function apiProviderStatus(
@@ -436,7 +649,7 @@ async function apiProviderStatus(
         encryptionAvailable: true,
         updatedAt: entry.updatedAt,
         message:
-          "An encrypted API key is stored locally. The key is never returned to the UI.",
+          "An encrypted API key is stored locally. Semantic Composer can use it without returning the key to the UI.",
       }
     : {
         configured: false,
@@ -628,14 +841,71 @@ function getLanguageServer() {
   if (!languageService) {
     const unpacked = (file: string) =>
       file.replace(/app\.asar([\\/])/, "app.asar.unpacked$1");
-    languageService = new LanguageServer({
-      runtime: process.execPath,
-      entrypoint: unpacked(
-        require.resolve("typescript-language-server/lib/cli.mjs"),
-      ),
-      tsserver: unpacked(require.resolve("typescript/lib/tsserver.js")),
-      runAsNode: true,
-    });
+    let rustExecutable: string;
+    let rustUnavailableMessage: string | undefined;
+    try {
+      const installedRustAnalyzer = findRustAnalyzerExecutable();
+      rustExecutable = installedRustAnalyzer || rustAnalyzerCandidates()[0];
+      if (!installedRustAnalyzer)
+        rustUnavailableMessage =
+          "Install rust-analyzer with rustup component add rust-analyzer, or set WITCH_RUST_ANALYZER_PATH to an absolute executable path.";
+    } catch (error) {
+      rustExecutable = path.join(
+        app.getPath("userData"),
+        "tools",
+        "rust-analyzer-missing",
+      );
+      rustUnavailableMessage = `Rust language intelligence is unavailable. ${error}`;
+    }
+    const rustConfiguration = {
+      cargo: { buildScripts: { enable: false }, autoreload: false },
+      procMacro: { enable: false },
+      checkOnSave: false,
+    };
+    languageService = new LanguageIntelligence([
+      new LanguageServer({
+        runtime: process.execPath,
+        entrypoint: unpacked(
+          require.resolve("typescript-language-server/lib/cli.mjs"),
+        ),
+        tsserver: unpacked(require.resolve("typescript/lib/tsserver.js")),
+        runAsNode: true,
+        allowedCommands: ["_typescript.organizeImports"],
+      }),
+      new LanguageServer({
+        id: "python",
+        label: "Python · Pyright",
+        command: process.execPath,
+        args: [
+          unpacked(require.resolve("pyright/langserver.index.js")),
+          "--stdio",
+        ],
+        installedPath: unpacked(require.resolve("pyright/langserver.index.js")),
+        extensions: [".py", ".pyi"],
+        runAsNode: true,
+        configuration: {
+          python: {},
+          "python.analysis": {
+            autoSearchPaths: true,
+            diagnosticMode: "openFilesOnly",
+            typeCheckingMode: "basic",
+            useLibraryCodeForTypes: true,
+          },
+        },
+      }),
+      new LanguageServer({
+        id: "rust",
+        label: "Rust · rust-analyzer",
+        command: rustExecutable,
+        args: [],
+        extensions: [".rs"],
+        initializationOptions: rustConfiguration,
+        configuration: { "rust-analyzer": rustConfiguration },
+        ...(rustUnavailableMessage
+          ? { unavailableMessage: rustUnavailableMessage }
+          : {}),
+      }),
+    ]);
     languageService.on("diagnostics", (event) => {
       if (!applicationWindow?.isDestroyed())
         applicationWindow?.webContents.send("lsp:diagnostics", event);
@@ -651,10 +921,54 @@ function getLanguageServer() {
 
 function getAgentService() {
   if (!agentService) {
-    agentService = new AgentService({
+    agentService = new AgentHost({
       dataDirectory: path.join(app.getPath("userData"), "agent-runs"),
-      command: findCodexExecutable,
-      version: app.getVersion(),
+      defaultProviderId: "codex",
+      providers: [
+        new CodexAgentAdapter({
+          command: findCodexExecutable,
+          version: app.getVersion(),
+          authenticated: () => currentCodexStatus().authenticated,
+        }),
+        new ClaudeCodeAgentAdapter({
+          command: findClaudeExecutable,
+          authenticated: () => currentClaudeStatus().authenticated,
+        }),
+      ],
+      onApplied: async (root, paths, sourceRevision) => {
+        const before =
+          latestGraph?.workspaceRoot === root ? latestGraph : undefined;
+        const graph = await updateArchitecture(root, new Set(paths));
+        const beforeNodes = new Map(
+          (before?.nodes || []).map((node) => [node.id, node.hash]),
+        );
+        const afterNodes = new Map(
+          graph.nodes.map((node) => [node.id, node.hash]),
+        );
+        const beforeEdges = new Set(
+          (before?.edges || []).map((edge) => edge.id),
+        );
+        const afterEdges = new Set(graph.edges.map((edge) => edge.id));
+        return {
+          status: "completed",
+          beforeRevision: before?.revision || sourceRevision,
+          afterRevision: graph.revision,
+          invalidatedPaths: [...paths].sort(),
+          changedNodes: new Set([
+            ...[...beforeNodes]
+              .filter(([id, hash]) => afterNodes.get(id) !== hash)
+              .map(([id]) => id),
+            ...[...afterNodes]
+              .filter(([id, hash]) => beforeNodes.get(id) !== hash)
+              .map(([id]) => id),
+          ]).size,
+          changedRelations: new Set([
+            ...[...beforeEdges].filter((id) => !afterEdges.has(id)),
+            ...[...afterEdges].filter((id) => !beforeEdges.has(id)),
+          ]).size,
+          completedAt: new Date().toISOString(),
+        } as const;
+      },
     });
     agentService.on("event", (event) => {
       if (!applicationWindow?.isDestroyed())
@@ -666,11 +980,20 @@ function getAgentService() {
 
 function getDebugger() {
   if (!debugService) {
-    debugService = new NodeDebugService({
-      runtime: process.execPath,
-      runAsNode: true,
-      breakpointDirectory: path.join(app.getPath("userData"), "breakpoints"),
-    });
+    debugService = new DebugService(
+      new NodeDebugService({
+        runtime: process.execPath,
+        runAsNode: true,
+        breakpointDirectory: path.join(app.getPath("userData"), "breakpoints"),
+      }),
+      new PythonDebugService({
+        breakpointDirectory: path.join(
+          app.getPath("userData"),
+          "breakpoints",
+          "python",
+        ),
+      }),
+    );
     debugService.on("state", (state) => {
       if (!applicationWindow?.isDestroyed())
         applicationWindow?.webContents.send("debug:state", state);
@@ -684,6 +1007,20 @@ function getSessions() {
     path.join(app.getPath("userData"), "editor-sessions"),
   ));
 }
+function getRuntimeTraces() {
+  if (!runtimeTraceService) {
+    runtimeTraceService = new RuntimeTraceService(
+      path.join(app.getPath("userData"), "runtime-traces"),
+      (message) =>
+        applicationWindow?.webContents.send("workspace:warning", message),
+    );
+    runtimeTraceService.on("updated", (session) => {
+      if (!applicationWindow?.isDestroyed())
+        applicationWindow?.webContents.send("trace:updated", session);
+    });
+  }
+  return runtimeTraceService;
+}
 function getSettings() {
   return (settingsService ||= new SettingsService(
     path.join(app.getPath("userData"), "settings"),
@@ -693,6 +1030,36 @@ function getRemoteProfiles() {
   return (remoteProfileService ||= new RemoteProfileService(
     path.join(app.getPath("userData"), "remote"),
   ));
+}
+function getWorkspaceTooling() {
+  return (workspaceToolingService ||= new WorkspaceToolingService(
+    path.join(app.getPath("userData"), "toolchains"),
+  ));
+}
+function publishWorkspaceTooling<T>(snapshot: T) {
+  if (!applicationWindow?.isDestroyed())
+    applicationWindow?.webContents.send("tooling:changed", snapshot);
+  return snapshot;
+}
+async function refreshWorkspaceTooling(root: string) {
+  const snapshot = await getWorkspaceTooling().get(root);
+  if (currentWorkspace?.root !== root)
+    throw new Error("Workspace changed while detecting toolchains");
+  const python = snapshot.python.candidates.find(
+    (item) => item.id === snapshot.python.activeId,
+  );
+  getLanguageServer().setPythonEnvironment(python?.path);
+  return publishWorkspaceTooling(snapshot);
+}
+async function projectExecutionCatalog(root: string) {
+  try {
+    const tooling = await getWorkspaceTooling().get(root);
+    return executionCatalog(root, detectedExecutionTasks(tooling));
+  } catch (error) {
+    const catalog = await executionCatalog(root);
+    catalog.warnings.unshift(`Workspace toolchains: ${error}`);
+    return catalog;
+  }
 }
 function publishSettings(snapshot: SettingsSnapshot) {
   if (!applicationWindow?.isDestroyed())
@@ -714,6 +1081,7 @@ async function createTerminalSession(
   },
   task?: Awaited<ReturnType<typeof resolveTask>>,
   remoteProfile?: SshProfile,
+  traceSessionId?: string,
 ) {
   if (!currentWorkspace) throw new Error("Open a project first");
   if (terminalSessions.size >= 8)
@@ -759,6 +1127,7 @@ async function createTerminalSession(
       : task?.label || executable,
     root,
     ...(remoteProfile ? { remoteProfileId: remoteProfile.id } : {}),
+    ...(traceSessionId ? { traceSessionId } : {}),
     buffer: "",
     sequence: 0,
   };
@@ -766,6 +1135,7 @@ async function createTerminalSession(
   session.onData((data) => {
     snapshot.sequence++;
     snapshot.buffer = (snapshot.buffer + data).slice(-160_000);
+    if (traceSessionId) getRuntimeTraces().ingest(traceSessionId, data);
     if (!applicationWindow?.isDestroyed())
       applicationWindow?.webContents.send("terminal:data", {
         id,
@@ -776,15 +1146,27 @@ async function createTerminalSession(
   session.onExit(({ exitCode }) => {
     terminalSessions.delete(id);
     terminalSnapshots.delete(id);
+    if (traceSessionId)
+      void getRuntimeTraces().finish(
+        traceSessionId,
+        exitCode === 0 ? "completed" : "failed",
+      );
     if (!applicationWindow?.isDestroyed())
       applicationWindow?.webContents.send("terminal:exit", { id, exitCode });
   });
   return { ...snapshot };
 }
 
-async function updateArchitecture(root: string): Promise<ArchitectureGraph> {
+async function updateArchitecture(
+  root: string,
+  invalidatedPaths?: ReadonlySet<string>,
+): Promise<ArchitectureGraph> {
   const generation = ++graphGeneration;
-  const graph = await repositoryAnalysis.analyze(root);
+  const graph = await repositoryAnalysis.analyze(root, {
+    callCorroborator: (input) =>
+      corroborateSymbolCalls(input, getLanguageServer()),
+    invalidatedPaths,
+  });
   if (generation === graphGeneration && currentWorkspace?.root === root) {
     latestGraph = graph;
     if (!applicationWindow?.isDestroyed())
@@ -798,6 +1180,8 @@ async function activateWorkspace(root: string): Promise<Workspace> {
     return currentWorkspace;
   if (executionBusy || debugService?.isRunning())
     throw new Error("Stop the debug session before switching projects");
+  if (compositionBusy)
+    throw new Error("Wait for Semantic Composer before switching projects");
   if (agentService?.isRunning() || applyingAgentChanges)
     throw new Error("Stop the active agent before switching workspaces");
   if (dirtyPaths.size || terminalSessions.size) {
@@ -823,6 +1207,7 @@ async function activateWorkspace(root: string): Promise<Workspace> {
     acceptingSessionUpdates = true;
     throw error;
   }
+  await runtimeTraceService?.interruptAll(currentWorkspace?.root);
   terminalSessions.forEach((session) => session.kill());
   terminalSessions.clear();
   terminalSnapshots.clear();
@@ -835,7 +1220,8 @@ async function activateWorkspace(root: string): Promise<Workspace> {
   currentWorkspace = workspaceFor(resolved);
   acceptingSessionUpdates = true;
   getLanguageServer().setWorkspace(resolved);
-  const changed = new Set<string>();
+  await refreshWorkspaceTooling(resolved);
+  const changed = new Map<string, 1 | 2 | 3>();
   workspaceWatcher = chokidar.watch(resolved, {
     ignoreInitial: true,
     ignored: (file) =>
@@ -845,21 +1231,36 @@ async function activateWorkspace(root: string): Promise<Workspace> {
         .some((part) => DEFAULT_IGNORES.has(part) || isEditorTemporary(part)),
     awaitWriteFinish: { stabilityThreshold: 200, pollInterval: 75 },
   });
-  workspaceWatcher.on("all", (_event, filename) => {
+  workspaceWatcher.on("all", (event, filename) => {
     const relative = path.relative(resolved, filename).replaceAll("\\", "/");
     if (!relative || currentWorkspace?.root !== resolved) return;
-    changed.add(relative);
+    const nextType: 1 | 2 | 3 = event.startsWith("add")
+      ? 1
+      : event.startsWith("unlink")
+        ? 3
+        : 2;
+    const previousType = changed.get(relative);
+    changed.set(
+      relative,
+      previousType === 1 && nextType === 2
+        ? 1
+        : previousType === 3 && nextType === 1
+          ? 2
+          : nextType,
+    );
     if (watcherTimer) clearTimeout(watcherTimer);
     watcherTimer = setTimeout(() => {
-      const paths = [...changed];
+      const changes = [...changed].map(([path, type]) => ({ path, type }));
+      const paths = changes.map((change) => change.path);
       changed.clear();
+      languageService?.watchedFiles(changes);
       if (!applicationWindow?.isDestroyed())
         applicationWindow?.webContents.send("workspace:changed", {
           root: resolved,
           paths,
         });
       if (latestGraph && currentWorkspace?.root === resolved)
-        void updateArchitecture(resolved).catch((error) => {
+        void updateArchitecture(resolved, new Set(paths)).catch((error) => {
           if (
             currentWorkspace?.root === resolved &&
             !applicationWindow?.isDestroyed()
@@ -867,6 +1268,21 @@ async function activateWorkspace(root: string): Promise<Workspace> {
             applicationWindow?.webContents.send(
               "analysis:error",
               String(error),
+            );
+        });
+      if (
+        currentWorkspace?.root === resolved &&
+        paths.some((file) =>
+          /(^|\/)(?:pyproject\.toml|uv\.lock|poetry\.lock|Cargo\.toml|pyvenv\.cfg|pytest\.ini|tox\.ini)$/i.test(
+            file,
+          ),
+        )
+      )
+        void refreshWorkspaceTooling(resolved).catch((error) => {
+          if (!applicationWindow?.isDestroyed())
+            applicationWindow?.webContents.send(
+              "workspace:warning",
+              `Toolchain refresh: ${error}`,
             );
         });
     }, 400);
@@ -1063,16 +1479,22 @@ const exclusiveWorkspaceOperations: Record<string, string> = {
   "workspace:move": "moving a file or folder",
   "workspace:delete": "moving a file or folder to trash",
   "agent:start": "starting an agent",
+  "agent:resume": "resuming an agent session",
+  "agent:fork": "forking an agent run",
   "agent:apply": "applying reviewed changes",
   "agent:archive": "archiving a pending review",
+  "agent:restore": "restoring an archived review",
   "execution:configure": "creating a project configuration",
   "terminal:create": "starting a terminal",
   "terminal:run-task": "starting a task",
+  "trace:start": "starting a runtime trace",
   "debug:start": "starting the debugger",
+  "tooling:select-python": "selecting a Python environment",
 };
 const queuedWorkspaceOperations = new Set([
   "terminal:create",
   "terminal:run-task",
+  "trace:start",
 ]);
 
 function handleDesktop(
@@ -1165,6 +1587,7 @@ function createWindow(): BrowserWindow {
       !applyingAgentChanges &&
       !debugService?.isRunning() &&
       !terminalSessions.size &&
+      !providerLoginProcesses.size &&
       !executionBusy
     )
       return;
@@ -1175,7 +1598,7 @@ function createWindow(): BrowserWindow {
       .showMessageBox(window, {
         type: "warning",
         message: "Close Witch?",
-        detail: `${dirtyPaths.size ? `${dirtyPaths.size} file(s) have unsaved edits. ` : ""}${agentService?.isRunning() ? "The running agent will be stopped. " : ""}${debugService?.isRunning() || terminalSessions.size ? "Debug and terminal processes will be stopped. " : ""}Saved files and completed review history are retained.`,
+        detail: `${dirtyPaths.size ? `${dirtyPaths.size} file(s) have unsaved edits. ` : ""}${agentService?.isRunning() ? "The running agent will be stopped. " : ""}${debugService?.isRunning() || terminalSessions.size ? "Debug and terminal processes will be stopped. " : ""}${providerLoginProcesses.size ? "The active AI provider sign-in will be canceled. " : ""}Saved files and completed review history are retained.`,
         buttons: ["Cancel", "Close without saving"],
         defaultId: 0,
         cancelId: 0,
@@ -1187,9 +1610,12 @@ function createWindow(): BrowserWindow {
             await getSessions().discardDrafts(currentWorkspace.root);
           await agentService?.stop();
           await debugService?.stop();
+          await runtimeTraceService?.interruptAll(currentWorkspace?.root);
           terminalSessions.forEach((session) => session.kill());
           terminalSessions.clear();
           terminalSnapshots.clear();
+          providerLoginProcesses.forEach(stopProviderLoginProcess);
+          providerLoginProcesses.clear();
           dirtyPaths.clear();
           window.destroy();
           if (process.platform !== "darwin" || quitRequested) app.quit();
@@ -1224,6 +1650,9 @@ app.on("second-instance", () => {
 
 app.whenReady().then(() => {
   if (!ownsProfile) return;
+  repositoryAnalysis.setIndexRoot(
+    path.join(app.getPath("userData"), "indexes"),
+  );
   const window = createWindow();
   applicationWindow = window;
   handleDesktop("workspace:open", async () => {
@@ -1240,6 +1669,29 @@ app.whenReady().then(() => {
   );
   handleDesktop("remote:list", () => getRemoteProfiles().list());
   handleDesktop("remote:status", () => getRemoteProfiles().status());
+  handleDesktop("tooling:status", () =>
+    currentWorkspace ? getWorkspaceTooling().get(currentWorkspace.root) : null,
+  );
+  handleDesktop(
+    "tooling:select-python",
+    async (_event, id: string | null, root?: string) => {
+      assertWorkspaceRoot(root);
+      if (id !== null && typeof id !== "string")
+        throw new Error("Invalid Python environment selection");
+      const workspaceRoot = currentWorkspace!.root;
+      const snapshot = await getWorkspaceTooling().selectPython(
+        workspaceRoot,
+        id,
+      );
+      if (currentWorkspace?.root !== workspaceRoot)
+        throw new Error("Workspace changed while selecting a toolchain");
+      const python = snapshot.python.candidates.find(
+        (item) => item.id === snapshot.python.activeId,
+      );
+      getLanguageServer().setPythonEnvironment(python?.path);
+      return publishWorkspaceTooling(snapshot);
+    },
+  );
   handleDesktop("remote:save-profile", async (_event, value: unknown) =>
     publishRemoteProfiles(await getRemoteProfiles().save(value)),
   );
@@ -1495,6 +1947,10 @@ app.whenReady().then(() => {
       return getLanguageServer().locations("references", relative, position);
     },
   );
+  handleDesktop("lsp:symbols", (_event, relative: string, root?: string) => {
+    assertWorkspaceRoot(root);
+    return getLanguageServer().documentSymbols(relative);
+  });
   handleDesktop(
     "lsp:rename",
     (
@@ -1527,10 +1983,51 @@ app.whenReady().then(() => {
     const snapshot = await saveSnapshot(workspace, graph);
     return { ...graph, snapshot };
   });
+  handleDesktop("analysis:clear-index", async () => {
+    if (!currentWorkspace) throw new Error("Open a repository first");
+    const root = currentWorkspace.root;
+    await repositoryAnalysis.clearIndex(root);
+    const graph = await updateArchitecture(root);
+    if (currentWorkspace?.root !== root)
+      throw new Error("The active workspace changed");
+    return graph;
+  });
   handleDesktop("analysis:snapshots", async () =>
     listSnapshots(currentWorkspace?.root),
   );
   handleDesktop("analysis:current", () => latestGraph);
+  handleDesktop(
+    "analysis:compose",
+    async (_event, request: SemanticComposerRequest) => {
+      if (!currentWorkspace || !latestGraph)
+        throw new Error("Open and analyze a repository first");
+      if (dirtyPaths.size)
+        throw new Error(
+          "Save or close unsaved files first. Semantic Composer only uses the analysis saved on disk.",
+        );
+      if (compositionBusy)
+        throw new Error("Semantic Composer is already running");
+      const root = currentWorkspace.root;
+      const source = latestGraph;
+      if (source.workspaceRoot !== root)
+        throw new Error("The active architecture reading is stale");
+      compositionBusy = true;
+      try {
+        const result = await getSemanticComposer().compose(source, request);
+        if (
+          currentWorkspace?.root !== root ||
+          latestGraph?.revision !== source.revision
+        )
+          throw new Error("The active workspace changed while composing");
+        latestGraph = result.graph;
+        if (!applicationWindow?.isDestroyed())
+          applicationWindow?.webContents.send("analysis:updated", result.graph);
+        return result;
+      } finally {
+        compositionBusy = false;
+      }
+    },
+  );
   handleDesktop("analysis:delta", async (_event, snapshotId: string) => {
     if (!currentWorkspace || !latestGraph)
       throw new Error("Open and analyze a repository first");
@@ -1581,6 +2078,7 @@ app.whenReady().then(() => {
   handleDesktop("agent:list", async () =>
     currentWorkspace ? getAgentService().list(currentWorkspace.root) : [],
   );
+  handleDesktop("agent:status", () => getAgentService().status());
   handleDesktop("agent:start", async (_event, request: AgentRequest) => {
     if (!currentWorkspace) throw new Error("Open a repository first");
     if (applyingAgentChanges)
@@ -1595,6 +2093,33 @@ app.whenReady().then(() => {
       throw new Error("The active workspace changed");
     return getAgentService().start(root, graph, request);
   });
+  handleDesktop("agent:resume", async (_event, id: string, prompt: string) => {
+    if (!currentWorkspace) throw new Error("Open a repository first");
+    if (dirtyPaths.size)
+      throw new Error(
+        "Save or close unsaved files before resuming an Agent session",
+      );
+    const root = currentWorkspace.root;
+    const graph = await updateArchitecture(root);
+    if (currentWorkspace?.root !== root || dirtyPaths.size)
+      throw new Error("The active workspace changed");
+    return getAgentService().resume(root, graph, id, prompt);
+  });
+  handleDesktop(
+    "agent:fork",
+    async (_event, id: string, providerId: AgentProviderId, prompt: string) => {
+      if (!currentWorkspace) throw new Error("Open a repository first");
+      if (dirtyPaths.size)
+        throw new Error(
+          "Save or close unsaved files before forking an Agent run",
+        );
+      const root = currentWorkspace.root;
+      const graph = await updateArchitecture(root);
+      if (currentWorkspace?.root !== root || dirtyPaths.size)
+        throw new Error("The active workspace changed");
+      return getAgentService().fork(root, graph, id, providerId, prompt);
+    },
+  );
   handleDesktop("agent:stop", () => getAgentService().stop());
   handleDesktop("agent:archive", async (_event, id: string) => {
     if (!currentWorkspace) throw new Error("Open a repository first");
@@ -1618,6 +2143,32 @@ app.whenReady().then(() => {
     if (currentWorkspace?.root !== root)
       throw new Error("The active workspace changed");
     return service.archive(root, id);
+  });
+  handleDesktop("agent:restore", async (_event, id: string) => {
+    if (!currentWorkspace) throw new Error("Open a repository first");
+    if (dirtyPaths.size)
+      throw new Error(
+        "Save or close unsaved files before restoring an archived review",
+      );
+    const root = currentWorkspace.root;
+    const service = getAgentService();
+    const run = (await service.list(root)).find((item) => item.id === id);
+    if (!run || run.status !== "archived" || service.isRunning())
+      throw new Error("Choose an archived review after the Agent finishes");
+    const decision = await dialog.showMessageBox(applicationWindow!, {
+      type: "question",
+      message: "Restore this archive as a new isolated review?",
+      detail:
+        "The archived run and its staging files remain immutable. Witch creates a new baseline from the current project, reconstructs the desired files in a new isolated copy, and verifies the resulting review.",
+      buttons: ["Cancel", "Restore as new review"],
+      defaultId: 0,
+      cancelId: 0,
+    });
+    if (decision.response !== 1)
+      throw new Error("Restore canceled. The archive was not changed.");
+    if (currentWorkspace?.root !== root || dirtyPaths.size)
+      throw new Error("The workspace changed while confirming restore");
+    return service.restore(root, id);
   });
   handleDesktop("agent:apply", async (_event, id: string, paths: string[]) => {
     if (!currentWorkspace) throw new Error("Open a repository first");
@@ -1657,7 +2208,6 @@ app.whenReady().then(() => {
       )
         throw new Error("The workspace or editor changed while reviewing");
       const result = await getAgentService().apply(root, id, paths);
-      await updateArchitecture(root);
       applicationWindow?.webContents.send("workspace:changed", { root, paths });
       return result;
     } finally {
@@ -1666,6 +2216,9 @@ app.whenReady().then(() => {
   });
   handleDesktop("tasks:list", async () => listTasks(currentWorkspace?.root));
   handleDesktop("providers:status", () => providerStatus());
+  handleDesktop("providers:connect-cli", (_event, provider: unknown) =>
+    connectCliProvider(provider),
+  );
   handleDesktop(
     "providers:save-api-key",
     async (_event, provider: ApiProviderId, key: string) =>
@@ -1724,7 +2277,7 @@ app.whenReady().then(() => {
   );
   handleDesktop("execution:catalog", () =>
     currentWorkspace
-      ? executionCatalog(currentWorkspace.root)
+      ? projectExecutionCatalog(currentWorkspace.root)
       : { tasks: [], launches: [], warnings: [] },
   );
   handleDesktop(
@@ -1745,7 +2298,9 @@ app.whenReady().then(() => {
       const directory = await resolveWorkspacePath(root, ".witch", true);
       await fs.mkdir(directory, { recursive: true });
       const program =
-        activeFile && /\.[cm]?js$/i.test(activeFile) ? activeFile : "index.js";
+        activeFile && /(?:\.[cm]?js|\.py)$/i.test(activeFile)
+          ? activeFile
+          : "index.js";
       if (activeFile && program === activeFile)
         await resolveWorkspacePath(root, activeFile);
       const contents =
@@ -1754,7 +2309,7 @@ app.whenReady().then(() => {
               version: "0.2.0",
               configurations: [
                 {
-                  type: "node",
+                  type: /\.py$/i.test(program) ? "python" : "node",
                   request: "launch",
                   name: "Debug project",
                   program: "${workspaceFolder}/" + program,
@@ -1792,7 +2347,7 @@ app.whenReady().then(() => {
       executionBusy = true;
       try {
         const root = currentWorkspace.root;
-        const task = (await executionCatalog(root)).tasks.find(
+        const task = (await projectExecutionCatalog(root)).tasks.find(
           (item) => item.id === id,
         );
         if (!task)
@@ -1817,6 +2372,108 @@ app.whenReady().then(() => {
       }
     },
   );
+  handleDesktop("trace:list", async () => {
+    if (!currentWorkspace) return [];
+    const graph =
+      latestGraph?.workspaceRoot === currentWorkspace.root
+        ? latestGraph
+        : undefined;
+    return getRuntimeTraces().list(currentWorkspace.root, graph);
+  });
+  handleDesktop("trace:get", async (_event, id: string) => {
+    if (!currentWorkspace) throw new Error("Open a project first");
+    const active = getRuntimeTraces().get(id);
+    if (active?.workspaceRoot === currentWorkspace.root) return active;
+    const graph =
+      latestGraph?.workspaceRoot === currentWorkspace.root
+        ? latestGraph
+        : undefined;
+    const stored = (
+      await getRuntimeTraces().list(currentWorkspace.root, graph)
+    ).find((session) => session.id === id);
+    if (!stored) throw new Error("Runtime trace is no longer available");
+    return stored;
+  });
+  handleDesktop(
+    "trace:start",
+    async (_event, id: string, activeFile?: string) => {
+      if (!currentWorkspace) throw new Error("Open a project first");
+      if (executionBusy)
+        throw new Error("Another execution request is pending");
+      if (dirtyPaths.size)
+        throw new Error("Save or close unsaved files before tracing a task");
+      executionBusy = true;
+      try {
+        const root = currentWorkspace.root;
+        const task = (await projectExecutionCatalog(root)).tasks.find(
+          (item) => item.id === id,
+        );
+        if (!task)
+          throw new Error(
+            "This task no longer exists in the project configuration",
+          );
+        const resolved = await resolveTask(root, task, activeFile);
+        // The trace is tied to a fresh, validated semantic reading. The
+        // command itself is represented only by a digest in persisted data.
+        const graph = await updateArchitecture(root);
+        if (!graph.semantic?.validation.valid || !graph.validation.valid)
+          throw new Error(
+            "Runtime trace requires a valid semantic analysis of the current source",
+          );
+        const commandReceipt = contentHash(
+          JSON.stringify({
+            taskId: task.id,
+            shellCommand: resolved.shellCommand,
+            cwd: resolved.cwd,
+            environmentKeys: Object.keys(resolved.env || {}).sort(),
+          }),
+        );
+        const choice = await dialog.showMessageBox(applicationWindow!, {
+          type: "warning",
+          message: `Trace ${task.label}?`,
+          detail: `${resolved.shellCommand}\n\nWorking directory: ${resolved.cwd}\n\nThis approved Task runs locally with your user permissions. Witch records only explicit WITCH_TRACE_V1 structural markers (symbol identity, order, duration, and outcome); arguments, return values, environment values, and ordinary terminal output are not stored in the trace.`,
+          buttons: ["Cancel", "Run and trace"],
+          defaultId: 0,
+          cancelId: 0,
+        });
+        if (choice.response !== 1) throw new Error("Runtime trace canceled");
+        if (currentWorkspace?.root !== root || dirtyPaths.size)
+          throw new Error("The workspace changed while confirming");
+        const trace = await getRuntimeTraces().start({
+          graph,
+          taskId: task.id,
+          taskLabel: task.label,
+          commandReceipt,
+        });
+        try {
+          const terminal = await createTerminalSession(
+            {},
+            resolved,
+            undefined,
+            trace.id,
+          );
+          return { trace, terminal };
+        } catch (error) {
+          await getRuntimeTraces().finish(trace.id, "failed");
+          throw error;
+        }
+      } finally {
+        executionBusy = false;
+      }
+    },
+  );
+  handleDesktop("trace:stop", async (_event, id: string) => {
+    if (!currentWorkspace) throw new Error("Open a project first");
+    const active = getRuntimeTraces().get(id);
+    if (!active || active.workspaceRoot !== currentWorkspace.root)
+      throw new Error("Runtime trace is not running in this workspace");
+    const terminal = [...terminalSnapshots.values()].find(
+      (snapshot) => snapshot.traceSessionId === id,
+    );
+    const finished = await getRuntimeTraces().finish(id, "interrupted");
+    terminalSessions.get(terminal?.id || "")?.kill();
+    return finished;
+  });
   handleDesktop("debug:status", () => getDebugger().status());
   handleDesktop("debug:breakpoints", () =>
     currentWorkspace
@@ -1842,23 +2499,36 @@ app.whenReady().then(() => {
       try {
         const root = currentWorkspace.root;
         const launch = id
-          ? (await executionCatalog(root)).launches.find(
+          ? (await projectExecutionCatalog(root)).launches.find(
               (item) => item.id === id,
             )
           : {
               id: "active",
               name: "Debug active file",
               source: "active editor",
+              type: (/\.py$/i.test(activeFile || "") ? "python" : "node") as
+                "python" | "node",
               program: activeFile || "",
               args: [],
               stopOnEntry: true,
             };
         if (!launch) throw new Error("Launch configuration no longer exists");
         const resolved = await resolveLaunch(root, launch, activeFile);
+        let pythonInterpreter: string | undefined;
+        if (resolved.type === "python") {
+          const tooling = await getWorkspaceTooling().get(root);
+          pythonInterpreter = tooling.python.candidates.find(
+            (item) => item.id === tooling.python.activeId,
+          )?.path;
+          if (!pythonInterpreter)
+            throw new Error(
+              "No Python environment is available for this workspace",
+            );
+        }
         const choice = await dialog.showMessageBox(applicationWindow!, {
           type: "warning",
           message: `Debug ${resolved.name}?`,
-          detail: `Program: ${resolved.program}\nArguments: ${JSON.stringify(resolved.args)}\nWorking directory: ${resolved.cwd}\n\nThe program runs locally with your user permissions. Only run code you trust.`,
+          detail: `Program: ${resolved.program}${pythonInterpreter ? `\nInterpreter: ${pythonInterpreter}` : ""}\nArguments: ${JSON.stringify(resolved.args)}\nWorking directory: ${resolved.cwd}\n\nThe program and debug adapter run locally with your user permissions. Python debugging requires debugpy in the selected environment. Only run code you trust.`,
           buttons: ["Cancel", "Start debugger"],
           defaultId: 0,
           cancelId: 0,
@@ -1866,7 +2536,7 @@ app.whenReady().then(() => {
         if (choice.response !== 1) throw new Error("Debug start canceled");
         if (currentWorkspace?.root !== root || dirtyPaths.size)
           throw new Error("The workspace changed while confirming");
-        return getDebugger().start(root, resolved);
+        return getDebugger().start(root, resolved, pythonInterpreter);
       } finally {
         executionBusy = false;
       }
@@ -1885,11 +2555,12 @@ app.whenReady().then(() => {
           session.root === currentWorkspace?.root &&
           terminalSessions.has(session.id),
       )
-      .map(({ id, cwd, shell, remoteProfileId }) => ({
+      .map(({ id, cwd, shell, remoteProfileId, traceSessionId }) => ({
         id,
         cwd,
         shell,
         ...(remoteProfileId ? { remoteProfileId } : {}),
+        ...(traceSessionId ? { traceSessionId } : {}),
       })),
   );
   handleDesktop("terminal:attach", (_event, id: string) => {
@@ -1915,9 +2586,12 @@ app.whenReady().then(() => {
           Math.max(2, Math.min(200, Math.trunc(rows || 24))),
         ),
   );
-  handleDesktop("terminal:close", (_event, id: string) =>
-    terminalSessions.get(id)?.kill(),
-  );
+  handleDesktop("terminal:close", async (_event, id: string) => {
+    const traceSessionId = terminalSnapshots.get(id)?.traceSessionId;
+    if (traceSessionId)
+      await getRuntimeTraces().finish(traceSessionId, "interrupted");
+    terminalSessions.get(id)?.kill();
+  });
   app.on("activate", () => {
     if (!shutdownStarted && BrowserWindow.getAllWindows().length === 0)
       createWindow();
@@ -1941,6 +2615,9 @@ app.on("will-quit", (event) => {
     repositoryAnalysis.dispose();
     searchController?.abort(new Error("Witch is shutting down"));
     if (watcherTimer) clearTimeout(watcherTimer);
+    // Persist interrupted status before killing the owning PTYs so an exit
+    // callback cannot misclassify an intentional app shutdown as a failure.
+    await runtimeTraceService?.interruptAll();
     terminalSessions.forEach((session) => {
       try {
         session.kill();
@@ -1950,6 +2627,14 @@ app.on("will-quit", (event) => {
     });
     terminalSessions.clear();
     terminalSnapshots.clear();
+    providerLoginProcesses.forEach((process) => {
+      try {
+        stopProviderLoginProcess(process);
+      } catch (error) {
+        console.error("Provider sign-in shutdown failed", error);
+      }
+    });
+    providerLoginProcesses.clear();
     disconnectCua();
     const cleanup = await Promise.allSettled([
       debugService?.stop(),
@@ -1965,7 +2650,9 @@ app.on("will-quit", (event) => {
         sessionStore?.flush(),
         settingsService?.flush(),
         remoteProfileService?.flush(),
+        workspaceToolingService?.flush(),
         providerKeyStore?.flush(),
+        runtimeTraceService?.flush(),
         historyStore?.flush(),
         debugService?.flush(),
       ])),

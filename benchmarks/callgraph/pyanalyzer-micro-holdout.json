@@ -1,0 +1,11 @@
+{
+  "name": "PyAnalyzer newly-added Python hold-out",
+  "language": "python",
+  "role": "holdout",
+  "scale": "micro",
+  "frozen": true,
+  "source": "https://github.com/2024icse/PyAnalyzer",
+  "commit": "ea143ef8bdec2b5f8841bb600b348f0975b90349",
+  "subpath": "Data/RQ2/micro-benchmark B/Benchmark-newlyaddedbyPyAnalyzer",
+  "policy": "Run only at evaluation checkpoints. Do not inspect individual failures while implementing analysis rules."
+}

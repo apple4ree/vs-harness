@@ -7,11 +7,13 @@ export type ProjectTask = {
   args: string[];
   cwd?: string;
   env?: Record<string, string>;
+  requiresActiveFile?: "python" | "javascript";
 };
 export type LaunchConfiguration = {
   id: string;
   name: string;
   source: string;
+  type: "node" | "python";
   program: string;
   args: string[];
   cwd?: string;
@@ -46,6 +48,7 @@ export type DebugVariable = {
 };
 export type DebugState = {
   root: string | null;
+  adapter?: "node" | "python";
   status: "idle" | "starting" | "running" | "paused" | "stopped" | "failed";
   name?: string;
   reason?: string;
@@ -61,6 +64,8 @@ export type TerminalSummary = {
   cwd: string;
   shell: string;
   remoteProfileId?: string;
+  /** Present only when this terminal was approved as a structural runtime trace. */
+  traceSessionId?: string;
 };
 export type TerminalSnapshot = TerminalSummary & {
   buffer: string;

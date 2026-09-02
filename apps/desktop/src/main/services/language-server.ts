@@ -1,5 +1,5 @@
 import path from "node:path";
-import { promises as fs, realpathSync } from "node:fs";
+import { promises as fs, realpathSync, statSync } from "node:fs";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
@@ -14,7 +14,6 @@ import type {
   Position,
   Range,
   Diagnostic,
-  LanguageStatus,
   Completion,
   SourceLocation,
   RefactorPreview,
@@ -22,7 +21,29 @@ import type {
   HoverInfo,
   SignatureHelpInfo,
   SignatureContext,
+  DocumentSymbol,
+  CallHierarchy,
+  LanguageProviderId,
+  LanguageProviderStatus,
+  WatchedFileChange,
 } from "../../shared/language";
+
+export type LanguageServerOptions = {
+  runtime?: string;
+  entrypoint?: string;
+  tsserver?: string;
+  runAsNode?: boolean;
+  id?: LanguageProviderId;
+  label?: string;
+  command?: string;
+  args?: string[];
+  installedPath?: string;
+  extensions?: string[];
+  initializationOptions?: Record<string, unknown>;
+  configuration?: Record<string, unknown>;
+  allowedCommands?: string[];
+  unavailableMessage?: string;
+};
 
 /** LSP documentation is untrusted display data, never a command or HTML fragment. */
 function documentationMarkdown(value: any): string | undefined {
@@ -104,18 +125,66 @@ export class LanguageServer extends EventEmitter {
   private actions = new Map<string, { item: any; validate: () => void }>();
   private completions = new Map<
     string,
-    { item: any; uri: string; version: number; root: string }
+    {
+      item: any;
+      uri: string;
+      version: number;
+      root: string;
+      resolved: boolean;
+    }
   >();
   private capturedEdits: any[] | null = null;
-  constructor(
-    private options: {
-      runtime: string;
-      entrypoint: string;
-      tsserver: string;
-      runAsNode?: boolean;
-    },
-  ) {
+  private id: LanguageProviderId;
+  private label: string;
+  private command: string;
+  private args: string[];
+  private installedPath: string;
+  private extensions: Set<string>;
+  private allowedCommands: Set<string>;
+  constructor(private options: LanguageServerOptions) {
     super();
+    this.id = options.id || "typescript";
+    this.label = options.label || "TypeScript / JavaScript";
+    this.command = options.command || options.runtime || "";
+    this.args = options.command
+      ? options.args || []
+      : [options.entrypoint || "", "--stdio"];
+    this.installedPath =
+      options.installedPath || options.entrypoint || options.command || "";
+    this.extensions = new Set(
+      options.extensions || [
+        ".ts",
+        ".tsx",
+        ".mts",
+        ".cts",
+        ".js",
+        ".jsx",
+        ".mjs",
+        ".cjs",
+      ],
+    );
+    this.allowedCommands = new Set(
+      options.allowedCommands ||
+        (this.id === "typescript" ? ["_typescript.organizeImports"] : []),
+    );
+    if (!this.command || !this.installedPath || this.args.some((item) => !item))
+      throw new Error("Language server requires an executable and arguments");
+  }
+  supports(relative: string) {
+    return this.extensions.has(path.extname(relative).toLowerCase());
+  }
+  get providerId() {
+    return this.id;
+  }
+  updateConfiguration(section: string, value: unknown) {
+    this.options.configuration = {
+      ...(this.options.configuration || {}),
+      [section]: value,
+    };
+    if (this.rpc && this.connected)
+      this.rpc.notify("workspace/didChangeConfiguration", {
+        settings: this.options.configuration,
+      });
   }
   setWorkspace(root: string | null) {
     let canonicalRoot = root;
@@ -127,19 +196,22 @@ export class LanguageServer extends EventEmitter {
       this.root = canonicalRoot;
     }
   }
-  async status(): Promise<LanguageStatus> {
+  async status(): Promise<LanguageProviderStatus> {
     const installed = await fs
-      .stat(this.options.entrypoint)
-      .then(() => true)
+      .stat(this.installedPath)
+      .then((item) => item.isFile())
       .catch(() => false);
     return {
+      id: this.id,
+      label: this.label,
       installed,
       connected: this.connected,
       message: this.connected
-        ? "TypeScript / JavaScript language server connected"
+        ? `${this.label} language server connected`
         : installed
-          ? "TypeScript / JavaScript ready"
-          : "Language server files are missing",
+          ? `${this.label} ready`
+          : this.options.unavailableMessage ||
+            `${this.label} language server is not installed`,
     };
   }
   private relative(uri: string): string | null {
@@ -163,26 +235,35 @@ export class LanguageServer extends EventEmitter {
   async start() {
     if (this.ready) return this.ready;
     if (!this.root) throw new Error("Open a workspace first");
+    try {
+      if (!statSync(this.installedPath).isFile()) throw new Error("not a file");
+    } catch {
+      throw new Error(
+        this.options.unavailableMessage ||
+          `${this.label} language server is not installed`,
+      );
+    }
     const root = this.root;
-    const rpc = new JsonRpcProcess(
-      this.options.runtime,
-      [this.options.entrypoint, "--stdio"],
-      "headers",
-      {
-        cwd: root,
-        env: {
-          ...process.env,
-          ...(this.options.runAsNode ? { ELECTRON_RUN_AS_NODE: "1" } : {}),
-        },
+    const rpc = new JsonRpcProcess(this.command, this.args, "headers", {
+      cwd: root,
+      env: {
+        ...process.env,
+        ...(this.options.runAsNode ? { ELECTRON_RUN_AS_NODE: "1" } : {}),
       },
-    );
+    });
     this.rpc = rpc;
+    rpc.on("log", (message: string) => this.emit("log", message.trim()));
     rpc.on("notification", (message: RpcMessage) => {
+      if (this.rpc !== rpc) return;
       if (
-        this.rpc !== rpc ||
-        message.method !== "textDocument/publishDiagnostics"
-      )
+        (message.method === "window/logMessage" ||
+          message.method === "window/showMessage") &&
+        typeof message.params?.message === "string"
+      ) {
+        this.emit("log", message.params.message.slice(0, 20_000));
         return;
+      }
+      if (message.method !== "textDocument/publishDiagnostics") return;
       const relative = this.relative(message.params.uri);
       if (!relative) return;
       const diagnostics: Diagnostic[] = (message.params.diagnostics || [])
@@ -195,13 +276,21 @@ export class LanguageServer extends EventEmitter {
           code: item.code,
           source: item.source,
         }));
-      this.emit("diagnostics", { path: relative, diagnostics });
+      this.emit("diagnostics", {
+        language: this.id,
+        path: relative,
+        diagnostics,
+      });
     });
     rpc.on("request", (message: RpcMessage) => {
       if (message.method === "workspace/configuration")
         rpc.reply(
           message.id!,
-          (message.params.items || []).map(() => ({})),
+          (message.params.items || []).map(
+            (item: { section?: string }) =>
+              (item.section && this.options.configuration?.[item.section]) ||
+              {},
+          ),
         );
       else if (message.method === "workspace/applyEdit") {
         this.capturedEdits?.push(message.params.edit);
@@ -224,6 +313,8 @@ export class LanguageServer extends EventEmitter {
       this.connected = false;
       this.documents.clear();
       this.emit("status", {
+        id: this.id,
+        label: this.label,
         installed: true,
         connected: false,
         message: error.message,
@@ -266,6 +357,8 @@ export class LanguageServer extends EventEmitter {
               },
               definition: { linkSupport: true },
               references: {},
+              callHierarchy: { dynamicRegistration: false },
+              documentSymbol: { hierarchicalDocumentSymbolSupport: true },
               rename: { prepareSupport: true },
               codeAction: {
                 codeActionLiteralSupport: {
@@ -283,21 +376,26 @@ export class LanguageServer extends EventEmitter {
             workspace: {
               configuration: true,
               applyEdit: true,
+              didChangeWatchedFiles: { dynamicRegistration: false },
               workspaceEdit: { documentChanges: true },
             },
           },
-          initializationOptions: {
-            hostInfo: "Witch",
-            disableAutomaticTypingAcquisition: true,
-            tsserver: {
-              path: this.options.tsserver,
-              fallbackPath: this.options.tsserver,
-            },
-            preferences: {
-              includeCompletionsForModuleExports: true,
-              includeCompletionsWithInsertText: true,
-            },
-          },
+          initializationOptions:
+            this.options.initializationOptions ||
+            (this.id === "typescript"
+              ? {
+                  hostInfo: "Witch",
+                  disableAutomaticTypingAcquisition: true,
+                  tsserver: {
+                    path: this.options.tsserver,
+                    fallbackPath: this.options.tsserver,
+                  },
+                  preferences: {
+                    includeCompletionsForModuleExports: true,
+                    includeCompletionsWithInsertText: true,
+                  },
+                }
+              : {}),
         });
         if (this.rpc !== rpc)
           throw new Error(
@@ -314,7 +412,7 @@ export class LanguageServer extends EventEmitter {
     return this.ready;
   }
   async sync(relative: string, content: string) {
-    if (!/\.[cm]?[jt]sx?$/i.test(relative)) return;
+    if (!this.supports(relative)) return;
     if (typeof content !== "string" || Buffer.byteLength(content) > TEXT_LIMIT)
       throw new Error("Document exceeds language-server limits");
     const root = this.root;
@@ -324,13 +422,18 @@ export class LanguageServer extends EventEmitter {
       throw new Error("The language-service workspace changed");
     const existing = this.documents.get(uri);
     if (!existing) {
-      const languageId = /tsx$/i.test(relative)
-        ? "typescriptreact"
-        : /jsx$/i.test(relative)
-          ? "javascriptreact"
-          : /[cm]?ts$/i.test(relative)
-            ? "typescript"
-            : "javascript";
+      const languageId =
+        this.id === "python"
+          ? "python"
+          : this.id === "rust"
+            ? "rust"
+            : /tsx$/i.test(relative)
+              ? "typescriptreact"
+              : /jsx$/i.test(relative)
+                ? "javascriptreact"
+                : /[cm]?ts$/i.test(relative)
+                  ? "typescript"
+                  : "javascript";
       this.documents.set(uri, { content, version: 1 });
       this.rpc!.notify("textDocument/didOpen", {
         textDocument: {
@@ -357,11 +460,29 @@ export class LanguageServer extends EventEmitter {
     if (this.documents.delete(uri))
       this.rpc!.notify("textDocument/didClose", { textDocument: { uri } });
   }
+  watchedFiles(changes: WatchedFileChange[]) {
+    if (!this.connected || !this.rpc || !this.root || !changes.length) return;
+    const root = this.root;
+    const safe = changes.slice(0, 500).flatMap((change) => {
+      try {
+        const relative = normalizedRelative(change.path);
+        if (![1, 2, 3].includes(change.type)) return [];
+        return [
+          {
+            uri: pathToFileURL(path.join(root, relative)).toString(),
+            type: change.type,
+          },
+        ];
+      } catch {
+        return [];
+      }
+    });
+    if (safe.length)
+      this.rpc.notify("workspace/didChangeWatchedFiles", { changes: safe });
+  }
   private async documentParams(relative: string, position: Position) {
-    if (!/\.[cm]?[jt]sx?$/i.test(relative))
-      throw new Error(
-        "Language intelligence currently supports TypeScript and JavaScript",
-      );
+    if (!this.supports(relative))
+      throw new Error(`${this.label} does not support this file`);
     if (
       !Number.isInteger(position.line) ||
       !Number.isInteger(position.character) ||
@@ -405,7 +526,7 @@ export class LanguageServer extends EventEmitter {
       [position.line]?.slice(0, position.character)
       .match(/[\p{L}\p{N}_$]+$/u)?.[0]
       .toLowerCase();
-    return (Array.isArray(result) ? result : result?.items || [])
+    const candidates = (Array.isArray(result) ? result : result?.items || [])
       .filter(
         (item: any) =>
           !prefix ||
@@ -413,19 +534,53 @@ export class LanguageServer extends EventEmitter {
             .toLowerCase()
             .startsWith(prefix),
       )
-      .slice(0, 250)
-      .map((item: any) => {
-        const id = randomUUID();
+      .slice(0, 250);
+    // Monaco can accept a focused item while its lazy detail still reads
+    // "Loading…". Resolve a deliberately small, narrowed TypeScript result set
+    // up front so auto-import edits are present at the acceptance boundary.
+    const resolvedCandidates: { item: any; resolved: boolean }[] =
+      this.id === "typescript" && candidates.length <= 12
+        ? await Promise.all(
+            candidates.map(async (item: any) => {
+              try {
+                const resolved = await rpc.request(
+                  "completionItem/resolve",
+                  item,
+                );
+                this.validateCompletionEdits(document.content, resolved);
+                return { item: resolved, resolved: true };
+              } catch {
+                return { item, resolved: false };
+              }
+            }),
+          )
+        : candidates.map((item: any) => ({ item, resolved: false }));
+    if (
+      this.rpc !== rpc ||
+      this.documents.get(params.textDocument.uri) !== document ||
+      document.version !== version
+    )
+      return [];
+    return resolvedCandidates.map(({ item, resolved }) => {
+        const id = `${this.id}:${randomUUID()}`;
         this.completions.set(id, {
           item,
           uri: params.textDocument.uri,
           version,
           root: this.root!,
+          resolved,
         });
         while (this.completions.size > 1000)
           this.completions.delete(this.completions.keys().next().value!);
         return this.completionValue(item, id);
       });
+  }
+  private validateCompletionEdits(content: string, item: any) {
+    const edits = item.additionalTextEdits || [];
+    if (!Array.isArray(edits) || edits.length > 100)
+      throw new Error("Too many completion edits");
+    if (Buffer.byteLength(applyTextEdits(content, edits)) > TEXT_LIMIT)
+      throw new Error("Completion exceeds the editor size limit");
   }
   private completionValue(item: any, id: string): Completion {
     return {
@@ -451,20 +606,20 @@ export class LanguageServer extends EventEmitter {
       completion &&
       completion.root === this.root &&
       this.documents.get(completion.uri)?.version === completion.version;
-    if (!valid() || !completion || !this.rpc)
+    if (!valid() || !completion)
       throw new Error("Completion expired; request it again");
+    if (completion.resolved) return this.completionValue(completion.item, id);
+    if (!this.rpc) throw new Error("Completion expired; request it again");
     const item = await this.rpc.request(
       "completionItem/resolve",
       completion.item,
     );
     if (!valid())
       throw new Error("The document changed while resolving completion");
-    const edits = item.additionalTextEdits || [];
-    if (!Array.isArray(edits) || edits.length > 100)
-      throw new Error("Too many completion edits");
     const content = this.documents.get(completion.uri)!.content;
-    if (Buffer.byteLength(applyTextEdits(content, edits)) > TEXT_LIMIT)
-      throw new Error("Completion exceeds the editor size limit");
+    this.validateCompletionEdits(content, item);
+    completion.item = item;
+    completion.resolved = true;
     // Only same-document text edits are returned. Server commands are never executed.
     return this.completionValue(item, id);
   }
@@ -584,6 +739,161 @@ export class LanguageServer extends EventEmitter {
       },
     );
   }
+  async outgoingCalls(
+    relative: string,
+    position: Position,
+  ): Promise<CallHierarchy | null> {
+    const params = await this.documentParams(relative, position);
+    const rpc = this.rpc!;
+    const document = this.documents.get(params.textDocument.uri)!;
+    const version = document.version;
+    const prepared = await rpc.request(
+      "textDocument/prepareCallHierarchy",
+      params,
+      5_000,
+    );
+    if (
+      this.rpc !== rpc ||
+      this.documents.get(params.textDocument.uri) !== document ||
+      document.version !== version
+    )
+      return null;
+    const item = (
+      Array.isArray(prepared) ? prepared : prepared ? [prepared] : []
+    ).find(
+      (candidate: any) =>
+        candidate &&
+        typeof candidate.name === "string" &&
+        this.relative(candidate.uri || "") &&
+        candidate.range &&
+        candidate.selectionRange,
+    );
+    if (!item) return null;
+    const result = await rpc.request(
+      "callHierarchy/outgoingCalls",
+      { item },
+      5_000,
+    );
+    if (
+      this.rpc !== rpc ||
+      this.documents.get(params.textDocument.uri) !== document ||
+      document.version !== version
+    )
+      return null;
+    const validPosition = (value: any) =>
+      value &&
+      Number.isInteger(value.line) &&
+      value.line >= 0 &&
+      Number.isInteger(value.character) &&
+      value.character >= 0;
+    const validRange = (value: any): value is Range =>
+      value && validPosition(value.start) && validPosition(value.end);
+    const callerPath = this.relative(item.uri || "");
+    if (
+      !callerPath ||
+      !validRange(item.range) ||
+      !validRange(item.selectionRange)
+    )
+      return null;
+    const outgoing = (Array.isArray(result) ? result : [])
+      .slice(0, 500)
+      .flatMap((call: any) => {
+        const target = call?.to;
+        const targetPath = this.relative(target?.uri || "");
+        if (
+          !targetPath ||
+          typeof target.name !== "string" ||
+          !validRange(target.range) ||
+          !validRange(target.selectionRange)
+        )
+          return [];
+        const fromRanges = (
+          Array.isArray(call.fromRanges) ? call.fromRanges : []
+        )
+          .filter(validRange)
+          .slice(0, 100);
+        return [
+          {
+            name: target.name.slice(0, 500),
+            path: targetPath,
+            range: target.range,
+            selectionRange: target.selectionRange,
+            fromRanges,
+          },
+        ];
+      });
+    return {
+      provider: this.id,
+      caller: {
+        name: item.name.slice(0, 500),
+        path: callerPath,
+        range: item.range,
+        selectionRange: item.selectionRange,
+      },
+      outgoing,
+    };
+  }
+  async documentSymbols(relative: string): Promise<DocumentSymbol[]> {
+    const params = await this.documentParams(relative, {
+      line: 0,
+      character: 0,
+    });
+    const rpc = this.rpc!;
+    const document = this.documents.get(params.textDocument.uri)!;
+    const version = document.version;
+    const result = await rpc.request("textDocument/documentSymbol", {
+      textDocument: params.textDocument,
+    });
+    if (
+      this.rpc !== rpc ||
+      this.documents.get(params.textDocument.uri) !== document ||
+      document.version !== version ||
+      !Array.isArray(result)
+    )
+      return [];
+    const symbols: DocumentSymbol[] = [];
+    const validPosition = (value: any) =>
+      value &&
+      Number.isInteger(value.line) &&
+      value.line >= 0 &&
+      Number.isInteger(value.character) &&
+      value.character >= 0;
+    const validRange = (value: any): value is Range =>
+      value && validPosition(value.start) && validPosition(value.end);
+    const visit = (items: any[], depth: number, fallbackPath: string) => {
+      if (depth > 20 || symbols.length >= 500) return;
+      for (const item of items.slice(0, 500)) {
+        if (symbols.length >= 500) break;
+        const symbolPath = item.location?.uri
+          ? this.relative(item.location.uri)
+          : fallbackPath;
+        const range = item.location?.range || item.range;
+        const selectionRange = item.selectionRange || range;
+        if (
+          !symbolPath ||
+          typeof item.name !== "string" ||
+          !validRange(range) ||
+          !validRange(selectionRange)
+        )
+          continue;
+        symbols.push({
+          name: item.name.slice(0, 500),
+          ...(typeof item.detail === "string"
+            ? { detail: item.detail.slice(0, 1000) }
+            : {}),
+          ...(Number.isInteger(item.kind) ? { kind: item.kind } : {}),
+          path: symbolPath,
+          range,
+          selectionRange,
+          depth,
+        });
+        if (Array.isArray(item.children))
+          visit(item.children, depth + 1, symbolPath);
+      }
+    };
+    visit(result, 0, relative);
+    return symbols;
+  }
   private refactorGuard() {
     const root = this.root,
       rpc = this.rpc;
@@ -682,7 +992,7 @@ export class LanguageServer extends EventEmitter {
     validate();
     this.actions.clear();
     return (result || []).slice(0, 200).map((action: any) => {
-      const id = randomUUID();
+      const id = `${this.id}:${randomUUID()}`;
       this.actions.set(id, { item: action, validate });
       const command =
         typeof action.command === "string"
@@ -697,7 +1007,7 @@ export class LanguageServer extends EventEmitter {
           (!action.edit &&
           !action.data &&
           command &&
-          command !== "_typescript.organizeImports"
+          !this.allowedCommands.has(command)
             ? "This action requires a server command that cannot be previewed safely."
             : undefined),
       };
@@ -719,7 +1029,7 @@ export class LanguageServer extends EventEmitter {
     if (!command) throw new Error("This code action has no text edits");
     // Other bundled TS commands can create files or run install commands before
     // asking workspace/applyEdit. They must not run in a preview-only workflow.
-    if (command.command !== "_typescript.organizeImports")
+    if (!this.allowedCommands.has(command.command))
       throw new Error(
         "This action requires a server command that cannot be previewed safely.",
       );
