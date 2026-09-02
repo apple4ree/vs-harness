@@ -178,7 +178,22 @@ Rust LSP는 시스템 `rust-analyzer` 또는 절대 경로 `WITCH_RUST_ANALYZER_
 
 ## Evaluation과 검증
 
-기본 테스트는 외부 AI를 호출하지 않습니다.
+Witch는 외부 벤치마크 코드를 저장소에 복사하지 않고, 어떤 데이터·버전·지표·실행 경계로 성능을 측정했는지를 공개합니다. 세부 기준은 [Evaluation 문서](docs/evaluation/README.md), [재현 절차](docs/evaluation/reproducibility.md), [한계](docs/evaluation/limitations.md)에서 확인할 수 있습니다.
+
+2026-09-02 source checkpoint의 핵심 결과입니다. Call graph의 micro·macro 및 development·holdout 결과는 서로 합산하지 않습니다.
+
+| 검증 축                   |                        결과 | 해석 경계                                                         |
+| ------------------------- | --------------------------: | ----------------------------------------------------------------- |
+| 단위·통합 테스트          |                  140 passed | 실제 filesystem·LSP·debugger·PTY와 로컬 Provider test double 포함 |
+| Electron E2E              |                   25 passed | 임시 Workspace·profile에서 실제 UI와 IPC 실행                     |
+| SWARM-CG Python           |            Scoped F1 87.64% | development micro; oracle edge coverage 17.99%                    |
+| PyAnalyzer macro C        |            Scoped F1 58.20% | holdout macro; oracle edge coverage 31.68%                        |
+| Witch Rust v1             |                   F1 93.75% | development micro; 별도 Rust macro holdout은 아직 없음            |
+| DyPyBench 5-project pilot | Dynamic agreement F1 62.73% | upstream test에서 관측된 호출과의 합의이며 정적 정답 전체가 아님  |
+
+상세 수치와 프로젝트별 결과는 [Call-graph result](docs/evaluation/results/callgraph-2026-09-02.md), 제품 검증 범위는 [Product-quality result](docs/evaluation/results/product-quality-2026-09-02.md)에 고정되어 있습니다.
+
+기본 테스트는 외부 AI를 호출하거나 대상 프로젝트 코드를 실행하지 않습니다.
 
 ```sh
 npm run typecheck
@@ -187,7 +202,7 @@ npm run build
 npm run test:e2e
 ```
 
-현재 회귀 기준은 단위·통합 130개와 실제 Electron E2E 25개입니다. E2E는 임시 프로젝트·프로필에서 실제 Editor, LSP, PTY, Debugger, 분석, 격리 diff와 Runtime Trace UI를 실행합니다. Provider protocol만 로컬 test double을 사용합니다.
+E2E는 임시 프로젝트·프로필에서 실제 Editor, LSP, PTY, Debugger, 분석, 격리 diff와 Runtime Trace UI를 실행합니다. Provider protocol만 로컬 test double을 사용합니다. 소스 테스트 통과가 현재 commit의 Windows/macOS package 생성·서명·공증을 뜻하지는 않습니다.
 
 동일 fixture에서 Provider 결과를 비교하는 offline evaluation:
 
@@ -203,7 +218,10 @@ Fake Provider 결과는 결정적이며, replay는 Provider나 command를 다시
 npm run benchmark:repository
 npm run benchmark:behavior
 npm run benchmark:frameworks
+npm run benchmark:callgraph:rust
 ```
+
+외부 call-graph 평가는 `benchmarks/callgraph`의 manifest와 `scripts/benchmark-callgraph.ts`를 사용합니다. 저장소에는 외부 소스·동적 trace·로컬 절대 경로·blind-holdout 상세 실패를 커밋하지 않습니다.
 
 ## 중요한 안전 경계
 

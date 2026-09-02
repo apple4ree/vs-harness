@@ -1,5 +1,13 @@
 # Call-graph evaluation sets
 
+Public definitions and interpretation rules:
+
+- [Evaluation methodology](../../docs/evaluation/methodology.md)
+- [Dataset declarations](../../docs/evaluation/datasets.md)
+- [Metric definitions](../../docs/evaluation/metrics.md)
+- [Reproduction guide](../../docs/evaluation/reproducibility.md)
+- [Latest dated result](../../docs/evaluation/results/callgraph-2026-09-02.md)
+
 Witch separates call-graph corpora by evaluation role and scale. A reported
 score is incomplete unless it names both.
 
@@ -27,4 +35,6 @@ an isolated release-candidate job; the checked-in manifest uses its small
 official released result archive.
 
 Every report includes oracle edge coverage and non-vacuous exact accuracy.
-Micro and macro results must never be pooled into one F1 score.
+It also records metric validity so an empty precision denominator is presented
+as `n/a` instead of evidence of perfect performance. Micro and macro results
+must never be pooled into one F1 score.
