@@ -23,6 +23,12 @@ import { LanguageServer } from "./services/language-server";
 import { AgentService } from "./services/agent-service";
 import { NodeDebugService } from "./services/node-debugger";
 import { SettingsService } from "./services/settings-service";
+import {
+  buildSshInvocation,
+  findSshExecutable,
+  RemoteProfileService,
+  sshDisplayTarget,
+} from "./services/remote-profile-service";
 import { SessionStore } from "./services/session-store";
 import { WorkspaceOperation } from "./services/workspace-operation";
 import { WorkbenchStore } from "./services/workbench-store";
@@ -47,6 +53,7 @@ import {
   resolveTask,
 } from "./services/execution-config";
 import type { DebugAction } from "../shared/execution";
+import type { SshProfile } from "../shared/remote";
 import {
   listWorkspace,
   readWorkspaceText,
@@ -148,6 +155,7 @@ const terminalSnapshots = new Map<
     cwd: string;
     shell: string;
     root: string;
+    remoteProfileId?: string;
     buffer: string;
     sequence: number;
   }
@@ -168,6 +176,7 @@ let agentService: AgentService | null = null;
 let debugService: NodeDebugService | null = null;
 let executionBusy = false;
 let settingsService: SettingsService | null = null;
+let remoteProfileService: RemoteProfileService | null = null;
 let providerKeyStore: ProviderKeyStore | null = null;
 let sessionStore: SessionStore | null = null;
 const repositoryAnalysis = new RepositoryAnalysisService();
@@ -680,15 +689,31 @@ function getSettings() {
     path.join(app.getPath("userData"), "settings"),
   ));
 }
+function getRemoteProfiles() {
+  return (remoteProfileService ||= new RemoteProfileService(
+    path.join(app.getPath("userData"), "remote"),
+  ));
+}
 function publishSettings(snapshot: SettingsSnapshot) {
   if (!applicationWindow?.isDestroyed())
     applicationWindow?.webContents.send("settings:changed", snapshot);
   return snapshot;
 }
+function publishRemoteProfiles<T>(snapshot: T) {
+  if (!applicationWindow?.isDestroyed())
+    applicationWindow?.webContents.send("remote:changed", snapshot);
+  return snapshot;
+}
 
 async function createTerminalSession(
-  options: { cwd?: string; cols?: number; rows?: number },
+  options: {
+    cwd?: string;
+    cols?: number;
+    rows?: number;
+    remoteProfileId?: string;
+  },
   task?: Awaited<ReturnType<typeof resolveTask>>,
+  remoteProfile?: SshProfile,
 ) {
   if (!currentWorkspace) throw new Error("Open a project first");
   if (terminalSessions.size >= 8)
@@ -699,17 +724,25 @@ async function createTerminalSession(
     (options.cwd ? await resolveWorkspacePath(root, options.cwd) : root);
   if (currentWorkspace?.root !== root) throw new Error("Workspace changed");
   const id = crypto.randomUUID();
-  const executable =
-    process.platform === "win32"
+  const sshExecutable = remoteProfile ? findSshExecutable() : null;
+  if (remoteProfile && !sshExecutable)
+    throw new Error(
+      "OpenSSH was not found in a trusted system location. Install the OS OpenSSH client or configure WITCH_SSH_PATH.",
+    );
+  const executable = remoteProfile
+    ? sshExecutable!
+    : process.platform === "win32"
       ? "powershell.exe"
       : process.env.SHELL || "/bin/bash";
-  const args = task
-    ? process.platform === "win32"
-      ? ["-NoLogo", "-NoProfile", "-Command", task.shellCommand]
-      : ["-lc", task.shellCommand]
-    : process.platform === "win32"
-      ? ["-NoLogo"]
-      : ["-l"];
+  const args = remoteProfile
+    ? buildSshInvocation(remoteProfile)
+    : task
+      ? process.platform === "win32"
+        ? ["-NoLogo", "-NoProfile", "-Command", task.shellCommand]
+        : ["-lc", task.shellCommand]
+      : process.platform === "win32"
+        ? ["-NoLogo"]
+        : ["-l"];
   const session = pty.spawn(executable, args, {
     name: "xterm-256color",
     cols: Math.max(2, Math.min(500, Math.trunc(options.cols || 100))),
@@ -721,8 +754,11 @@ async function createTerminalSession(
   const snapshot = {
     id,
     cwd,
-    shell: task?.label || executable,
+    shell: remoteProfile
+      ? `ssh · ${remoteProfile.label}`
+      : task?.label || executable,
     root,
+    ...(remoteProfile ? { remoteProfileId: remoteProfile.id } : {}),
     buffer: "",
     sequence: 0,
   };
@@ -1202,6 +1238,14 @@ app.whenReady().then(() => {
   handleDesktop("settings:save", async (_event, value: Preferences) =>
     publishSettings(await getSettings().save(value)),
   );
+  handleDesktop("remote:list", () => getRemoteProfiles().list());
+  handleDesktop("remote:status", () => getRemoteProfiles().status());
+  handleDesktop("remote:save-profile", async (_event, value: unknown) =>
+    publishRemoteProfiles(await getRemoteProfiles().save(value)),
+  );
+  handleDesktop("remote:remove-profile", async (_event, id: string) =>
+    publishRemoteProfiles(await getRemoteProfiles().remove(id)),
+  );
   handleDesktop("settings:import-extension", async () => {
     const result = await dialog.showOpenDialog(applicationWindow!, {
       title: "Import Witch snippet extension",
@@ -1643,8 +1687,40 @@ app.whenReady().then(() => {
   });
   handleDesktop(
     "terminal:create",
-    (_event, options: { cwd?: string; cols?: number; rows?: number }) =>
-      createTerminalSession(options),
+    async (
+      _event,
+      options: {
+        cwd?: string;
+        cols?: number;
+        rows?: number;
+        remoteProfileId?: string;
+      },
+    ) => {
+      if (!options?.remoteProfileId)
+        return createTerminalSession(options || {});
+      if (!currentWorkspace) throw new Error("Open a project first");
+      const root = currentWorkspace.root;
+      const profile = await getRemoteProfiles().resolve(
+        options.remoteProfileId,
+      );
+      const executable = findSshExecutable();
+      if (!executable)
+        throw new Error(
+          "OpenSSH was not found in a trusted system location. Install the OS OpenSSH client or configure WITCH_SSH_PATH.",
+        );
+      const choice = await dialog.showMessageBox(applicationWindow!, {
+        type: "warning",
+        message: `Connect to ${profile.label}?`,
+        detail: `${sshDisplayTarget(profile)}\n\nSSH client: ${executable}\nAuthentication is handled by OpenSSH, ssh-agent, SSH config, or the selected identity file. Your SSH config may run trusted local helpers such as ProxyCommand. This is a full terminal with your local and remote user permissions, not an Agent sandbox.`,
+        buttons: ["Cancel", "Connect"],
+        defaultId: 0,
+        cancelId: 0,
+      });
+      if (choice.response !== 1) throw new Error("SSH connection canceled");
+      if (currentWorkspace?.root !== root)
+        throw new Error("The workspace changed while confirming");
+      return createTerminalSession(options, undefined, profile);
+    },
   );
   handleDesktop("execution:catalog", () =>
     currentWorkspace
@@ -1809,7 +1885,12 @@ app.whenReady().then(() => {
           session.root === currentWorkspace?.root &&
           terminalSessions.has(session.id),
       )
-      .map(({ id, cwd, shell }) => ({ id, cwd, shell })),
+      .map(({ id, cwd, shell, remoteProfileId }) => ({
+        id,
+        cwd,
+        shell,
+        ...(remoteProfileId ? { remoteProfileId } : {}),
+      })),
   );
   handleDesktop("terminal:attach", (_event, id: string) => {
     const session = terminalSnapshots.get(id);
@@ -1883,6 +1964,7 @@ app.on("will-quit", (event) => {
       ...(await Promise.allSettled([
         sessionStore?.flush(),
         settingsService?.flush(),
+        remoteProfileService?.flush(),
         providerKeyStore?.flush(),
         historyStore?.flush(),
         debugService?.flush(),

@@ -1,9 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
-import { Plus, ChevronDown, ChevronUp, TerminalSquare, X } from "lucide-react";
+import {
+  Plus,
+  ChevronDown,
+  ChevronUp,
+  Server,
+  TerminalSquare,
+  X,
+} from "lucide-react";
 import "@xterm/xterm/css/xterm.css";
 import type { ProjectTask, TerminalData } from "../../../shared/execution";
+import type { SshProfile } from "../../../shared/remote";
 import { PanelDivider } from "./PanelDivider";
 
 function TerminalView({
@@ -12,12 +20,14 @@ function TerminalView({
   onLabel,
   task,
   existing,
+  remoteProfileId,
 }: {
   active: boolean;
   label: string;
   onLabel: (label: string) => void;
   task?: { id: string; activeFile?: string };
   existing?: string;
+  remoteProfileId?: string;
 }) {
   const container = useRef<HTMLDivElement>(null);
   const resizeRef = useRef<() => void>(() => undefined);
@@ -86,7 +96,11 @@ function TerminalView({
       ? window.witch.terminal.attach(existing)
       : task
         ? window.witch.terminal.runTask(task.id, task.activeFile)
-        : window.witch.terminal.create({ cols: 100, rows: 18 });
+        : window.witch.terminal.create({
+            cols: 100,
+            rows: 18,
+            ...(remoteProfileId ? { remoteProfileId } : {}),
+          });
     void start
       .then((session) => {
         if (disposed) {
@@ -161,26 +175,53 @@ export function TerminalPanel({
       label: string;
       existing?: string;
       task?: { id: string; activeFile?: string };
+      remoteProfileId?: string;
     }[]
   >([]);
   const [tasks, setTasks] = useState<ProjectTask[]>([]);
+  const [remoteProfiles, setRemoteProfiles] = useState<SshProfile[]>([]);
+  const [connection, setConnection] = useState("local");
   const [selected, setSelected] = useState(0);
   const [collapsed, setCollapsed] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const counter = useRef(0);
-  function add(task?: ProjectTask) {
+  function add(task?: ProjectTask, remoteProfile?: SshProfile) {
     const id = ++counter.current;
     setTabs((previous) => [
       ...previous,
       {
         id,
-        label: task?.label || `Terminal ${id}`,
+        label: task?.label || remoteProfile?.label || `Terminal ${id}`,
         ...(task ? { task: { id: task.id, activeFile } } : {}),
+        ...(remoteProfile ? { remoteProfileId: remoteProfile.id } : {}),
       },
     ]);
     setSelected(id);
     setCollapsed(false);
   }
+  useEffect(() => {
+    let disposed = false;
+    void window.witch.remote
+      .list()
+      .then((snapshot) => {
+        if (!disposed) setRemoteProfiles(snapshot.profiles);
+      })
+      .catch(() => undefined);
+    const off = window.witch.remote.onChanged((snapshot) => {
+      if (disposed) return;
+      setRemoteProfiles(snapshot.profiles);
+      setConnection((selected) =>
+        selected === "local" ||
+        snapshot.profiles.some((profile) => profile.id === selected)
+          ? selected
+          : "local",
+      );
+    });
+    return () => {
+      disposed = true;
+      off();
+    };
+  }, []);
   useEffect(() => {
     setTabs([]);
     setSelected(0);
@@ -254,6 +295,21 @@ export function TerminalPanel({
         <header className="terminal-header">
           <TerminalSquare size={13} />
           <strong>Terminal</strong>
+          <Server size={12} />
+          <select
+            className="terminal-connection-picker"
+            aria-label="Terminal connection"
+            value={connection}
+            disabled={!root || restoring || tabs.length >= 8}
+            onChange={(event) => setConnection(event.target.value)}
+          >
+            <option value="local">Local shell</option>
+            {remoteProfiles.map((profile) => (
+              <option key={profile.id} value={profile.id}>
+                SSH · {profile.label}
+              </option>
+            ))}
+          </select>
           <select
             className="task-picker"
             aria-label="Run project task"
@@ -304,10 +360,17 @@ export function TerminalPanel({
             ))}
           </div>
           <button
-            onClick={() => add()}
+            onClick={() =>
+              add(
+                undefined,
+                remoteProfiles.find((profile) => profile.id === connection),
+              )
+            }
             disabled={tabs.length >= 8 || !root || restoring}
             aria-label="New terminal"
-            title="New terminal"
+            title={
+              connection === "local" ? "New terminal" : "Connect SSH terminal"
+            }
           >
             <Plus size={14} />
           </button>
@@ -321,9 +384,21 @@ export function TerminalPanel({
         <div className="terminal-content" hidden={collapsed}>
           {!tabs.length && (
             <div className="terminal-placeholder">
-              <span>A local shell, inside your project.</span>
-              <button onClick={() => add()} disabled={!root || restoring}>
-                Open terminal
+              <span>
+                {connection === "local"
+                  ? "A local shell, inside your project."
+                  : "An interactive SSH terminal using system OpenSSH."}
+              </span>
+              <button
+                onClick={() =>
+                  add(
+                    undefined,
+                    remoteProfiles.find((profile) => profile.id === connection),
+                  )
+                }
+                disabled={!root || restoring}
+              >
+                {connection === "local" ? "Open terminal" : "Connect SSH"}
               </button>
             </div>
           )}
@@ -332,6 +407,7 @@ export function TerminalPanel({
               key={`${root}:${tab.id}`}
               label={tab.label}
               task={tab.task}
+              remoteProfileId={tab.remoteProfileId}
               existing={tab.existing}
               active={tab.id === selected && !collapsed}
               onLabel={(label) =>

@@ -4,6 +4,19 @@
 
 이 문서는 실제로 실행한 검증과 아직 실행하지 못한 검증을 구분합니다. VS Code 기능 전체 또는 모든 저장소에 대한 호환성을 보증하지 않습니다.
 
+## Remote Workspace 단계 A — 기능 브랜치
+
+`feature/remote-workspace-mvp`에서 시스템 OpenSSH 프로필과 대화형 SSH PTY를 추가한 뒤 Windows 11 x64에서 실행한 결과입니다.
+
+| 검증                | 결과      | 범위                                                                                |
+| ------------------- | --------- | ----------------------------------------------------------------------------------- |
+| `npm run typecheck` | 통과      | main/preload/renderer의 typed IPC와 remote profile 계약                             |
+| `npm test`          | 69개 통과 | 옵션 주입·secret field 거부, argv, 고정 실행 파일, 원자 저장, 손상 파일 보존 포함   |
+| `npm run build`     | 통과      | main 30개, preload 2개, renderer 3,273개 module의 production bundle                 |
+| `npm run test:e2e`  | 22개 통과 | 실제 Electron에서 프로필 저장·재시작 복원·terminal 선택·loopback SSH 실패/종료 표시 |
+
+E2E의 SSH 연결 대상은 `127.0.0.1:1`로 제한해 외부 호스트나 인증 정보를 사용하지 않았습니다. 프로필 파일에 password, passphrase 또는 private-key 내용이 남지 않는 것도 디스크에서 확인합니다. 이 결과는 Windows source build 검증이며 macOS와 packaged application 결과는 pull request의 품질 게이트 전까지 미검증입니다. 원격 파일 탐색기·편집기·LSP·Task·Debugger·Agent는 단계 A의 수용 범위가 아닙니다.
+
 ## QA 차단 항목 보완 — 현재 로컬 작업 트리
 
 독립 QA가 commit `7bae0e3`에서 확인한 macOS graph-to-chat drag 회귀, 기본 build 메모리 재현성, 자동 CI 부재를 다음처럼 보완했습니다.

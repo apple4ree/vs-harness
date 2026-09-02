@@ -56,7 +56,12 @@ export type DebugState = {
 };
 export type DebugAction =
   "continue" | "pause" | "stepOver" | "stepInto" | "stepOut" | "stop";
-export type TerminalSummary = { id: string; cwd: string; shell: string };
+export type TerminalSummary = {
+  id: string;
+  cwd: string;
+  shell: string;
+  remoteProfileId?: string;
+};
 export type TerminalSnapshot = TerminalSummary & {
   buffer: string;
   sequence: number;

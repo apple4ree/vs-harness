@@ -267,6 +267,21 @@ declare global {
         disconnect(): Promise<CuaStatus>;
         listWindows(): Promise<string>;
       };
+      remote: {
+        list(): Promise<import("../../shared/remote").RemoteProfileSnapshot>;
+        status(): Promise<import("../../shared/remote").RemoteStatus>;
+        saveProfile(
+          profile: import("../../shared/remote").SshProfileDraft,
+        ): Promise<import("../../shared/remote").RemoteProfileSnapshot>;
+        removeProfile(
+          id: string,
+        ): Promise<import("../../shared/remote").RemoteProfileSnapshot>;
+        onChanged(
+          listener: (
+            snapshot: import("../../shared/remote").RemoteProfileSnapshot,
+          ) => void,
+        ): () => void;
+      };
       terminal: {
         list(): Promise<import("../../shared/execution").TerminalSummary[]>;
         attach(
@@ -283,6 +298,7 @@ declare global {
           cwd?: string;
           cols?: number;
           rows?: number;
+          remoteProfileId?: string;
         }): Promise<import("../../shared/execution").TerminalSnapshot>;
         write(id: string, data: string): Promise<void>;
         resize(id: string, cols: number, rows: number): Promise<void>;
