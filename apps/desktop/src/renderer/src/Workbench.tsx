@@ -822,33 +822,33 @@ export function Workbench() {
         root,
       );
       if (root !== rootRef.current) return;
-      setTabs((previous) =>
-        previous.map((item) =>
-          item.path === path
-            ? {
-                ...item,
-                savedContent: tab.content,
-                hash: saved.hash,
-                conflict: undefined,
-              }
-            : item,
-        ),
+      const nextTabs = tabsRef.current.map((item) =>
+        item.path === path
+          ? {
+              ...item,
+              savedContent: tab.content,
+              hash: saved.hash,
+              conflict: undefined,
+            }
+          : item,
       );
+      tabsRef.current = nextTabs;
+      setTabs(nextTabs);
       setStatus(`${path} saved. The structure map updates automatically.`);
     } catch (reason) {
       if (root !== rootRef.current) return;
       setStatus(errorText(reason));
-      setTabs((previous) =>
-        previous.map((item) =>
-          item.path === path
-            ? {
-                ...item,
-                conflict:
-                  "Save could not complete. Check the disk version before retrying.",
-              }
-            : item,
-        ),
+      const nextTabs = tabsRef.current.map((item) =>
+        item.path === path
+          ? {
+              ...item,
+              conflict:
+                "Save could not complete. Check the disk version before retrying.",
+            }
+          : item,
       );
+      tabsRef.current = nextTabs;
+      setTabs(nextTabs);
     } finally {
       saving.current.delete(path);
     }
@@ -1037,6 +1037,13 @@ export function Workbench() {
     }
     setFileBusy(true);
     try {
+      if (["rename", "move", "delete"].includes(action.kind))
+        await window.witch.workspace.dirty(
+          tabsRef.current
+            .filter((tab) => tab.content !== tab.savedContent)
+            .map((tab) => tab.path),
+          root,
+        );
       if (action.kind === "create-file")
         await window.witch.workspace.createFile(target, undefined, root);
       else if (action.kind === "create-folder")
