@@ -27,6 +27,7 @@ test("workspace tooling finds .venv without executing it and persists an explici
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "witch-tooling-root-"));
   const data = await fs.mkdtemp(path.join(os.tmpdir(), "witch-tooling-data-"));
   const executable = await fakePython(root);
+  const canonicalExecutable = await fs.realpath(executable);
   t.after(() => Promise.all([
     fs.rm(root, { recursive: true, force: true }),
     fs.rm(data, { recursive: true, force: true }),
@@ -35,7 +36,7 @@ test("workspace tooling finds .venv without executing it and persists an explici
   const workspace = discovered.python.candidates.find(
     (item) => item.kind === "workspace-venv",
   )!;
-  assert.equal(workspace.path, executable);
+  assert.equal(workspace.path, canonicalExecutable);
   assert.equal(discovered.python.activeId, workspace.id);
   assert.equal(discovered.python.selection, "automatic");
   const service = new WorkspaceToolingService(data);
@@ -45,7 +46,7 @@ test("workspace tooling finds .venv without executing it and persists an explici
   const stored = JSON.parse(
     await fs.readFile(path.join(data, "workspace-toolchains.json"), "utf8"),
   );
-  assert.equal(stored.selections[0].pythonPath, executable);
+  assert.equal(stored.selections[0].pythonPath, canonicalExecutable);
   const automatic = await service.selectPython(root, null);
   assert.equal(automatic.python.selection, "automatic");
 });

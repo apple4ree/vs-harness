@@ -395,12 +395,14 @@ export class PythonDebugService extends EventEmitter {
     this.starting = true;
     const generation = ++this.generation;
     try {
+      const requestedRoot = path.resolve(root);
+      const relativeProgram = path.relative(
+        requestedRoot,
+        path.resolve(launch.program),
+      );
       root = await this.canonicalRoot(root);
       await this.loadBreakpoints(root);
-      const program = await resolveWorkspacePath(
-        root,
-        path.relative(root, launch.program),
-      );
+      const program = await resolveWorkspacePath(root, relativeProgram);
       if (!/\.py$/i.test(program))
         throw new Error("Python debugging requires a .py program");
       this.state = {

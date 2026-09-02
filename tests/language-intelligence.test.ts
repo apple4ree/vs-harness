@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -167,6 +168,15 @@ test(
     const executable = findRustAnalyzerExecutable();
     if (!executable) {
       t.skip("rust-analyzer is an optional system tool");
+      return;
+    }
+    const probe = spawnSync(executable, ["--version"], {
+      encoding: "utf8",
+      timeout: 10_000,
+      windowsHide: true,
+    });
+    if (probe.error || probe.status !== 0) {
+      t.skip("rust-analyzer was found but is not runnable on this system");
       return;
     }
     const root = await fs.mkdtemp(
