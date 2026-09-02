@@ -806,6 +806,16 @@ button {
   display: flex;
   gap: 6px;
 }
+.provider-footer-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 7px;
+}
+.provider-login-note {
+  border-left: 2px solid #a979ef;
+  padding-left: 7px;
+  color: #cbb5ef !important;
+}
 .provider-state {
   border: 1px solid #55416f;
   border-radius: 999px;

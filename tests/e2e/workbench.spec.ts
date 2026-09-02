@@ -46,6 +46,23 @@ test.beforeAll(async () => {
     'function compute() {\n  const left = 2;\n  const right = 3;\n  const answer = left + right;\n  console.log("WITCH_TASK_" + answer);\n}\ncompute();\n',
   );
   await fs.writeFile(
+    path.join(fixture, "trace.cjs"),
+    [
+      'const emit = (value) => console.log("WITCH_TRACE_V1 " + JSON.stringify(value));',
+      "function inner() {",
+      '  emit({ phase: "enter", path: "trace.cjs", symbol: "inner" });',
+      '  emit({ phase: "exit", path: "trace.cjs", symbol: "inner", outcome: "ok" });',
+      "}",
+      "function outer() {",
+      '  emit({ phase: "enter", path: "trace.cjs", symbol: "outer" });',
+      "  inner();",
+      '  emit({ phase: "exit", path: "trace.cjs", symbol: "outer", outcome: "ok" });',
+      "}",
+      "outer();",
+      "",
+    ].join("\n"),
+  );
+  await fs.writeFile(
     path.join(fixture, "src/api/client.ts"),
     "export function greet(name: string) { return `Hello ${name}` }\n",
   );
@@ -57,7 +74,10 @@ test.beforeAll(async () => {
     path.join(fixture, "src/api/agent.py"),
     [
       "from .risk import validate_order, submit_order",
+      "from fastapi import FastAPI",
+      "app = FastAPI()",
       "",
+      "@app.post('/agent/run')",
       "async def run_agent():",
       "    validate_order()",
       "    if approved:",
@@ -140,6 +160,12 @@ test.beforeAll(async () => {
   await page
     .getByRole("button", { name: "Open repository", exact: true })
     .click();
+  await expect(page.locator(".analysis-coverage-summary")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Meaning", exact: true }),
+  ).toHaveClass(/active/);
+  await expect(page.getByLabel("Meaning lens")).toHaveValue("overview");
+  await page.getByRole("button", { name: "Modules", exact: true }).click();
   await expect(page.locator(".architecture-card")).toHaveCount(3);
 });
 
@@ -247,6 +273,46 @@ test("architecture edges and drag-to-chat source context work in Electron", asyn
       image.complete ? image.naturalWidth : 0,
     ),
   ).toBeGreaterThan(0);
+  await expect(page.locator(".analysis-coverage-summary")).toContainText(
+    "semantic coverage",
+  );
+  await page.locator(".analysis-coverage-summary").click();
+  await expect(page.locator(".analysis-coverage-panel")).toContainText(
+    "File-level only",
+  );
+  await expect(page.locator(".analysis-coverage-panel")).toContainText(
+    "Framework adapters",
+  );
+  await expect(page.locator(".analysis-coverage-panel")).toContainText(
+    "fastapi",
+  );
+  await page.locator(".analysis-coverage-summary").click();
+  await page.getByRole("button", { name: "Meaning", exact: true }).click();
+  await page.getByLabel("Meaning lens").selectOption("behavior");
+  await expect(page.getByLabel("Meaning lens")).toHaveValue("behavior");
+  await expect(page.locator(".graph-metrics")).toContainText(
+    "behavior relations",
+  );
+  await expect(
+    page
+      .locator(".react-flow__edge-text")
+      .filter({ hasText: "passes" })
+      .first(),
+  ).toContainText("passes");
+  await page.screenshot({ path: "test-results/witch-behavior-data-flow.png" });
+  await page.getByLabel("Meaning lens").selectOption("frameworks");
+  await expect(page.getByLabel("Meaning lens")).toHaveValue("frameworks");
+  await expect(page.locator(".graph-metrics")).toContainText(
+    "framework candidates",
+  );
+  await expect(
+    page
+      .locator(".react-flow__edge-text")
+      .filter({ hasText: "handles" })
+      .first(),
+  ).toContainText("handles");
+  await page.screenshot({ path: "test-results/witch-framework-routes.png" });
+  await page.getByRole("button", { name: "Modules", exact: true }).click();
   await expect(page.locator(".react-flow__edge")).toHaveCount(1);
   const edgePoint = await page
     .locator(".react-flow__edge-interaction")
@@ -289,6 +355,38 @@ test("architecture edges and drag-to-chat source context work in Electron", asyn
   await expect(page.locator(".component-details")).toContainText("client.ts");
   await page.screenshot({ path: "test-results/witch-source-neighborhood.png" });
   await page.getByRole("button", { name: "Modules", exact: true }).click();
+  await expect(page.getByLabel("Graph detail")).toHaveValue("readable");
+  await expect(
+    page.getByRole("button", {
+      name: "Open visual quality diagnostics",
+      exact: true,
+    }),
+  ).toContainText("pass");
+  await page
+    .getByRole("button", {
+      name: "Open visual quality diagnostics",
+      exact: true,
+    })
+    .click();
+  await expect(page.locator(".graph-quality-panel")).toContainText(
+    "No node overlap",
+  );
+  await page.getByLabel("Close visual quality diagnostics").click();
+  await page.getByLabel("Graph detail").selectOption("complete");
+  await expect(page.getByLabel("Graph detail")).toHaveValue("complete");
+  await page.getByLabel("Graph detail").selectOption("readable");
+  await page.getByLabel("Semantic Composer provider").selectOption("rules");
+  await page
+    .getByRole("button", { name: "Compose meaning", exact: true })
+    .click();
+  await expect(page.locator(".semantic-composer-receipt")).toContainText(
+    "rules",
+  );
+  await expect(page.locator(".semantic-composer-receipt")).toContainText(
+    "audited",
+  );
+  await expect(page.getByLabel("Meaning lens")).toHaveValue("components");
+  await page.getByRole("button", { name: "Modules", exact: true }).click();
   const sourceModule = page.locator(
     '.react-flow__node[data-id="module:src/ui"]',
   );
@@ -318,12 +416,13 @@ test("architecture edges and drag-to-chat source context work in Electron", asyn
   await page.screenshot({ path: "test-results/witch-architecture-route.png" });
   await page.getByRole("button", { name: "Clear trace", exact: true }).click();
   await page.getByRole("button", { name: "Meaning", exact: true }).click();
+  await page.getByLabel("Meaning lens").selectOption("overview");
   await expect(page.getByLabel("Meaning lens")).toHaveValue("overview");
   await expect(
-    page.locator('.react-flow__node[data-id="semantic:system:workspace"]'),
+    page.locator('.react-flow__node[data-id="compose:system:workspace"]'),
   ).toBeVisible();
   const semanticComponent = page.locator(
-    '.react-flow__node[data-id="semantic:component:src/api"]',
+    '.react-flow__node[data-id="compose:component:src-api"]',
   );
   await semanticComponent.click();
   await expect(page.locator(".semantic-inspector")).toContainText(
@@ -333,6 +432,14 @@ test("architecture edges and drag-to-chat source context work in Electron", asyn
     "Semantic claims",
   );
   await expect(page.locator(".graph-metrics")).toContainText("verified");
+  await page
+    .getByRole("button", { name: "Explore component files", exact: true })
+    .click();
+  await expect(page.getByLabel("Meaning lens")).toHaveValue("components");
+  await expect(page.locator(".graph-breadcrumb")).toContainText("src/api");
+  await page
+    .getByRole("button", { name: "Meaning overview", exact: false })
+    .click();
   await page.getByLabel("Meaning lens").selectOption("calls");
   expect(
     await page.locator(".architecture-card").count(),
@@ -359,6 +466,34 @@ test("architecture edges and drag-to-chat source context work in Electron", asyn
   ).toContainText("src/ui/view.ts:2");
   await page.screenshot({ path: "test-results/witch-symbol-calls.png" });
   await page.getByLabel("Meaning lens").selectOption("workflows");
+  await expect(page.locator(".workflow-projection-bar")).toContainText(
+    "Workflow catalog",
+  );
+  const workflowSummary = page
+    .locator(".architecture-card.is-workflow-summary")
+    .filter({ hasText: "run_agent workflow" });
+  await expect(workflowSummary).toContainText("steps");
+  await page.screenshot({ path: "test-results/witch-workflow-catalog.png" });
+  await workflowSummary.click();
+  await page
+    .getByRole("button", { name: "Explore workflow steps", exact: true })
+    .click();
+  await expect(page.getByLabel("Workflow focus")).toHaveValue(
+    "semantic:workflow:src/api/agent.py#run_agent:6",
+  );
+  await expect(page.getByLabel("Workflow view mode")).toHaveValue("sequence");
+  await expect(page.getByLabel("Collapse workflow branches")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(page.locator(".graph-breadcrumb")).toContainText(
+    "Workflow catalog",
+  );
+  await page.getByLabel("Collapse workflow branches").click();
+  await expect(page.getByLabel("Collapse workflow branches")).toHaveAttribute(
+    "aria-pressed",
+    "false",
+  );
   await expect(
     page
       .locator(".react-flow__edge-text")
@@ -387,11 +522,6 @@ test("architecture edges and drag-to-chat source context work in Electron", asyn
   );
   await expect(page.locator(".semantic-inspector")).toContainText("retries");
   await page.screenshot({ path: "test-results/witch-polyglot-workflow.png" });
-  await page
-    .getByLabel("Workflow focus")
-    .selectOption({ label: "run_agent workflow" });
-  await page.getByLabel("Workflow view mode").selectOption("sequence");
-  await expect(page.getByLabel("Workflow view mode")).toHaveValue("sequence");
   const expandedWorkflowSteps = await page
     .locator(".architecture-card")
     .count();
@@ -940,6 +1070,82 @@ test("Node debugger and project tasks are connected to the desktop UI", async ()
     .selectOption({ label: "Run active file" });
   await executed;
   await expect(page.locator(".terminal-tab.selected")).toContainText("exited");
+  expect(errors).toEqual([]);
+});
+
+test("approved Task runtime trace separates static, observed, and compare readings", async () => {
+  await fs.mkdir(path.join(fixture, ".witch"), { recursive: true });
+  await fs.writeFile(
+    path.join(fixture, ".witch/tasks.json"),
+    JSON.stringify(
+      {
+        version: "2.0.0",
+        tasks: [
+          {
+            label: "Run active file",
+            type: "process",
+            command: "node",
+            args: ["${file}"],
+          },
+          {
+            label: "Trace fixture",
+            type: "process",
+            command: process.execPath,
+            args: ["trace.cjs"],
+          },
+        ],
+      },
+      null,
+      2,
+    ) + "\n",
+  );
+  await expect
+    .poll(async () =>
+      (await page.evaluate(() => window.witch.execution.catalog())).tasks.map(
+        (task) => task.label,
+      ),
+    )
+    .toContain("Trace fixture");
+  await page.getByRole("button", { name: "Constellation", exact: true }).click();
+  await page.getByRole("button", { name: "Meaning", exact: true }).click();
+  await page.getByLabel("Meaning lens").selectOption("behavior");
+  await expect(page.locator(".runtime-trace-bar")).toBeVisible();
+  await page.getByLabel("Runtime trace task").selectOption({
+    label: "Trace fixture",
+  });
+  await page.getByRole("button", { name: "Run & trace", exact: true }).click();
+  await expect
+    .poll(async () => {
+      const sessions = await page.evaluate(() => window.witch.trace.list());
+      return sessions.find((session) => session.taskLabel === "Trace fixture")
+        ?.status;
+    })
+    .toBe("completed");
+  await expect(page.locator(".runtime-trace-receipt")).toContainText(
+    "4 events",
+  );
+  await expect(page.locator(".runtime-trace-receipt")).toContainText(
+    "1 observed calls",
+  );
+  await expect(
+    page.getByRole("button", { name: "Observed", exact: true }),
+  ).toHaveClass(/active/);
+  await expect(
+    page.locator(".react-flow__edge-text").filter({ hasText: "calls" }).first(),
+  ).toContainText("calls");
+  await page.getByRole("button", { name: "Compare", exact: true }).click();
+  await expect(page.locator(".runtime-trace-receipt")).toContainText(
+    "observed-only",
+  );
+  const sessions = await page.evaluate(() => window.witch.trace.list());
+  const trace = sessions.find(
+    (session) => session.taskLabel === "Trace fixture",
+  );
+  expect(trace?.validation.actualValueCount).toBe(0);
+  expect(JSON.stringify(trace)).not.toContain("WITCH_TRACE_V1");
+  await page.screenshot({
+    path: "test-results/witch-runtime-trace-compare.png",
+  });
   expect(errors).toEqual([]);
 });
 

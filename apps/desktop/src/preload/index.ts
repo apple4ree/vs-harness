@@ -7,6 +7,7 @@ import type { Preferences, SettingsSnapshot } from "../shared/settings";
 import type { SessionUpdate } from "../shared/session";
 import type { RemoteProfileSnapshot, SshProfileDraft } from "../shared/remote";
 import type { WorkspaceToolingSnapshot } from "../shared/tooling";
+import type { RuntimeTraceSession } from "../shared/runtime-trace";
 
 function subscribe<T>(channel: string, listener: (event: T) => void) {
   const wrapped = (_event: Electron.IpcRendererEvent, payload: T) =>
@@ -32,6 +33,15 @@ contextBridge.exposeInMainWorld("witch", {
     catalog: () => ipcRenderer.invoke("execution:catalog"),
     configure: (kind: "launch" | "tasks", activeFile?: string) =>
       ipcRenderer.invoke("execution:configure", kind, activeFile),
+  },
+  trace: {
+    list: () => ipcRenderer.invoke("trace:list"),
+    get: (id: string) => ipcRenderer.invoke("trace:get", id),
+    start: (id: string, activeFile?: string) =>
+      ipcRenderer.invoke("trace:start", id, activeFile),
+    stop: (id: string) => ipcRenderer.invoke("trace:stop", id),
+    onUpdated: (listener: (session: RuntimeTraceSession) => void) =>
+      subscribe("trace:updated", listener),
   },
   tooling: {
     status: () => ipcRenderer.invoke("tooling:status"),
@@ -102,6 +112,10 @@ contextBridge.exposeInMainWorld("witch", {
   },
   analysis: {
     start: () => ipcRenderer.invoke("analysis:start"),
+    clearIndex: () => ipcRenderer.invoke("analysis:clear-index"),
+    compose: (
+      request: import("../shared/semantic-composer").SemanticComposerRequest,
+    ) => ipcRenderer.invoke("analysis:compose", request),
     snapshots: () => ipcRenderer.invoke("analysis:snapshots"),
     current: () => ipcRenderer.invoke("analysis:current"),
     delta: (snapshotId: string) =>
@@ -114,13 +128,22 @@ contextBridge.exposeInMainWorld("witch", {
       subscribe("analysis:error", listener),
   },
   agent: {
+    status: () => ipcRenderer.invoke("agent:status"),
     list: () => ipcRenderer.invoke("agent:list"),
     start: (request: AgentRequest) =>
       ipcRenderer.invoke("agent:start", request),
+    resume: (id: string, prompt: string) =>
+      ipcRenderer.invoke("agent:resume", id, prompt),
+    fork: (
+      id: string,
+      providerId: AgentRequest["providerId"],
+      prompt: string,
+    ) => ipcRenderer.invoke("agent:fork", id, providerId, prompt),
     stop: () => ipcRenderer.invoke("agent:stop"),
     apply: (id: string, paths: string[]) =>
       ipcRenderer.invoke("agent:apply", id, paths),
     archive: (id: string) => ipcRenderer.invoke("agent:archive", id),
+    restore: (id: string) => ipcRenderer.invoke("agent:restore", id),
     onEvent: (listener: (event: AgentEvent) => void) =>
       subscribe("agent:event", listener),
   },
@@ -184,6 +207,8 @@ contextBridge.exposeInMainWorld("witch", {
   tasks: { list: () => ipcRenderer.invoke("tasks:list") },
   providers: {
     status: () => ipcRenderer.invoke("providers:status"),
+    connectCli: (provider: "codex" | "claude") =>
+      ipcRenderer.invoke("providers:connect-cli", provider),
     saveApiKey: (provider: ApiProviderId, key: string) =>
       ipcRenderer.invoke("providers:save-api-key", provider, key),
     removeApiKey: (provider: ApiProviderId) =>

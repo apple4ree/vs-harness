@@ -6,7 +6,134 @@ import path from "node:path";
 import { analyzeRepository } from "../apps/desktop/src/main/services/architecture";
 import { RepositoryAnalysisService } from "../apps/desktop/src/main/services/repository-analysis";
 import { validateSemanticGraph } from "../apps/desktop/src/shared/semantic-ir";
-import { buildSemanticView } from "../apps/desktop/src/renderer/src/components/architecture-view";
+import {
+  buildSemanticView,
+  groupWorkflowCatalogCards,
+  shouldUseWorkflowCatalogGrid,
+  workflowCatalogDisplayLabel,
+  type CardNode,
+} from "../apps/desktop/src/renderer/src/components/architecture-view";
+
+const workflowCatalogCard = (
+  id: string,
+  label: string,
+  component: string,
+  support = false,
+): CardNode => ({
+  id,
+  type: "component",
+  position: { x: 0, y: 0 },
+  data: {
+    label,
+    subtitle: `${label}.py`,
+    paths: [`${label}.py`],
+    kind: "workflow",
+    count: 1,
+    symbols: 0,
+    context: {
+      nodeId: id,
+      revision: "test",
+      label,
+      paths: [`${label}.py`],
+    },
+    changed: false,
+    dimmed: false,
+    traced: false,
+    workflowSummary: {
+      steps: 3,
+      branches: 1,
+      retries: 0,
+      support,
+      components: [component],
+    },
+  },
+});
+
+test("large workflow catalogs switch to stable component groups", () => {
+  const groups = groupWorkflowCatalogCards([
+    workflowCatalogCard("support", "Support", "API", true),
+    workflowCatalogCard("worker", "Worker", "Worker"),
+    workflowCatalogCard("serve", "Serve", "API"),
+  ]);
+  assert.deepEqual(
+    groups.map((group) => [
+      group.label,
+      group.workflows.map((workflow) => workflow.data.label),
+    ]),
+    [
+      ["API", ["Serve", "Support"]],
+      ["Worker", ["Worker"]],
+    ],
+  );
+  assert.equal(
+    shouldUseWorkflowCatalogGrid(
+      {
+        total: 13,
+        production: 13,
+        support: 0,
+        eligible: 13,
+        visible: 12,
+        hidden: 1,
+        supportHidden: 0,
+      },
+      "pass",
+      { expanded: false, includeSupport: false },
+    ),
+    true,
+  );
+  assert.equal(
+    shouldUseWorkflowCatalogGrid(
+      {
+        total: 8,
+        production: 8,
+        support: 0,
+        eligible: 8,
+        visible: 8,
+        hidden: 0,
+        supportHidden: 0,
+      },
+      "pass",
+      { expanded: false, includeSupport: false },
+    ),
+    false,
+  );
+  assert.equal(
+    shouldUseWorkflowCatalogGrid(
+      {
+        total: 0,
+        production: 0,
+        support: 0,
+        eligible: 0,
+        visible: 0,
+        hidden: 0,
+        supportHidden: 0,
+      },
+      "pass",
+      { expanded: true, includeSupport: true },
+    ),
+    false,
+  );
+  assert.equal(
+    workflowCatalogDisplayLabel(
+      "main workflow",
+      "skills/portfolio-risk/scripts/main.py",
+      12,
+    ),
+    "portfolio-risk · main workflow",
+  );
+  assert.equal(
+    workflowCatalogDisplayLabel(
+      "main workflow",
+      "skills/portfolio-risk/scripts/validate_order.py",
+      12,
+    ),
+    "portfolio-risk/validate_order · main workflow",
+  );
+  assert.equal(
+    workflowCatalogDisplayLabel("serve workflow", "src/server.py", 1),
+    "serve workflow",
+  );
+});
 
 async function fixture(t: TestContext) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "witch-semantic-test-"));
@@ -98,11 +225,15 @@ async function fixture(t: TestContext) {
   await fs.writeFile(
     path.join(root, "src", "agent.ts"),
     [
+      "export let planningState = 0",
       "export class Planner {",
-      "  async planTrade() { return true }",
+      "  async planTrade() { planningState += 1; return planningState }",
       "}",
       "export function submitOrder() { return true }",
       "export function bootstrapAgent() { return submitOrder() }",
+      "export function AgentAvatar() { return true }",
+      "export function runPreview() { return true }",
+      "export function codepointOrder() { return true }",
       "",
     ].join("\n"),
   );
@@ -245,6 +376,16 @@ test("Python, Rust, and TypeScript facts feed a validated semantic graph", async
           "Direct compiler-resolved call participant; branch and runtime order are not asserted.",
     ),
   );
+  for (const name of ["AgentAvatar", "runPreview", "codepointOrder"]) {
+    const symbol = typescript.symbols.find((item) => item.name === name)!;
+    assert.equal(
+      semantic.nodes.some(
+        (node) => node.kind === "workflow" && node.sourceSymbolId === symbol.id,
+      ),
+      false,
+      `${name} must not become a workflow without entry-point evidence`,
+    );
+  }
 });
 
 test("authored conflicts remain provisional questions with recommendation first", async (t) => {
@@ -411,10 +552,46 @@ test("meaning view exposes trust, workflow hierarchy, and source context", async
       ),
     ),
   );
+  const component = graph.semantic!.nodes.find(
+    (node) => node.kind === "component" && node.label === "src",
+  )!;
+  const focusedComponent = buildSemanticView(
+    graph,
+    false,
+    "",
+    new Set(),
+    "components",
+    { componentFocusId: component.id },
+  );
+  assert.equal(
+    focusedComponent.nodes.filter((node) => node.data.kind === "component")
+      .length,
+    1,
+  );
+  assert(focusedComponent.nodes.some((node) => node.data.kind === "file"));
   const workflows = buildSemanticView(graph, false, "", new Set(), "workflows");
-  assert(workflows.nodes.some((node) => node.data.kind === "workflow-step"));
-  assert(workflows.nodes.some((node) => node.data.kind === "symbol"));
-  assert(workflows.edges.some((edge) => edge.label === "executes"));
+  assert(workflows.workflowCatalog);
+  assert(workflows.workflowCatalog.visible <= 12);
+  assert(workflows.nodes.some((node) => node.data.kind === "workflow"));
+  assert(workflows.nodes.some((node) => node.data.kind === "component"));
+  assert.equal(
+    workflows.nodes.some((node) => node.data.kind === "workflow-step"),
+    false,
+  );
+  assert.equal(
+    workflows.nodes.some((node) => node.data.kind === "symbol"),
+    false,
+  );
+  assert(
+    workflows.nodes
+      .filter((node) => node.data.kind === "workflow")
+      .every((node) => Boolean(node.data.workflowSummary)),
+  );
+  assert(
+    workflows.edges.every((edge) =>
+      ["component", "workflow"].includes(String(edge.label)),
+    ),
+  );
   const workflow = graph.semantic!.nodes.find(
     (node) => node.kind === "workflow" && node.label.includes("run_agent"),
   )!;
@@ -464,6 +641,137 @@ test("meaning view exposes trust, workflow hierarchy, and source context", async
   const calls = buildSemanticView(graph, false, "", new Set(), "calls");
   assert(calls.nodes.every((node) => node.data.kind === "symbol"));
   assert(calls.edges.some((edge) => edge.label === "calls"));
+  const types = buildSemanticView(graph, false, "", new Set(), "types");
+  assert(types.nodes.every((node) => node.data.kind === "symbol"));
+  assert(types.edges.length > 0);
+  assert(
+    types.edges.every((edge) =>
+      ["extends", "implements", "overrides"].includes(String(edge.label)),
+    ),
+  );
+  const data = buildSemanticView(graph, false, "", new Set(), "data");
+  assert(data.nodes.every((node) => node.data.kind === "symbol"));
+  assert(data.edges.some((edge) => edge.label === "reads"));
+  assert(data.edges.some((edge) => edge.label === "writes"));
   const questions = buildSemanticView(graph, false, "", new Set(), "questions");
   assert(questions.nodes.some((node) => node.data.questions));
+});
+
+test("workflow catalog merges composed system and component aliases", async (t) => {
+  const root = await fixture(t);
+  const graph = await analyzeRepository(root);
+  const semantic = graph.semantic!;
+  const system = semantic.nodes.find((node) => node.kind === "system")!;
+  const component = semantic.nodes.find(
+    (node) =>
+      node.kind === "component" &&
+      semantic.relations.some(
+        (relation) => relation.kind === "contains" && relation.from === node.id,
+      ),
+  )!;
+  const containment = semantic.relations.find(
+    (relation) =>
+      relation.kind === "contains" && relation.from === component.id,
+  )!;
+  semantic.nodes.push(
+    {
+      ...system,
+      id: "compose:system:workspace",
+      trust: "inferred",
+      confidence: 0.7,
+    },
+    {
+      ...component,
+      id: "compose:component:alias",
+      trust: "inferred",
+      confidence: 0.7,
+    },
+  );
+  semantic.relations.push({
+    ...containment,
+    id: "compose:relation:component-file",
+    from: "compose:component:alias",
+    trust: "inferred",
+    confidence: 0.7,
+  });
+
+  const catalog = buildSemanticView(graph, false, "", new Set(), "workflows", {
+    catalogLimit: 200,
+    includeSupport: true,
+  });
+  assert.equal(
+    catalog.nodes.filter((node) => node.data.kind === "system").length,
+    1,
+  );
+  const matchingComponents = catalog.nodes.filter(
+    (node) =>
+      node.data.kind === "component" && node.data.label === component.label,
+  );
+  assert.equal(matchingComponents.length, 1);
+  assert.equal(matchingComponents[0]?.id, component.id);
+});
+
+test("production workflows remain visible while support-tree entry points are bounded", async (t) => {
+  const root = await fs.mkdtemp(
+    path.join(os.tmpdir(), "witch-workflow-scope-"),
+  );
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  await fs.mkdir(path.join(root, "src"), { recursive: true });
+  await fs.mkdir(path.join(root, "docs", "examples"), { recursive: true });
+  await fs.writeFile(
+    path.join(root, "src", "server.py"),
+    "async def main():\n    return True\n",
+  );
+  for (let index = 0; index < 20; index++)
+    await fs.writeFile(
+      path.join(root, "docs", "examples", `sample_${index}.py`),
+      "async def main():\n    return True\n",
+    );
+  const graph = await analyzeRepository(root);
+  const workflows = graph.semantic!.nodes.filter(
+    (node) => node.kind === "workflow",
+  );
+  assert.equal(
+    workflows.filter((node) => node.path === "src/server.py").length,
+    1,
+  );
+  assert.equal(
+    workflows.filter((node) => node.path?.startsWith("docs/examples/")).length,
+    12,
+  );
+  assert(
+    graph.coverage?.limits.some((limit) => limit.code === "workflow-support"),
+  );
+  const productionCatalog = buildSemanticView(
+    graph,
+    false,
+    "",
+    new Set(),
+    "workflows",
+  );
+  assert.deepEqual(productionCatalog.workflowCatalog, {
+    total: 13,
+    production: 1,
+    support: 12,
+    eligible: 1,
+    visible: 1,
+    hidden: 0,
+    supportHidden: 12,
+  });
+  assert.equal(
+    productionCatalog.nodes.filter((node) => node.data.kind === "workflow")
+      .length,
+    1,
+  );
+  const expandedCatalog = buildSemanticView(
+    graph,
+    false,
+    "",
+    new Set(),
+    "workflows",
+    { includeSupport: true, catalogLimit: 100 },
+  );
+  assert.equal(expandedCatalog.workflowCatalog?.visible, 13);
+  assert.equal(expandedCatalog.workflowCatalog?.supportHidden, 0);
+  assert.equal(expandedCatalog.quality.status === "fail", false);
 });

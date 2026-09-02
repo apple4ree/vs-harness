@@ -381,18 +381,56 @@ export function FileActionDialog({
 export function ProviderDialog({
   providers,
   onClose,
+  onConnect,
+  onRefresh,
   onSave,
   onRemove,
 }: {
   providers: ProviderStatus | null;
   onClose: () => void;
+  onConnect: (provider: CliProviderId) => Promise<void>;
+  onRefresh: () => Promise<void>;
   onSave: (provider: ApiProviderId, key: string) => Promise<void>;
   onRemove: (provider: ApiProviderId) => Promise<void>;
 }) {
   const [openaiKey, setOpenaiKey] = useState("");
   const [anthropicKey, setAnthropicKey] = useState("");
   const [busy, setBusy] = useState<ApiProviderId | null>(null);
+  const [cliBusy, setCliBusy] = useState<CliProviderId | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
+
+  async function connect(provider: CliProviderId) {
+    setCliBusy(provider);
+    setError("");
+    try {
+      await onConnect(provider);
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : "Unable to connect the CLI provider",
+      );
+    } finally {
+      setCliBusy(null);
+    }
+  }
+
+  async function refresh() {
+    setRefreshing(true);
+    setError("");
+    try {
+      await onRefresh();
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : "Unable to refresh provider status",
+      );
+    } finally {
+      setRefreshing(false);
+    }
+  }
 
   async function save(provider: ApiProviderId) {
     const key = provider === "openai" ? openaiKey : anthropicKey;
@@ -450,8 +488,8 @@ export function ProviderDialog({
         </header>
         <p className="provider-intro">
           Witch is an independent ADE. It can reuse a CLI account you already
-          signed into, or keep an encrypted API key on this computer for a
-          future direct API adapter.
+          signed into, or keep an encrypted API key on this computer for
+          source-grounded Semantic Composer requests.
         </p>
         <div className="provider-grid">
           <article className="provider-card">
@@ -459,22 +497,58 @@ export function ProviderDialog({
               <h2>Codex CLI</h2>
               <span
                 className={
-                  providers?.codex.installed
+                  providers?.codex.authenticated
                     ? "provider-state connected"
                     : "provider-state"
                 }
               >
-                {providers?.codex.installed ? "detected" : "missing"}
+                {providers?.codex.authenticated
+                  ? "signed in"
+                  : providers?.codex.installed
+                    ? "detected"
+                    : "missing"}
               </span>
             </header>
             <p>{providers?.codex.message || "Checking Codex…"}</p>
             {providers?.codex.version && (
               <small>{providers.codex.version}</small>
             )}
+            <div className="provider-actions">
+              {providers?.codex.installed ? (
+                providers.codex.authenticated ? (
+                  <button
+                    className="quiet-action"
+                    disabled={refreshing || Boolean(cliBusy)}
+                    onClick={() => void refresh()}
+                  >
+                    Recheck Codex
+                  </button>
+                ) : (
+                  <button
+                    disabled={Boolean(cliBusy) || refreshing}
+                    onClick={() => void connect("codex")}
+                  >
+                    {cliBusy === "codex"
+                      ? "Waiting for browser…"
+                      : "Connect Codex"}
+                  </button>
+                )
+              ) : (
+                <button disabled>Install Codex CLI first</button>
+              )}
+            </div>
+            {cliBusy === "codex" && (
+              <small className="provider-login-note" role="status">
+                Complete the official ChatGPT sign-in in your browser. Witch
+                will reconnect automatically when the CLI finishes.
+              </small>
+            )}
             <strong>Current engine</strong>
             <small>
               Witch starts the local App Server and reuses its existing Codex
-              sign-in. No token is copied into Witch.
+              sign-in for Agent work. Semantic Composer uses an ephemeral,
+              read-only `codex exec` run with a strict output schema. No token
+              is copied into Witch.
             </small>
           </article>
           <article className="provider-card">
@@ -482,22 +556,57 @@ export function ProviderDialog({
               <h2>Claude Code CLI</h2>
               <span
                 className={
-                  providers?.claude.installed
+                  providers?.claude.authenticated
                     ? "provider-state connected"
                     : "provider-state"
                 }
               >
-                {providers?.claude.installed ? "detected" : "missing"}
+                {providers?.claude.authenticated
+                  ? "signed in"
+                  : providers?.claude.installed
+                    ? "detected"
+                    : "missing"}
               </span>
             </header>
             <p>{providers?.claude.message || "Checking Claude Code…"}</p>
             {providers?.claude.version && (
               <small>{providers.claude.version}</small>
             )}
-            <strong>Planned adapter</strong>
+            <div className="provider-actions">
+              {providers?.claude.installed ? (
+                providers.claude.authenticated ? (
+                  <button
+                    className="quiet-action"
+                    disabled={refreshing || Boolean(cliBusy)}
+                    onClick={() => void refresh()}
+                  >
+                    Recheck Claude Code
+                  </button>
+                ) : (
+                  <button
+                    disabled={Boolean(cliBusy) || refreshing}
+                    onClick={() => void connect("claude")}
+                  >
+                    {cliBusy === "claude"
+                      ? "Waiting for browser…"
+                      : "Connect Claude Code"}
+                  </button>
+                )
+              ) : (
+                <button disabled>Install Claude Code first</button>
+              )}
+            </div>
+            {cliBusy === "claude" && (
+              <small className="provider-login-note" role="status">
+                Complete the official Anthropic sign-in in your browser. Witch
+                will reconnect automatically when the CLI finishes.
+              </small>
+            )}
+            <strong>Semantic Composer</strong>
             <small>
-              When enabled, it will reuse the CLI’s existing sign-in just like
-              Codex.
+              Witch runs Claude non-interactively in an empty read-only
+              workspace, disables tools and MCP servers, and validates its JSON
+              against Witch source evidence.
             </small>
           </article>
           <ApiKeyCard
@@ -528,9 +637,18 @@ export function ProviderDialog({
             (Windows DPAPI or macOS Keychain). Witch never displays a saved key
             again.
           </span>
-          <button className="primary-action" onClick={onClose}>
-            Done
-          </button>
+          <div className="provider-footer-actions">
+            <button
+              className="quiet-action"
+              disabled={refreshing || Boolean(cliBusy)}
+              onClick={() => void refresh()}
+            >
+              {refreshing ? "Checking…" : "Refresh status"}
+            </button>
+            <button className="primary-action" onClick={onClose}>
+              Done
+            </button>
+          </div>
         </footer>
       </section>
     </div>
@@ -580,7 +698,7 @@ function ApiKeyCard({
         placeholder={
           ready
             ? "Enter a replacement key"
-            : "Paste a key to enable future direct API use"
+            : "Paste a key to enable Semantic Composer"
         }
         disabled={busy || !status?.encryptionAvailable}
       />
@@ -598,8 +716,8 @@ function ApiKeyCard({
         )}
       </div>
       <small>
-        Stored metadata only is visible here; direct API requests are not
-        enabled in this milestone.
+        Only bounded paths, symbol names, and relation IDs are sent. Source
+        contents and the saved key are never exposed to the renderer.
       </small>
     </article>
   );

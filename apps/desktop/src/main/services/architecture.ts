@@ -1,6 +1,9 @@
 import path from "node:path";
 import ts from "typescript";
 import type {
+  AnalysisCoverage,
+  AnalysisLanguageCoverage,
+  AnalysisLimit,
   ArchitectureGraph,
   ArchitectureNode,
   ArchitectureEdge,
@@ -17,6 +20,7 @@ import {
 import {
   buildSemanticGraph,
   type ResolvedSymbolCall,
+  type ResolvedSymbolRelation,
   type SymbolCallCorroboration,
 } from "./semantic-analysis";
 import type { CallCorroborator } from "./call-corroboration";
@@ -24,6 +28,12 @@ import {
   pythonResolvedCalls,
   rustResolvedCalls,
 } from "./polyglot-call-analysis";
+import {
+  pythonResolvedTypeRelations,
+  rustResolvedTypeRelations,
+} from "./polyglot-type-analysis";
+import { buildBehaviorGraph } from "./behavior-analysis";
+import { analyzeFrameworks } from "./framework-analysis";
 
 const SOURCE_EXTENSIONS = new Set([
   ".ts",
@@ -56,26 +66,76 @@ const SOURCE_EXTENSIONS = new Set([
   ".yaml",
   ".md",
 ]);
+const DEEP_EXTENSIONS = new Set([
+  ".ts",
+  ".tsx",
+  ".mts",
+  ".cts",
+  ".js",
+  ".jsx",
+  ".mjs",
+  ".cjs",
+  ".py",
+  ".rs",
+]);
+export const ARCHITECTURE_ANALYZER_VERSION = "polyglot-static-v15";
+
+function coverageLanguage(extension: string) {
+  if ([".ts", ".tsx", ".mts", ".cts"].includes(extension)) return "typescript";
+  if ([".js", ".jsx", ".mjs", ".cjs"].includes(extension)) return "javascript";
+  const names: Record<string, string> = {
+    ".py": "python",
+    ".rs": "rust",
+    ".java": "java",
+    ".go": "go",
+    ".swift": "swift",
+    ".kt": "kotlin",
+    ".cs": "csharp",
+    ".cpp": "cpp",
+    ".c": "c",
+    ".h": "header",
+    ".rb": "ruby",
+    ".php": "php",
+    ".vue": "vue",
+    ".svelte": "svelte",
+    ".json": "json",
+    ".css": "css",
+    ".scss": "scss",
+    ".html": "html",
+    ".yml": "yaml",
+    ".yaml": "yaml",
+    ".md": "markdown",
+  };
+  return names[extension] || extension.replace(/^\./, "") || "unknown";
+}
 type ImportRecord = {
   specifier: string;
   line: number;
   kind: "imports" | "exports";
 };
-export type ArchitectureCache = Map<
-  string,
-  {
-    hash: string;
-    symbols: CodeSymbol[];
-    imports: ImportRecord[];
-    hasCallExpressions?: boolean;
-  }
->;
+export type ParsedSource = {
+  symbols: CodeSymbol[];
+  imports: ImportRecord[];
+  hasCallExpressions?: boolean;
+  symbolIdCollisions?: number;
+};
+export type ArchitectureCacheEntry = ParsedSource & {
+  hash: string;
+  size?: number;
+  mtimeMs?: number;
+  /** Kept in memory only so watcher-triggered readings touch changed files. */
+  content?: string;
+  /** Runtime marker set by the durable index loader and never persisted. */
+  persistent?: boolean;
+};
+export type ArchitectureCache = Map<string, ArchitectureCacheEntry>;
 export type AnalysisOptions = {
   cache?: ArchitectureCache;
   signal?: AbortSignal;
   byteBudget?: number;
   previousSemantic?: SemanticGraph | null;
   callCorroborator?: CallCorroborator;
+  invalidatedPaths?: ReadonlySet<string>;
 };
 
 export function moduleFor(file: string): string {
@@ -97,6 +157,9 @@ function tsSymbolsAndImports(file: string, content: string) {
   );
   const symbols: CodeSymbol[] = [];
   const imports: ImportRecord[] = [];
+  const usedSymbolIds = new Set<string>();
+  const declarationSymbols = new Map<ts.Node, string>();
+  let symbolIdCollisions = 0;
   let hasCallExpressions = false;
   const lineAt = (node: ts.Node) =>
     source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1;
@@ -119,8 +182,20 @@ function tsSymbolsAndImports(file: string, content: string) {
     isExported: boolean,
     containerId?: string,
   ) {
-    const line = lineAt(node);
-    const id = `${file}#${name}:${line}`;
+    const startOffset = node.getStart(source);
+    const location = source.getLineAndCharacterOfPosition(startOffset);
+    const line = location.line + 1;
+    const baseId = `${file}#${name}:${line}`;
+    let id = baseId;
+    if (usedSymbolIds.has(id)) {
+      symbolIdCollisions++;
+      id = `${baseId}@${startOffset}`;
+      let ordinal = 2;
+      while (usedSymbolIds.has(id))
+        id = `${baseId}@${startOffset}.${ordinal++}`;
+    }
+    usedSymbolIds.add(id);
+    declarationSymbols.set(node, id);
     const modifiers = ts.canHaveModifiers(node)
       ? ts.getModifiers(node) || []
       : [];
@@ -136,6 +211,8 @@ function tsSymbolsAndImports(file: string, content: string) {
       kind,
       line,
       endLine: source.getLineAndCharacterOfPosition(node.getEnd()).line + 1,
+      column: location.character + 1,
+      startOffset,
       exported: isExported,
       qualifiedName: container
         ? `${container.qualifiedName || container.name}.${name}`
@@ -220,6 +297,35 @@ function tsSymbolsAndImports(file: string, content: string) {
         exported(node),
         containerId,
       );
+    if (ts.isClassExpression(node)) {
+      const declaration = ts.isVariableDeclaration(node.parent)
+        ? node.parent
+        : null;
+      const existing = declaration
+        ? declarationSymbols.get(declaration)
+        : undefined;
+      if (existing) childContainer = existing;
+      else {
+        const propertyName = ts.isPropertyAssignment(node.parent)
+          ? node.parent.name.getText(source)
+          : null;
+        const name =
+          (declaration && ts.isIdentifier(declaration.name)
+            ? declaration.name.text
+            : null) ||
+          node.name?.text ||
+          propertyName ||
+          `class@${lineAt(node)}:${source.getLineAndCharacterOfPosition(node.getStart(source)).character + 1}`;
+        childContainer = symbol(node, name, "class", false, containerId);
+      }
+    }
+    if (
+      (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) &&
+      ts.isVariableDeclaration(node.parent)
+    ) {
+      const existing = declarationSymbols.get(node.parent);
+      if (existing) childContainer = existing;
+    }
     if (ts.isInterfaceDeclaration(node))
       childContainer = symbol(
         node,
@@ -248,25 +354,24 @@ function tsSymbolsAndImports(file: string, content: string) {
           const id = symbol(
             declaration,
             declaration.name.text,
-            init && (ts.isArrowFunction(init) || ts.isFunctionExpression(init))
-              ? hasJsx(init)
-                ? "component"
-                : "function"
-              : "variable",
+            init && ts.isClassExpression(init)
+              ? "class"
+              : init &&
+                  (ts.isArrowFunction(init) || ts.isFunctionExpression(init))
+                ? hasJsx(init)
+                  ? "component"
+                  : "function"
+                : "variable",
             exported(node),
             containerId,
           );
-          if (
-            init &&
-            (ts.isArrowFunction(init) || ts.isFunctionExpression(init))
-          )
-            childContainer = id;
+          declarationSymbols.set(declaration, id);
         }
     }
     ts.forEachChild(node, (child) => visit(child, childContainer));
   }
   visit(source);
-  return { symbols, imports, hasCallExpressions };
+  return { symbols, imports, hasCallExpressions, symbolIdCollisions };
 }
 
 const typeScriptExtension = (file: string): ts.Extension => {
@@ -282,14 +387,17 @@ const typeScriptExtension = (file: string): ts.Extension => {
   return ts.Extension.Ts;
 };
 
-async function typeScriptResolvedCalls(
+async function typeScriptResolvedFacts(
   root: string,
   sourceNodes: ArchitectureNode[],
   sourceTexts: Map<string, string>,
   resolveImport: (file: string, specifier: string) => string | null,
   signal?: AbortSignal,
-): Promise<ResolvedSymbolCall[]> {
-  if (!sourceTexts.size) return [];
+): Promise<{
+  calls: ResolvedSymbolCall[];
+  relations: ResolvedSymbolRelation[];
+}> {
+  if (!sourceTexts.size) return { calls: [], relations: [] };
   const canonical = (file: string) => {
     const absolute = path.resolve(file);
     return ts.sys.useCaseSensitiveFileNames ? absolute : absolute.toLowerCase();
@@ -376,12 +484,18 @@ async function typeScriptResolvedCalls(
       ts.isVariableDeclaration(owner.parent)
     )
       owner = owner.parent;
+    if (ts.isClassExpression(owner) && ts.isVariableDeclaration(owner.parent))
+      owner = owner.parent;
     const source = owner.getSourceFile();
     const record = recordFor(source.fileName);
     if (!record) return null;
     let name: string | null = null;
     if (ts.isFunctionDeclaration(owner) && owner.name) name = owner.name.text;
+    else if (ts.isClassDeclaration(owner) && owner.name) name = owner.name.text;
+    else if (ts.isInterfaceDeclaration(owner)) name = owner.name.text;
     else if (ts.isMethodDeclaration(owner) && owner.name)
+      name = owner.name.getText(source);
+    else if (ts.isMethodSignature(owner) && owner.name)
       name = owner.name.getText(source);
     else if (ts.isVariableDeclaration(owner) && ts.isIdentifier(owner.name))
       name = owner.name.text;
@@ -390,12 +504,16 @@ async function typeScriptResolvedCalls(
       source.getLineAndCharacterOfPosition(owner.getStart(source)).line + 1;
     return (
       record.node.symbols.find(
+        (symbol) => symbol.startOffset === owner.getStart(source),
+      ) ||
+      record.node.symbols.find(
         (symbol) => symbol.name === name && symbol.line === line,
-      ) || null
+      ) ||
+      null
     );
   };
-  const callerFor = (call: ts.CallExpression) => {
-    let owner: ts.Node | undefined = call.parent;
+  const ownerFor = (descendant: ts.Node) => {
+    let owner: ts.Node | undefined = descendant.parent;
     while (owner && !ts.isSourceFile(owner)) {
       if (
         ts.isFunctionDeclaration(owner) ||
@@ -431,7 +549,63 @@ async function typeScriptResolvedCalls(
     }
     return null;
   };
+  const targetForNode = (node: ts.Node) => {
+    let symbol = checker.getSymbolAtLocation(node);
+    if (symbol?.flags && symbol.flags & ts.SymbolFlags.Alias)
+      symbol = checker.getAliasedSymbol(symbol);
+    for (const declaration of [
+      symbol?.valueDeclaration,
+      ...(symbol?.declarations || []),
+    ]) {
+      if (!declaration) continue;
+      const target = symbolForDeclaration(declaration);
+      if (target) return target;
+    }
+    return null;
+  };
   const calls = new Map<string, ResolvedSymbolCall>();
+  const relations = new Map<string, ResolvedSymbolRelation>();
+  const addRelation = (
+    from: CodeSymbol | null,
+    to: CodeSymbol | null,
+    kind: ResolvedSymbolRelation["kind"],
+    source: ts.SourceFile,
+    record: { relative: string; text: string; node: ArchitectureNode },
+    evidenceNode: ts.Node,
+  ) => {
+    if (!from || !to || from.id === to.id || relations.size >= 30_000) return;
+    const key = `${kind}:${from.id}->${to.id}`;
+    const line =
+      source.getLineAndCharacterOfPosition(evidenceNode.getStart(source)).line +
+      1;
+    const item = {
+      path: record.relative,
+      line,
+      hash: record.node.hash,
+      excerpt: record.text.split(/\r?\n/)[line - 1]?.trim().slice(0, 300),
+    };
+    const existing = relations.get(key);
+    if (existing) {
+      if (
+        existing.evidence.length < 20 &&
+        !existing.evidence.some(
+          (candidate) =>
+            candidate.path === item.path && candidate.line === item.line,
+        )
+      )
+        existing.evidence.push(item);
+      return;
+    }
+    relations.set(key, {
+      fromSourceSymbolId: from.id,
+      toSourceSymbolId: to.id,
+      kind,
+      evidence: [item],
+      trust: "verified",
+      confidence: 1,
+      resolver: "typescript",
+    });
+  };
   for (const [index, source] of program.getSourceFiles().entries()) {
     signal?.throwIfAborted();
     if (index > 0 && index % 16 === 0)
@@ -439,10 +613,43 @@ async function typeScriptResolvedCalls(
     const record = recordFor(source.fileName);
     if (!record) continue;
     const lines = record.text.split(/\r?\n/);
+    const moduleVariableNames = new Set(
+      record.node.symbols
+        .filter((symbol) => symbol.kind === "variable" && !symbol.containerId)
+        .map((symbol) => symbol.name),
+    );
+    for (const statement of source.statements) {
+      if (
+        !ts.isImportDeclaration(statement) ||
+        !ts.isStringLiteral(statement.moduleSpecifier) ||
+        !statement.importClause?.namedBindings
+      )
+        continue;
+      const target = resolveImport(
+        record.relative,
+        statement.moduleSpecifier.text,
+      );
+      if (!target || target.startsWith("external:")) continue;
+      const targetRecord = records.get(canonical(path.resolve(root, target)));
+      if (!targetRecord) continue;
+      const targetVariables = new Set(
+        targetRecord.node.symbols
+          .filter((symbol) => symbol.kind === "variable" && !symbol.containerId)
+          .map((symbol) => symbol.name),
+      );
+      const bindings = statement.importClause.namedBindings;
+      if (ts.isNamespaceImport(bindings))
+        targetVariables.forEach((name) => moduleVariableNames.add(name));
+      else
+        for (const binding of bindings.elements) {
+          const imported = binding.propertyName?.text || binding.name.text;
+          if (targetVariables.has(imported))
+            moduleVariableNames.add(binding.name.text);
+        }
+    }
     const visit = (node: ts.Node) => {
-      if (calls.size >= 10_000) return;
-      if (ts.isCallExpression(node)) {
-        const from = callerFor(node);
+      if (ts.isCallExpression(node) && calls.size < 10_000) {
+        const from = ownerFor(node);
         const to = targetFor(node);
         if (from && to) {
           const key = `${from.id}->${to.id}`;
@@ -475,15 +682,123 @@ async function typeScriptResolvedCalls(
             });
         }
       }
+      if (ts.isClassDeclaration(node) || ts.isClassExpression(node)) {
+        const from = symbolForDeclaration(node);
+        for (const clause of node.heritageClauses || [])
+          for (const type of clause.types) {
+            const kind =
+              clause.token === ts.SyntaxKind.ImplementsKeyword
+                ? "implements"
+                : "extends";
+            addRelation(
+              from,
+              targetForNode(type.expression),
+              kind,
+              source,
+              record,
+              type.expression,
+            );
+          }
+        const baseTypes = (node.heritageClauses || [])
+          .filter((clause) => clause.token === ts.SyntaxKind.ExtendsKeyword)
+          .flatMap((clause) => clause.types)
+          .map((type) => checker.getTypeAtLocation(type));
+        for (const member of node.members)
+          if (ts.isMethodDeclaration(member) && member.name) {
+            const name = member.name.getText(source);
+            for (const baseType of baseTypes) {
+              const property = checker.getPropertyOfType(baseType, name);
+              for (const declaration of property?.declarations || [])
+                addRelation(
+                  symbolForDeclaration(member),
+                  symbolForDeclaration(declaration),
+                  "overrides",
+                  source,
+                  record,
+                  member.name,
+                );
+            }
+          }
+      }
+      if (ts.isInterfaceDeclaration(node))
+        for (const clause of node.heritageClauses || [])
+          for (const type of clause.types)
+            addRelation(
+              symbolForDeclaration(node),
+              targetForNode(type.expression),
+              "extends",
+              source,
+              record,
+              type.expression,
+            );
+      if (ts.isIdentifier(node) && moduleVariableNames.has(node.text)) {
+        const parent = node.parent;
+        const declarationName =
+          (ts.isVariableDeclaration(parent) && parent.name === node) ||
+          (ts.isParameter(parent) && parent.name === node) ||
+          ((ts.isFunctionDeclaration(parent) ||
+            ts.isClassDeclaration(parent) ||
+            ts.isInterfaceDeclaration(parent) ||
+            ts.isMethodDeclaration(parent) ||
+            ts.isMethodSignature(parent) ||
+            ts.isTypeAliasDeclaration(parent) ||
+            ts.isEnumDeclaration(parent)) &&
+            parent.name === node) ||
+          ts.isImportClause(parent) ||
+          ts.isImportSpecifier(parent) ||
+          ts.isNamespaceImport(parent) ||
+          ts.isExportSpecifier(parent);
+        if (!declarationName) {
+          const from = ownerFor(node);
+          const to = targetForNode(node);
+          if (from && to?.kind === "variable") {
+            const usage =
+              ts.isPropertyAccessExpression(parent) && parent.name === node
+                ? parent
+                : node;
+            const usageParent = usage.parent;
+            const binary =
+              ts.isBinaryExpression(usageParent) && usageParent.left === usage;
+            const assignment =
+              binary &&
+              usageParent.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+              usageParent.operatorToken.kind <= ts.SyntaxKind.LastAssignment;
+            const update =
+              (ts.isPrefixUnaryExpression(usageParent) ||
+                ts.isPostfixUnaryExpression(usageParent)) &&
+              [
+                ts.SyntaxKind.PlusPlusToken,
+                ts.SyntaxKind.MinusMinusToken,
+              ].includes(usageParent.operator);
+            if (assignment || update)
+              addRelation(from, to, "writes", source, record, node);
+            if (
+              !assignment ||
+              update ||
+              (binary &&
+                usageParent.operatorToken.kind !== ts.SyntaxKind.EqualsToken)
+            )
+              addRelation(from, to, "reads", source, record, node);
+          }
+        }
+      }
       ts.forEachChild(node, visit);
     };
     visit(source);
   }
-  return [...calls.values()].sort(
-    (a, b) =>
-      a.fromSourceSymbolId.localeCompare(b.fromSourceSymbolId) ||
-      a.toSourceSymbolId.localeCompare(b.toSourceSymbolId),
-  );
+  return {
+    calls: [...calls.values()].sort(
+      (a, b) =>
+        a.fromSourceSymbolId.localeCompare(b.fromSourceSymbolId) ||
+        a.toSourceSymbolId.localeCompare(b.toSourceSymbolId),
+    ),
+    relations: [...relations.values()].sort(
+      (a, b) =>
+        a.kind.localeCompare(b.kind) ||
+        a.fromSourceSymbolId.localeCompare(b.fromSourceSymbolId) ||
+        a.toSourceSymbolId.localeCompare(b.toSourceSymbolId),
+    ),
+  };
 }
 
 function pythonSymbolsAndImports(file: string, content: string) {
@@ -711,10 +1026,10 @@ export async function analyzeRepository(
   options.signal?.throwIfAborted();
   const listing = await listWorkspace(root);
   const files = listing.entries.filter((entry) => entry.kind === "file");
-  const sourceFiles = files.filter(
-    (entry) =>
-      SOURCE_EXTENSIONS.has(entry.extension) && entry.size <= TEXT_LIMIT,
+  const indexedFiles = files.filter((entry) =>
+    SOURCE_EXTENSIONS.has(entry.extension),
   );
+  const sourceFiles = indexedFiles.filter((entry) => entry.size <= TEXT_LIMIT);
   const nodes: ArchitectureNode[] = [];
   const edges: ArchitectureEdge[] = [];
   const imports = new Map<string, ImportRecord[]>();
@@ -737,13 +1052,23 @@ export async function analyzeRepository(
     );
   }
   const warnings = [...listing.warnings];
+  const limits: AnalysisLimit[] = [];
+  if (listing.truncated)
+    limits.push({
+      code: "file-index",
+      reached: true,
+      message:
+        "The workspace file index reached its safety bound; coverage excludes remaining paths.",
+    });
   const contents = new Map<string, string[]>();
   const typeScriptTexts = new Map<string, string>();
   const pythonTexts = new Map<string, string>();
   const rustTexts = new Map<string, string>();
-  let hasTypeScriptCallExpressions = false;
   let authoredContent: string | null = null;
   let bytesRead = 0;
+  let memoryCacheHits = 0;
+  let persistentCacheHits = 0;
+  let cacheMisses = 0;
   let budgetReached = false;
   const activeFiles = new Set(sourceFiles.map((file) => file.path));
   for (const key of options.cache?.keys() || [])
@@ -754,22 +1079,43 @@ export async function analyzeRepository(
       budgetReached = true;
       break;
     }
-    let content: string;
-    try {
-      content = await readWorkspaceText(root, file.path);
-    } catch (error) {
-      warnings.push(
-        `${file.path}: ${error instanceof Error ? error.message : error}`,
-      );
-      continue;
-    }
-    const hash = contentHash(content);
-    if (file.path.replaceAll("\\", "/") === ".witch/analysis.json")
-      authoredContent = content;
-    bytesRead += Buffer.byteLength(content);
     const cached = options.cache?.get(file.path);
-    const parsed =
-      cached?.hash === hash
+    const invalidated = options.invalidatedPaths?.has(file.path) || false;
+    const metadataHit = Boolean(
+      !invalidated &&
+      cached &&
+      cached.size === file.size &&
+      cached.mtimeMs === file.mtimeMs,
+    );
+    const authoredPath =
+      file.path.replaceAll("\\", "/") === ".witch/analysis.json";
+    const contentRequired =
+      DEEP_EXTENSIONS.has(file.extension) ||
+      authoredPath ||
+      Boolean(cached?.imports.length);
+    let content = metadataHit ? cached?.content : undefined;
+    if (content !== undefined) memoryCacheHits++;
+    else if (metadataHit && cached && !contentRequired) {
+      // File-level-only languages need their durable hash and inventory, not
+      // another full content read. Watcher invalidations still force a read.
+      content = "";
+      persistentCacheHits++;
+    } else {
+      try {
+        content = await readWorkspaceText(root, file.path);
+      } catch (error) {
+        warnings.push(
+          `${file.path}: ${error instanceof Error ? error.message : error}`,
+        );
+        continue;
+      }
+      if (metadataHit && cached?.persistent) persistentCacheHits++;
+    }
+    const hash = metadataHit && cached ? cached.hash : contentHash(content);
+    if (authoredPath) authoredContent = content;
+    bytesRead += file.size;
+    const parsed: ParsedSource =
+      metadataHit && cached?.hash === hash
         ? cached
         : /\.[cm]?[jt]sx?$/i.test(file.path)
           ? tsSymbolsAndImports(file.path, content)
@@ -778,17 +1124,34 @@ export async function analyzeRepository(
             : file.extension === ".rs"
               ? rustSymbolsAndImports(file.path, content)
               : { symbols: [], imports: [] };
+    if (!metadataHit || cached?.hash !== hash) cacheMisses++;
+    if (parsed.symbolIdCollisions)
+      warnings.push(
+        `${file.path}: disambiguated ${parsed.symbolIdCollisions} same-line symbol id collision${parsed.symbolIdCollisions === 1 ? "" : "s"} with exact source positions.`,
+      );
+    const duplicateSymbolIds = new Set<string>();
+    const observedSymbolIds = new Set<string>();
+    for (const item of parsed.symbols) {
+      if (observedSymbolIds.has(item.id)) duplicateSymbolIds.add(item.id);
+      observedSymbolIds.add(item.id);
+    }
+    const safeSymbols = duplicateSymbolIds.size ? [] : parsed.symbols;
+    if (duplicateSymbolIds.size)
+      warnings.push(
+        `${file.path}: symbol-level analysis was isolated because ${duplicateSymbolIds.size} duplicate symbol id${duplicateSymbolIds.size === 1 ? " was" : "s were"} still present; file and import structure remain available.`,
+      );
     if (/\.[cm]?[jt]sx?$/i.test(file.path))
       typeScriptTexts.set(file.path, content);
     if (file.extension === ".py") pythonTexts.set(file.path, content);
     if (file.extension === ".rs") rustTexts.set(file.path, content);
-    if (
-      /\.[cm]?[jt]sx?$/i.test(file.path) &&
-      "hasCallExpressions" in parsed &&
-      parsed.hasCallExpressions
-    )
-      hasTypeScriptCallExpressions = true;
-    options.cache?.set(file.path, { hash, ...parsed });
+    options.cache?.set(file.path, {
+      hash,
+      ...parsed,
+      size: file.size,
+      mtimeMs: file.mtimeMs,
+      content,
+      persistent: false,
+    });
     nodes.push({
       id: file.path,
       label: path.basename(file.path),
@@ -798,7 +1161,7 @@ export async function analyzeRepository(
       language: file.extension.slice(1),
       hash,
       count: 1,
-      symbols: parsed.symbols,
+      symbols: safeSymbols,
       evidence: [{ path: file.path, line: 1, hash }],
     });
     imports.set(file.path, parsed.imports);
@@ -807,10 +1170,11 @@ export async function analyzeRepository(
       parsed.imports.length ? content.split(/\r?\n/) : [],
     );
   }
-  if (budgetReached)
-    warnings.push(
-      `Source analysis reached its ${(options.byteBudget ?? 64_000_000) / 1_000_000} MB safety budget. Open a narrower project to include the remaining sources.`,
-    );
+  if (budgetReached) {
+    const message = `Source analysis reached its ${(options.byteBudget ?? 64_000_000) / 1_000_000} MB safety budget. Open a narrower project to include the remaining sources.`;
+    warnings.push(message);
+    limits.push({ code: "byte-budget", reached: true, message });
+  }
   const nodeIds = new Set(nodes.map((node) => node.id));
   const optionsCache = new Map<string, ts.CompilerOptions>();
   const directoryOptions = new Map<string, ts.CompilerOptions>();
@@ -1017,47 +1381,76 @@ export async function analyzeRepository(
     }
   }
   let symbolCalls: ResolvedSymbolCall[] = [];
+  let symbolRelations: ResolvedSymbolRelation[] = [];
   const typeScriptBytes = [...typeScriptTexts.values()].reduce(
     (total, content) => total + Buffer.byteLength(content),
     0,
   );
-  if (
-    hasTypeScriptCallExpressions &&
-    (typeScriptTexts.size > 2_500 || typeScriptBytes > 32_000_000)
-  )
-    warnings.push(
-      "TypeScript symbol calls were skipped because the analyzed program exceeds 2,500 files or 32 MB. File/import structure remains available.",
-    );
-  else if (hasTypeScriptCallExpressions) {
-    symbolCalls = await typeScriptResolvedCalls(
+  if (typeScriptTexts.size > 2_500 || typeScriptBytes > 32_000_000) {
+    const message =
+      "TypeScript symbol calls and type hierarchy were skipped because the analyzed program exceeds 2,500 files or 32 MB. File/import structure remains available.";
+    warnings.push(message);
+    limits.push({ code: "typescript-calls", reached: true, message });
+  } else if (typeScriptTexts.size) {
+    const facts = await typeScriptResolvedFacts(
       root,
       nodes,
       typeScriptTexts,
       resolveImport,
       options.signal,
     );
-    if (symbolCalls.length >= 10_000)
-      warnings.push(
-        "TypeScript symbol calls reached the 10,000 relation display/index limit.",
-      );
+    symbolCalls = facts.calls;
+    symbolRelations = facts.relations;
+    if (symbolCalls.length >= 10_000) {
+      const message =
+        "TypeScript symbol calls reached the 10,000 relation display/index limit.";
+      warnings.push(message);
+      limits.push({ code: "symbol-calls", reached: true, message });
+    }
+    if (symbolRelations.length >= 30_000) {
+      const message =
+        "TypeScript symbol relations reached the 30,000 relation analysis limit.";
+      warnings.push(message);
+      limits.push({ code: "symbol-relations", reached: true, message });
+    }
   }
-  const pythonCalls = await pythonResolvedCalls(
-    nodes,
-    pythonTexts,
-    resolveImport,
-    options.signal,
-  );
-  const rustCalls = await rustResolvedCalls(
-    nodes,
-    rustTexts,
-    resolveImport,
-    options.signal,
-  );
+  const [pythonCalls, rustCalls, pythonRelations, rustRelations] =
+    await Promise.all([
+      pythonResolvedCalls(nodes, pythonTexts, resolveImport, options.signal),
+      rustResolvedCalls(nodes, rustTexts, resolveImport, options.signal),
+      pythonResolvedTypeRelations(
+        nodes,
+        pythonTexts,
+        resolveImport,
+        options.signal,
+      ),
+      rustResolvedTypeRelations(
+        nodes,
+        rustTexts,
+        resolveImport,
+        options.signal,
+      ),
+    ]);
   symbolCalls = [...symbolCalls, ...pythonCalls, ...rustCalls].slice(0, 10_000);
-  if (symbolCalls.length >= 10_000)
-    warnings.push(
-      "Polyglot symbol calls reached the 10,000 relation display/index limit.",
-    );
+  symbolRelations = [
+    ...symbolRelations,
+    ...pythonRelations,
+    ...rustRelations,
+  ].slice(0, 30_000);
+  if (symbolCalls.length >= 10_000) {
+    const message =
+      "Polyglot symbol calls reached the 10,000 relation display/index limit.";
+    warnings.push(message);
+    if (!limits.some((item) => item.code === "symbol-calls"))
+      limits.push({ code: "symbol-calls", reached: true, message });
+  }
+  if (symbolRelations.length >= 30_000) {
+    const message =
+      "Polyglot symbol relations reached the 30,000 relation analysis limit.";
+    warnings.push(message);
+    if (!limits.some((item) => item.code === "symbol-relations"))
+      limits.push({ code: "symbol-relations", reached: true, message });
+  }
   let callCorroborations: SymbolCallCorroboration[] = [];
   if (options.callCorroborator && (pythonCalls.length || rustCalls.length)) {
     try {
@@ -1070,6 +1463,15 @@ export async function analyzeRepository(
       options.signal?.throwIfAborted();
       callCorroborations = result.observations;
       warnings.push(...result.warnings);
+      const sampleWarning = result.warnings.find((warning) =>
+        /sampled \d+\/\d+/i.test(warning),
+      );
+      if (sampleWarning)
+        limits.push({
+          code: "lsp-sample",
+          reached: true,
+          message: sampleWarning,
+        });
     } catch (error) {
       options.signal?.throwIfAborted();
       warnings.push(
@@ -1094,13 +1496,140 @@ export async function analyzeRepository(
     previous: options.previousSemantic,
     authoredContent,
     symbolCalls,
+    symbolRelations,
     callCorroborations,
   });
+  const deepContents = new Map([
+    ...typeScriptTexts,
+    ...pythonTexts,
+    ...rustTexts,
+  ]);
+  const frameworks = analyzeFrameworks({
+    workspaceRoot: root,
+    sourceRevision: revision,
+    generatedAt,
+    nodes,
+    semantic: semantic.graph,
+    contents: deepContents,
+  });
+  const behavior = buildBehaviorGraph({
+    workspaceRoot: root,
+    sourceRevision: revision,
+    generatedAt,
+    nodes,
+    semantic: semantic.graph,
+    contents: deepContents,
+    symbolCalls,
+    symbolRelations,
+    frameworkCandidates: frameworks.candidates,
+  });
+  warnings.push(
+    ...frameworks.diagnostics.map(
+      (item) =>
+        `${item.framework || "framework"}: ${item.message}${item.subject === "document" ? "" : ` (${item.subject})`}`,
+    ),
+  );
+  if (frameworks.coverage.some((item) => item.limitReached))
+    limits.push({
+      code: "framework-candidates",
+      reached: true,
+      message:
+        "Framework adapter candidates reached the bounded source-only analysis limit.",
+    });
   warnings.push(...semantic.warnings);
+  if (semantic.analysis.workflowLimitReached)
+    limits.push({
+      code: "workflow-count",
+      reached: true,
+      message: `Workflow inference emitted ${semantic.analysis.workflowsEmitted}/${semantic.analysis.workflowCandidates} candidates.`,
+    });
+  if (semantic.analysis.supportCandidatesOmitted)
+    limits.push({
+      code: "workflow-support",
+      reached: true,
+      message: `${semantic.analysis.supportCandidatesOmitted} test, documentation, example, fixture, or benchmark workflow candidates are hidden from the default production-first graph.`,
+    });
+  if (semantic.analysis.participantLimitReached)
+    limits.push({
+      code: "workflow-participants",
+      reached: true,
+      message:
+        "Workflow participant projection reached a per-workflow or global bound.",
+    });
+
+  const analyzedPaths = new Set(
+    nodes.flatMap((node) => (node.path ? [node.path] : [])),
+  );
+  const languages = new Map<
+    string,
+    Omit<AnalysisLanguageCoverage, "language" | "mode">
+  >();
+  for (const file of indexedFiles) {
+    const language = coverageLanguage(file.extension);
+    const current = languages.get(language) || {
+      extensions: [],
+      indexedFiles: 0,
+      analyzedFiles: 0,
+      deepFiles: 0,
+      fileOnlyFiles: 0,
+      skippedFiles: 0,
+    };
+    if (!current.extensions.includes(file.extension))
+      current.extensions.push(file.extension);
+    current.indexedFiles++;
+    if (analyzedPaths.has(file.path)) {
+      current.analyzedFiles++;
+      if (DEEP_EXTENSIONS.has(file.extension)) current.deepFiles++;
+      else current.fileOnlyFiles++;
+    } else current.skippedFiles++;
+    languages.set(language, current);
+  }
+  const languageCoverage: AnalysisLanguageCoverage[] = [...languages]
+    .map(([language, item]) => ({
+      language,
+      ...item,
+      extensions: item.extensions.sort(),
+      mode:
+        item.deepFiles && item.fileOnlyFiles
+          ? ("partial" as const)
+          : item.deepFiles
+            ? ("deep" as const)
+            : ("file-only" as const),
+    }))
+    .sort(
+      (left, right) =>
+        right.indexedFiles - left.indexedFiles ||
+        left.language.localeCompare(right.language),
+    );
+  const coverage: AnalysisCoverage = {
+    totalFiles: files.length,
+    indexedFiles: indexedFiles.length,
+    analyzedFiles: analyzedPaths.size,
+    deepFiles: languageCoverage.reduce(
+      (total, item) => total + item.deepFiles,
+      0,
+    ),
+    fileOnlyFiles: languageCoverage.reduce(
+      (total, item) => total + item.fileOnlyFiles,
+      0,
+    ),
+    skippedFiles: indexedFiles.length - analyzedPaths.size,
+    skippedOversizedFiles: indexedFiles.filter((file) => file.size > TEXT_LIMIT)
+      .length,
+    analyzedBytes: bytesRead,
+    byteBudget: options.byteBudget ?? 64_000_000,
+    cache: {
+      memoryHits: memoryCacheHits,
+      persistentHits: persistentCacheHits,
+      misses: cacheMisses,
+    },
+    languages: languageCoverage,
+    limits,
+  };
   return finalizeArchitectureGraph({
     schemaVersion: 1,
     diagramKind: "architecture",
-    analyzerVersion: "polyglot-static-v6",
+    analyzerVersion: ARCHITECTURE_ANALYZER_VERSION,
     workspaceRoot: root,
     revision,
     generatedAt,
@@ -1110,6 +1639,9 @@ export async function analyzeRepository(
     totalFiles: files.length,
     truncated: listing.truncated || budgetReached,
     warnings: warnings.slice(0, 100),
+    coverage,
     semantic: semantic.graph,
+    behavior,
+    frameworks,
   });
 }

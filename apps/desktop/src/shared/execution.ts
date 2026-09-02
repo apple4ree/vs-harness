@@ -64,6 +64,8 @@ export type TerminalSummary = {
   cwd: string;
   shell: string;
   remoteProfileId?: string;
+  /** Present only when this terminal was approved as a structural runtime trace. */
+  traceSessionId?: string;
 };
 export type TerminalSnapshot = TerminalSummary & {
   buffer: string;

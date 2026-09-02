@@ -12,7 +12,12 @@ import {
   type ArchitectureGraph,
   type ComponentContext,
 } from "../../../shared/architecture";
-import type { AgentMode, AgentRun } from "../../../shared/agent";
+import type {
+  AgentHostStatus,
+  AgentMode,
+  AgentProviderId,
+  AgentRun,
+} from "../../../shared/agent";
 import astralObservatory from "../assets/witch-astral-observatory.png";
 import { ReviewDialog } from "./ReviewDialog";
 import "./chat.css";
@@ -23,6 +28,7 @@ export function ChatPanel({
   attachments,
   onAttachments,
   available,
+  providerStatus,
   onOpenFile,
 }: {
   root: string | undefined;
@@ -30,13 +36,18 @@ export function ChatPanel({
   attachments: ComponentContext[];
   onAttachments: (contexts: ComponentContext[]) => void;
   available: boolean;
+  providerStatus: ProviderStatus | null;
   onOpenFile: (path: string, line?: number) => void;
 }) {
   const [runs, setRuns] = useState<AgentRun[]>([]);
+  const [agentHost, setAgentHost] = useState<AgentHostStatus | null>(null);
+  const [providerId, setProviderId] = useState<AgentProviderId>("codex");
   const [prompt, setPrompt] = useState("");
   const [mode, setMode] = useState<AgentMode>("ask");
   const [starting, setStarting] = useState(false);
   const [archiving, setArchiving] = useState<string | null>(null);
+  const [restoring, setRestoring] = useState<string | null>(null);
+  const [continuing, setContinuing] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [dragging, setDragging] = useState(false);
   // Keep the reviewed contents stable while live apply events update the history.
@@ -49,13 +60,40 @@ export function ChatPanel({
   currentRoot.current = root;
   const busy =
     starting ||
+    !!continuing ||
     runs.some((run) => ["preparing", "running"].includes(run.status));
+  const provider = agentHost?.providers.find((item) => item.id === providerId);
+  const providerAvailable = provider?.available ?? available;
+  useEffect(() => {
+    let disposed = false;
+    void window.witch.agent
+      .status()
+      .then((status) => {
+        if (disposed) return;
+        setAgentHost(status);
+        setProviderId((current) =>
+          status.providers.some((item) => item.id === current)
+            ? current
+            : status.defaultProviderId,
+        );
+      })
+      .catch((reason) => {
+        if (!disposed) setError(String(reason));
+      });
+    return () => {
+      disposed = true;
+    };
+  }, [
+    providerStatus?.codex.authenticated,
+    providerStatus?.claude.authenticated,
+  ]);
   useEffect(() => {
     let disposed = false;
     setRuns([]);
     setError("");
     setReview(null);
     setArchiving(null);
+    setRestoring(null);
     const events = new Map<string, AgentRun>();
     const unsubscribe = window.witch.agent.onEvent(({ run }) => {
       if (run.workspaceRoot !== root) return;
@@ -129,6 +167,7 @@ export function ChatPanel({
         prompt: prompt.trim(),
         mode,
         contexts: attachments,
+        providerId,
       });
       setRuns((previous) =>
         previous.some((item) => item.id === run.id)
@@ -161,6 +200,51 @@ export function ChatPanel({
       if (currentRoot.current === origin) setArchiving(null);
     }
   }
+  async function restore(run: AgentRun) {
+    if (busy || archiving || restoring || !root) return;
+    const origin = root;
+    setRestoring(run.id);
+    setError("");
+    try {
+      const restored = await window.witch.agent.restore(run.id);
+      if (currentRoot.current === origin)
+        setRuns((previous) => [
+          restored,
+          ...previous.filter((item) => item.id !== restored.id),
+        ]);
+    } catch (reason) {
+      if (currentRoot.current === origin)
+        setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      if (currentRoot.current === origin) setRestoring(null);
+    }
+  }
+  async function continueRun(run: AgentRun, action: "resume" | "fork") {
+    if (busy || archiving || restoring || !root || !prompt.trim()) return;
+    const origin = root;
+    setContinuing(`${action}:${run.id}`);
+    setError("");
+    follow.current = true;
+    try {
+      const continued =
+        action === "resume"
+          ? await window.witch.agent.resume(run.id, prompt.trim())
+          : await window.witch.agent.fork(run.id, providerId, prompt.trim());
+      if (currentRoot.current === origin) {
+        setRuns((previous) => [
+          continued,
+          ...previous.filter((item) => item.id !== continued.id),
+        ]);
+        setPrompt("");
+        onAttachments([]);
+      }
+    } catch (reason) {
+      if (currentRoot.current === origin)
+        setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      if (currentRoot.current === origin) setContinuing(null);
+    }
+  }
   return (
     <section
       className={`chat-panel ${dragging ? "dragging" : ""}`}
@@ -184,7 +268,8 @@ export function ChatPanel({
           <h2>Witch companion</h2>
         </div>
         <span className="chat-engine">
-          Codex · {busy ? "working" : available ? "CLI" : "not installed"}
+          {provider?.label || "Codex"} ·{" "}
+          {busy ? "working" : providerAvailable ? "ready" : "unavailable"}
         </span>
       </header>
       <div
@@ -219,7 +304,8 @@ export function ChatPanel({
           <article className="chat-run" key={run.id}>
             <div className="chat-user">
               <span>
-                You · {run.mode === "change" ? "change request" : "question"}
+                You · {run.providerLabel} ·{" "}
+                {run.mode === "change" ? "change request" : "question"}
               </span>
               <p>{run.prompt}</p>
               {!!run.contexts.length && (
@@ -249,6 +335,44 @@ export function ChatPanel({
                 <strong>✦ Witch</strong>
                 <span className={`run-state ${run.status}`}>{run.status}</span>
               </header>
+              {run.engineering && (
+                <div
+                  className={`engineering-run-summary ${run.engineering.healthy ? "healthy" : "unhealthy"}`}
+                  title={
+                    run.engineering.healthy
+                      ? `Replay digest ${run.engineering.eventDigest}`
+                      : run.engineering.error
+                  }
+                >
+                  <span>Harness · {run.engineering.state}</span>
+                  <small>
+                    {run.engineering.eventCount} immutable event
+                    {run.engineering.eventCount === 1 ? "" : "s"} ·{" "}
+                    {run.engineering.checkpointCount} checkpoint
+                    {run.engineering.checkpointCount === 1 ? "" : "s"} ·{" "}
+                    {run.engineering.verificationPassed} passed
+                    {run.engineering.verificationFailed
+                      ? ` · ${run.engineering.verificationFailed} failed`
+                      : ""}
+                    {run.engineering.repairAttempts
+                      ? ` · ${run.engineering.repairAttempts} repair${run.engineering.repairAttempts === 1 ? "" : "s"}`
+                      : ""}
+                    {run.engineering.planUnexpectedFiles
+                      ? ` · ${run.engineering.planUnexpectedFiles} outside plan`
+                      : ""}
+                    {run.engineering.repairStopReason
+                      ? ` · stopped ${run.engineering.repairStopReason}`
+                      : ""}
+                    {run.engineering.analysisStatus
+                      ? ` · analysis ${run.engineering.analysisStatus}`
+                      : ""}
+                    {" · "}
+                    {run.engineering.healthy
+                      ? "journal verified"
+                      : "apply blocked"}
+                  </small>
+                </div>
+              )}
               {run.response ? (
                 <div className="assistant-text">{run.response}</div>
               ) : (
@@ -280,6 +404,45 @@ export function ChatPanel({
                   </ol>
                 </details>
               )}
+              {(Boolean(
+                run.nativeSession &&
+                  agentHost?.providers.find(
+                    (item) => item.id === run.providerId,
+                  )?.capabilities.sessionResume,
+              ) ||
+                Boolean(
+                  provider?.capabilities.fork &&
+                    provider.capabilities.modes.includes(run.mode),
+                )) && (
+                <div className="agent-native-controls">
+                  {run.nativeSession &&
+                    agentHost?.providers.find(
+                      (item) => item.id === run.providerId,
+                    )?.capabilities.sessionResume && (
+                      <button
+                        disabled={busy || !prompt.trim()}
+                        aria-label={`Resume ${run.providerLabel} session`}
+                        onClick={() => void continueRun(run, "resume")}
+                      >
+                        {continuing === `resume:${run.id}`
+                          ? "Resuming…"
+                          : "Resume session"}
+                      </button>
+                    )}
+                  {provider?.capabilities.fork &&
+                    provider.capabilities.modes.includes(run.mode) && (
+                      <button
+                        disabled={busy || !prompt.trim()}
+                        aria-label={`Fork run with ${provider.label}`}
+                        onClick={() => void continueRun(run, "fork")}
+                      >
+                        {continuing === `fork:${run.id}`
+                          ? "Forking…"
+                          : `Fork with ${provider.label}`}
+                      </button>
+                    )}
+                </div>
+              )}
               {run.status === "review" && (
                 <>
                   <button
@@ -309,6 +472,15 @@ export function ChatPanel({
                     locally. Restoring a review in the UI is not yet supported.
                   </p>
                   <p>{run.archivePath}</p>
+                  <button
+                    className="restore-review-button"
+                    disabled={busy || !!archiving || !!restoring}
+                    onClick={() => void restore(run)}
+                  >
+                    {restoring === run.id
+                      ? "Restoring…"
+                      : "Restore as new review"}
+                  </button>
                 </details>
               )}
               {!!run.appliedPaths?.length && (
@@ -385,6 +557,38 @@ export function ChatPanel({
           }}
         />
         <footer>
+          {agentHost && agentHost.providers.length > 1 && (
+            <label>
+              <span className="sr-only">Agent provider</span>
+              <select
+                aria-label="Agent provider"
+                value={providerId}
+                disabled={busy || !!archiving}
+                onChange={(event) => {
+                  const next = event.target.value as AgentProviderId;
+                  setProviderId(next);
+                  const descriptor = agentHost.providers.find(
+                    (item) => item.id === next,
+                  );
+                  if (
+                    descriptor &&
+                    !descriptor.capabilities.modes.includes(mode)
+                  )
+                    setMode(descriptor.capabilities.modes[0] || "ask");
+                }}
+              >
+                {agentHost.providers.map((item) => (
+                  <option
+                    key={item.id}
+                    value={item.id}
+                    disabled={!item.available}
+                  >
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <label>
             <span className="sr-only">Agent mode</span>
             <select
@@ -393,8 +597,22 @@ export function ChatPanel({
               disabled={busy || !!archiving}
               onChange={(event) => setMode(event.target.value as AgentMode)}
             >
-              <option value="ask">Ask · read only</option>
-              <option value="change">Change · isolated copy</option>
+              <option
+                value="ask"
+                disabled={Boolean(
+                  provider && !provider.capabilities.modes.includes("ask"),
+                )}
+              >
+                Ask · read only
+              </option>
+              <option
+                value="change"
+                disabled={Boolean(
+                  provider && !provider.capabilities.modes.includes("change"),
+                )}
+              >
+                Change · isolated copy
+              </option>
             </select>
           </label>
           {busy ? (
@@ -414,7 +632,9 @@ export function ChatPanel({
               className="chat-send"
               aria-label="Send message"
               onClick={() => void send()}
-              disabled={!root || !available || !prompt.trim() || !!archiving}
+              disabled={
+                !root || !providerAvailable || !prompt.trim() || !!archiving
+              }
             >
               <ArrowUp size={17} />
             </button>

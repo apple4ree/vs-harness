@@ -4,6 +4,9 @@ import type {
   SemanticStatus,
   SemanticTrust,
 } from "./semantic";
+import type { SemanticCompositionReceipt } from "./semantic-composer";
+import type { BehaviorGraph } from "./behavior";
+import type { FrameworkGraph } from "./framework";
 
 export type SourceEvidence = {
   path: string;
@@ -31,6 +34,10 @@ export type CodeSymbol = {
     | "module";
   line: number;
   endLine: number;
+  /** One-based source column when the parser can provide an exact declaration. */
+  column?: number;
+  /** Zero-based character offset used to bind calls to the exact AST declaration. */
+  startOffset?: number;
   exported: boolean;
   qualifiedName?: string;
   containerId?: string;
@@ -82,6 +89,54 @@ export type ArchitectureValidationReceipt = {
   diagnostics: ArchitectureDiagnostic[];
 };
 
+export type AnalysisLanguageCoverage = {
+  /** Stable display id rather than a raw extension (for example, typescript). */
+  language: string;
+  extensions: string[];
+  indexedFiles: number;
+  analyzedFiles: number;
+  deepFiles: number;
+  fileOnlyFiles: number;
+  skippedFiles: number;
+  mode: "deep" | "partial" | "file-only";
+};
+
+export type AnalysisLimit = {
+  code:
+    | "file-index"
+    | "byte-budget"
+    | "typescript-calls"
+    | "symbol-calls"
+    | "symbol-relations"
+    | "workflow-count"
+    | "workflow-support"
+    | "workflow-participants"
+    | "framework-candidates"
+    | "lsp-sample";
+  message: string;
+  reached: boolean;
+};
+
+/** Honest coverage and incremental-index telemetry for this exact reading. */
+export type AnalysisCoverage = {
+  totalFiles: number;
+  indexedFiles: number;
+  analyzedFiles: number;
+  deepFiles: number;
+  fileOnlyFiles: number;
+  skippedFiles: number;
+  skippedOversizedFiles: number;
+  analyzedBytes: number;
+  byteBudget: number;
+  cache: {
+    memoryHits: number;
+    persistentHits: number;
+    misses: number;
+  };
+  languages: AnalysisLanguageCoverage[];
+  limits: AnalysisLimit[];
+};
+
 export type ArchitectureGraph = {
   schemaVersion: 1;
   diagramKind: "architecture";
@@ -95,8 +150,16 @@ export type ArchitectureGraph = {
   totalFiles: number;
   truncated: boolean;
   warnings: string[];
+  /** Added after v1 launch; optional so immutable legacy readings remain valid. */
+  coverage?: AnalysisCoverage;
   /** Optional, separately validated meaning layer. Old source-only snapshots remain valid. */
   semantic?: SemanticGraph;
+  /** Optional behavior/data-flow overlay; it references semantic node IDs. */
+  behavior?: BehaviorGraph;
+  /** Optional source-only framework adapter findings and coverage receipt. */
+  frameworks?: FrameworkGraph;
+  /** Audited Semantic Composer run. The composed nodes live in `semantic`. */
+  composition?: SemanticCompositionReceipt;
   validation: ArchitectureValidationReceipt;
 };
 

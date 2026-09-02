@@ -2,16 +2,13 @@ import { execFileSync } from "node:child_process";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import {
-  analyzeRepository,
-  type ArchitectureCache,
-} from "../apps/desktop/src/main/services/architecture";
 import { corroborateSymbolCalls } from "../apps/desktop/src/main/services/call-corroboration";
 import {
   findRustAnalyzerExecutable,
   LanguageIntelligence,
 } from "../apps/desktop/src/main/services/language-intelligence";
 import { LanguageServer } from "../apps/desktop/src/main/services/language-server";
+import { RepositoryAnalysisService } from "../apps/desktop/src/main/services/repository-analysis";
 import { listWorkspace } from "../apps/desktop/src/main/services/workspace-files";
 import { buildView } from "../apps/desktop/src/renderer/src/components/architecture-view";
 
@@ -99,6 +96,7 @@ async function main() {
   const requestedRoot = argument("--root");
   const slug = argument("--slug");
   const output = argument("--output");
+  const requestedIndexRoot = argument("--index-root");
   const rank = Number(argument("--rank"));
   if (!requestedRoot || !path.isAbsolute(requestedRoot))
     throw new Error("--root must be an absolute repository path");
@@ -108,6 +106,8 @@ async function main() {
     throw new Error("--rank must be an integer from 1 to 100");
   if (output && !path.isAbsolute(output))
     throw new Error("--output must be an absolute JSON path");
+  if (requestedIndexRoot && !path.isAbsolute(requestedIndexRoot))
+    throw new Error("--index-root must be an absolute directory path");
   const root = await fs.realpath(requestedRoot);
   const gitDirectory = path.join(root, ".git");
   if (!(await fs.stat(gitDirectory)).isDirectory())
@@ -122,40 +122,125 @@ async function main() {
     files.map((file) => file.extension || "[no extension]"),
   );
 
-  const cache: ArchitectureCache = new Map();
+  const indexRoot =
+    requestedIndexRoot ||
+    (output
+      ? path.join(path.dirname(output), "indexes")
+      : await fs.mkdtemp(path.join(os.tmpdir(), "witch-repository-index-")));
+  const analyzer = new RepositoryAnalysisService();
+  analyzer.setIndexRoot(indexRoot);
+  await analyzer.clearIndex(root);
   const coldStart = performance.now();
-  const cold = await analyzeRepository(root, { cache });
+  const cold = await analyzer.analyze(root);
   const coldMs = milliseconds(coldStart);
   const warmStart = performance.now();
-  const warm = await analyzeRepository(root, {
-    cache,
-    previousSemantic: cold.semantic,
-  });
+  const warm = await analyzer.analyze(root);
   const warmMs = milliseconds(warmStart);
+  analyzer.dispose();
+
+  const restartedAnalyzer = new RepositoryAnalysisService();
+  restartedAnalyzer.setIndexRoot(indexRoot);
+  const persistentStart = performance.now();
+  const persistent = await restartedAnalyzer.analyze(root);
+  const persistentMs = milliseconds(persistentStart);
 
   const language = createLanguageIntelligence(root);
-  let enriched = warm;
+  let enriched = persistent;
   let corroborationMs = 0;
   let languageProviders: Awaited<
     ReturnType<LanguageIntelligence["status"]>
   > | null = null;
   try {
     const corroborationStart = performance.now();
-    enriched = await analyzeRepository(root, {
-      cache,
-      previousSemantic: warm.semantic,
+    enriched = await restartedAnalyzer.analyze(root, {
       callCorroborator: (input) => corroborateSymbolCalls(input, language),
     });
     corroborationMs = milliseconds(corroborationStart);
     languageProviders = await language.status();
   } finally {
     await language.stop();
+    restartedAnalyzer.dispose();
   }
 
   const layoutStart = performance.now();
   const moduleView = buildView(enriched, "modules", null, false, "", new Set());
   const layoutMs = milliseconds(layoutStart);
+  const semanticViews = Object.fromEntries(
+    (
+      [
+        "overview",
+        "components",
+        "workflows",
+        "calls",
+        "behavior",
+        "frameworks",
+        "questions",
+        "verified",
+      ] as const
+    ).map((lens) => {
+      const started = performance.now();
+      const view = buildView(
+        enriched,
+        "semantics",
+        null,
+        false,
+        "",
+        new Set(),
+        null,
+        lens,
+      );
+      return [
+        lens,
+        {
+          milliseconds: milliseconds(started),
+          totalNodes: view.total,
+          visibleNodes: view.nodes.length,
+          totalEdges: view.totalEdges,
+          visibleEdges: view.edges.length,
+          quality: view.quality.status,
+          qualityDiagnostics: view.quality.diagnostics.length,
+          omittedNodes: view.projection.omittedNodes,
+          omittedEdges: view.projection.omittedEdges,
+          qualityRemovedEdges: view.projection.qualityRemovedEdges,
+        },
+      ];
+    }),
+  );
   const semantic = enriched.semantic!;
+  const behavior = enriched.behavior!;
+  const frameworks = enriched.frameworks!;
+  const workflowNodes = semantic.nodes.filter(
+    (node) => node.kind === "workflow",
+  );
+  const supportPath =
+    /(^|\/)(docs?|examples?|samples?|tests?|fixtures?|benchmarks?)(\/|$)|(^|\/)test_[^/]+$/i;
+  const focusedWorkflowViews = workflowNodes.map((workflowNode) => {
+    const started = performance.now();
+    const view = buildView(
+      enriched,
+      "semantics",
+      null,
+      false,
+      "",
+      new Set(),
+      null,
+      "workflows",
+      {
+        focusId: workflowNode.id,
+        mode: "sequence",
+        collapseBranches: true,
+      },
+    );
+    return {
+      id: workflowNode.id,
+      milliseconds: milliseconds(started),
+      nodes: view.nodes.length,
+      edges: view.edges.length,
+      quality: view.quality.status,
+      errors: view.quality.errors,
+      warnings: view.quality.warnings,
+    };
+  });
   const deepFiles = enriched.nodes.filter((node) =>
     DEEP_EXTENSIONS.has(path.extname(node.path || "").toLowerCase()),
   ).length;
@@ -206,12 +291,43 @@ async function main() {
       visibleCards: moduleView.nodes.length,
       coldMilliseconds: coldMs,
       warmMilliseconds: warmMs,
+      persistentRestartMilliseconds: persistentMs,
       corroborationMilliseconds: corroborationMs,
       layoutMilliseconds: layoutMs,
       maxResidentMB: Math.round(process.resourceUsage().maxRSS / 1024),
       truncated: enriched.truncated,
       warnings: enriched.warnings,
       architectureValid: enriched.validation.valid,
+      coverage: enriched.coverage,
+      coveragePasses: {
+        cold: cold.coverage?.cache,
+        warm: warm.coverage?.cache,
+        persistentRestart: persistent.coverage?.cache,
+        corroborated: enriched.coverage?.cache,
+      },
+      semanticViews,
+      focusedWorkflowViews: {
+        total: focusedWorkflowViews.length,
+        pass: focusedWorkflowViews.filter((view) => view.quality === "pass")
+          .length,
+        warning: focusedWorkflowViews.filter(
+          (view) => view.quality === "warning",
+        ).length,
+        fail: focusedWorkflowViews.filter((view) => view.quality === "fail")
+          .length,
+        maxNodes: Math.max(
+          0,
+          ...focusedWorkflowViews.map((view) => view.nodes),
+        ),
+        maxEdges: Math.max(
+          0,
+          ...focusedWorkflowViews.map((view) => view.edges),
+        ),
+        milliseconds: focusedWorkflowViews.reduce(
+          (total, view) => total + view.milliseconds,
+          0,
+        ),
+      },
     },
     semantic: {
       valid: semantic.validation.valid,
@@ -219,10 +335,48 @@ async function main() {
       relations: semantic.relations.length,
       claims: semantic.claims.length,
       questions: semantic.questions.length,
+      workflows: {
+        total: workflowNodes.length,
+        production: workflowNodes.filter(
+          (node) => !supportPath.test(node.path || ""),
+        ).length,
+        support: workflowNodes.filter((node) =>
+          supportPath.test(node.path || ""),
+        ).length,
+      },
       nodeKinds,
       relationKinds,
       relationStatuses,
       relationTrust,
+    },
+    behavior: {
+      valid: behavior.validation.valid,
+      revision: behavior.revision,
+      values: behavior.values.length,
+      relations: behavior.relations.length,
+      workflows: behavior.workflows.length,
+      verified: behavior.validation.verifiedCount,
+      inferred: behavior.validation.inferredCount,
+      evidence: behavior.validation.evidenceCount,
+      diagnostics: behavior.validation.diagnostics,
+      relationKinds: countBy(
+        behavior.relations.map((relation) => relation.kind),
+      ),
+    },
+    frameworks: {
+      valid: frameworks.validation.valid,
+      revision: frameworks.revision,
+      detections: frameworks.validation.detectionCount,
+      candidates: frameworks.validation.candidateCount,
+      excluded: frameworks.validation.excludedCount,
+      evidence: frameworks.validation.evidenceCount,
+      diagnostics: frameworks.validation.diagnostics,
+      coverage: frameworks.coverage,
+      candidateKinds: countBy(
+        frameworks.candidates.map(
+          (candidate) => `${candidate.framework}:${candidate.kind}`,
+        ),
+      ),
     },
     samples: {
       workflows: semantic.nodes

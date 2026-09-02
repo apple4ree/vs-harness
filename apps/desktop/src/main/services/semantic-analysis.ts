@@ -14,6 +14,7 @@ import type {
   SemanticOpenQuestion,
   SemanticProvenance,
   SemanticRelation,
+  SemanticRelationKind,
   SemanticRevisionSummary,
   WorkflowStepKind,
 } from "../../shared/semantic";
@@ -23,8 +24,8 @@ import {
 } from "../../shared/semantic-ir";
 import { contentHash } from "./workspace-files";
 
-export const SEMANTIC_ANALYZER_VERSION = "semantic-static-v4";
-export const SEMANTIC_POLICY_VERSION = "agent-finance-v1";
+export const SEMANTIC_ANALYZER_VERSION = "semantic-static-v10";
+export const SEMANTIC_POLICY_VERSION = "evidence-first-workflow-v2";
 
 export type ResolvedSymbolCall = {
   fromSourceSymbolId: string;
@@ -34,6 +35,19 @@ export type ResolvedSymbolCall = {
   confidence?: number;
   resolver?: "typescript" | "python-static" | "rust-static";
   sites?: ResolvedCallSite[];
+};
+
+export type ResolvedSymbolRelation = {
+  fromSourceSymbolId: string;
+  toSourceSymbolId: string;
+  kind: Extract<
+    SemanticRelationKind,
+    "extends" | "implements" | "overrides" | "reads" | "writes"
+  >;
+  evidence: SourceEvidence[];
+  trust: "verified" | "inferred";
+  confidence: number;
+  resolver: "typescript" | "python-static" | "rust-static";
 };
 
 export type SymbolCallCorroboration = {
@@ -138,12 +152,23 @@ function workflowStepFor(symbol: CodeSymbol): WorkflowStepKind | null {
   const has = (...values: string[]) =>
     values.some((value) => nameTokens.has(value));
   const registered =
-    /tokio::main|__main__|route|router|endpoint|command|scheduler|cron|task/.test(
+    /tokio::main|__main__|route|router|endpoint|command|scheduler|cron|task|listener|subscriber|consumer|event|webhook/.test(
       annotations,
     );
-  const domain = [
+  const orchestration = [
     "agent",
     "workflow",
+    "pipeline",
+    "orchestrator",
+    "orchestration",
+    "handler",
+    "listener",
+    "consumer",
+    "server",
+    "cli",
+    "command",
+    "job",
+    "task",
     "trade",
     "trading",
     "order",
@@ -154,8 +179,36 @@ function workflowStepFor(symbol: CodeSymbol): WorkflowStepKind | null {
     "broker",
     "market",
   ].some((value) => contextTokens.has(value));
-  const rootEntry =
-    !symbol.containerId && has("main", "bootstrap", "start", "run");
+  const normalizedName = symbol.name.toLowerCase();
+  const canonicalEntry =
+    !symbol.containerId &&
+    [
+      "main",
+      "__main__",
+      "bootstrap",
+      "startup",
+      "entrypoint",
+      "run",
+      "start",
+    ].includes(normalizedName);
+  const actionEntry =
+    !symbol.containerId &&
+    (symbol.exported || symbol.async || registered) &&
+    orchestration &&
+    has(
+      "start",
+      "bootstrap",
+      "run",
+      "execute",
+      "handle",
+      "process",
+      "consume",
+      "listen",
+      "serve",
+      "submit",
+      "dispatch",
+      "orchestrate",
+    );
   const utility = has(
     "get",
     "set",
@@ -173,8 +226,12 @@ function workflowStepFor(symbol: CodeSymbol): WorkflowStepKind | null {
     "send",
     "receive",
   );
-  if (!registered && !rootEntry && (!domain || utility)) return null;
-  if (registered || has("main", "bootstrap", "start")) return "trigger";
+  if (
+    (!registered && utility) ||
+    (!registered && !canonicalEntry && !actionEntry)
+  )
+    return null;
+  if (registered || canonicalEntry || has("start")) return "trigger";
   if (has("ingest", "consume", "receive", "fetch", "load")) return "ingest";
   if (has("validate", "check", "verify")) return "validate";
   if (has("infer", "predict", "model")) return "infer";
@@ -312,6 +369,7 @@ export function buildSemanticGraph({
   previous,
   authoredContent,
   symbolCalls = [],
+  symbolRelations = [],
   callCorroborations = [],
 }: {
   workspaceRoot: string;
@@ -322,8 +380,19 @@ export function buildSemanticGraph({
   previous?: SemanticGraph | null;
   authoredContent?: string | null;
   symbolCalls?: ResolvedSymbolCall[];
+  symbolRelations?: ResolvedSymbolRelation[];
   callCorroborations?: SymbolCallCorroboration[];
-}): { graph: SemanticGraph; warnings: string[] } {
+}): {
+  graph: SemanticGraph;
+  warnings: string[];
+  analysis: {
+    workflowCandidates: number;
+    workflowsEmitted: number;
+    workflowLimitReached: boolean;
+    supportCandidatesOmitted: number;
+    participantLimitReached: boolean;
+  };
+} {
   const warnings: string[] = [];
   const nodes: SemanticNode[] = [];
   const relations: SemanticRelation[] = [];
@@ -485,6 +554,39 @@ export function buildSemanticGraph({
       });
     }
 
+  for (const resolved of symbolRelations) {
+    const from = semanticSymbols.get(resolved.fromSourceSymbolId);
+    const to = semanticSymbols.get(resolved.toSourceSymbolId);
+    if (!from || !to || from === to || !resolved.evidence.length) continue;
+    const description =
+      resolved.resolver === "typescript"
+        ? resolved.kind === "reads"
+          ? "TypeScript TypeChecker resolved this callable reading an internal module variable."
+          : resolved.kind === "writes"
+            ? "TypeScript TypeChecker resolved this callable assigning or updating an internal module variable."
+            : resolved.kind === "overrides"
+              ? "TypeScript TypeChecker resolved this method on a directly extended internal base type."
+              : "TypeScript TypeChecker resolved this internal heritage clause."
+        : resolved.resolver === "python-static"
+          ? resolved.kind === "overrides"
+            ? "Python source analysis found the same method on a uniquely resolved direct internal base class; runtime rebinding is not proven."
+            : "Python source analysis uniquely resolved this direct internal base class; runtime metaclass behavior is not proven."
+          : "Rust source analysis uniquely resolved this internal trait implementation; compiler type resolution can further corroborate it.";
+    relations.push({
+      id: `semantic:${resolved.kind}:${from}:${to}`,
+      from,
+      to,
+      kind: resolved.kind,
+      trust: resolved.trust,
+      status: resolved.trust === "verified" ? "accepted" : "provisional",
+      confidence: resolved.confidence,
+      description,
+      evidence: resolved.evidence,
+      provenance:
+        resolved.trust === "verified" ? staticProvenance : inferredProvenance,
+    });
+  }
+
   const callRelations = new Map<string, SemanticRelation>();
   for (const call of symbolCalls) {
     const from = semanticSymbols.get(call.fromSourceSymbolId);
@@ -635,421 +737,462 @@ export function buildSemanticGraph({
     if (existing) existing.push(call);
     else callsBySource.set(call.fromSourceSymbolId, [call]);
   }
+  const rawWorkflowCandidates = sourceFiles.flatMap((source) =>
+    source.symbols.flatMap((symbol) => {
+      const stepKind = workflowStepFor(symbol);
+      return stepKind ? [{ source, symbol, stepKind }] : [];
+    }),
+  );
+  const isSupportPath = (value: string) =>
+    /(^|\/)(docs?|examples?|samples?|tests?|fixtures?|benchmarks?)(\/|$)|(^|\/)test_[^/]+$/i.test(
+      value,
+    );
+  const productionCandidates = rawWorkflowCandidates.filter(
+    (candidate) => !isSupportPath(candidate.source.path || ""),
+  );
+  const supportCandidates = rawWorkflowCandidates.filter((candidate) =>
+    isSupportPath(candidate.source.path || ""),
+  );
+  const retainedSupportCandidates = supportCandidates.slice(0, 12);
+  const supportCandidatesOmitted = Math.max(
+    0,
+    supportCandidates.length - retainedSupportCandidates.length,
+  );
+  const workflowCandidates = [
+    ...productionCandidates,
+    ...retainedSupportCandidates,
+  ];
+  if (supportCandidatesOmitted)
+    warnings.push(
+      `Workflow inference kept ${retainedSupportCandidates.length}/${supportCandidates.length} test, documentation, example, fixture, or benchmark entry points so production workflows remain readable.`,
+    );
+  const workflowLimitReached = workflowCandidates.length > 100;
+  if (workflowLimitReached)
+    warnings.push(
+      `Workflow inference selected 100/${workflowCandidates.length} evidence-backed entry points. Narrow the project or filter the workflow lens to inspect omitted candidates.`,
+    );
   let workflowCount = 0;
   let workflowParticipantCount = 0;
-  for (const source of sourceFiles) {
-    for (const symbol of source.symbols) {
-      if (workflowCount >= 100) break;
-      const stepKind = workflowStepFor(symbol);
-      const symbolId = semanticSymbols.get(symbol.id);
-      if (!stepKind || !symbolId) continue;
-      workflowCount++;
-      const workflowId = `semantic:workflow:${symbol.id}`;
-      const stepId = `${workflowId}:step`;
-      const evidence = symbolEvidence(source, symbol);
-      nodes.push(
-        {
-          id: workflowId,
-          label: `${symbol.name} workflow`,
-          kind: "workflow",
-          trust: "inferred",
-          status: "provisional",
-          confidence: 0.64,
-          language: languageFor(source.language)!,
-          path: source.path,
-          sourceNodeId: source.id,
-          sourceSymbolId: symbol.id,
-          description: `Candidate workflow anchored at ${symbol.qualifiedName || symbol.name}.`,
-          evidence,
-          provenance: inferredProvenance,
-        },
-        {
-          id: stepId,
-          label: symbol.name,
-          kind: "workflow-step",
-          stepKind,
-          trust: "inferred",
-          status: "provisional",
-          confidence: 0.64,
-          language: languageFor(source.language)!,
-          path: source.path,
-          sourceNodeId: source.id,
-          sourceSymbolId: symbol.id,
-          description: `Provisional ${stepKind} step inferred from the symbol name and annotations.`,
-          evidence,
-          provenance: inferredProvenance,
-        },
-      );
-      relations.push(
-        {
-          id: `semantic:contains:${systemId}:${workflowId}`,
-          from: systemId,
-          to: workflowId,
-          kind: "contains",
-          trust: "inferred",
-          status: "provisional",
-          confidence: 0.64,
-          evidence,
-          provenance: inferredProvenance,
-        },
-        {
-          id: `semantic:contains:${workflowId}:${stepId}`,
-          from: workflowId,
-          to: stepId,
-          kind: "contains",
-          trust: "inferred",
-          status: "provisional",
-          confidence: 0.64,
-          evidence,
-          provenance: inferredProvenance,
-        },
-        {
-          id: `semantic:executes:${stepId}:${symbolId}`,
-          from: stepId,
-          to: symbolId,
-          kind: "executes",
-          trust: "inferred",
-          status: "provisional",
-          confidence: 0.64,
-          evidence,
-          provenance: inferredProvenance,
-        },
-      );
-      inferredClaims.push({
-        id: `semantic:claim:${workflowId}:workflow`,
-        subjectId: workflowId,
-        key: "workflow",
-        value: `${symbol.qualifiedName || symbol.name} is treated as a ${stepKind} workflow entry point.`,
+  let participantLimitReached = false;
+  for (const { source, symbol, stepKind } of workflowCandidates.slice(0, 100)) {
+    const symbolId = semanticSymbols.get(symbol.id);
+    if (!symbolId) continue;
+    workflowCount++;
+    const workflowId = `semantic:workflow:${symbol.id}`;
+    const stepId = `${workflowId}:step`;
+    const evidence = symbolEvidence(source, symbol);
+    nodes.push(
+      {
+        id: workflowId,
+        label: `${symbol.name} workflow`,
+        kind: "workflow",
         trust: "inferred",
         status: "provisional",
         confidence: 0.64,
-        reason:
-          "The symbol name or annotation matches the active agent/finance workflow policy.",
+        language: languageFor(source.language)!,
+        path: source.path,
+        sourceNodeId: source.id,
+        sourceSymbolId: symbol.id,
+        description: `Candidate workflow anchored at ${symbol.qualifiedName || symbol.name}.`,
         evidence,
         provenance: inferredProvenance,
+      },
+      {
+        id: stepId,
+        label: symbol.name,
+        kind: "workflow-step",
+        stepKind,
+        trust: "inferred",
+        status: "provisional",
+        confidence: 0.64,
+        language: languageFor(source.language)!,
+        path: source.path,
+        sourceNodeId: source.id,
+        sourceSymbolId: symbol.id,
+        description: `Provisional ${stepKind} step inferred from the symbol name and annotations.`,
+        evidence,
+        provenance: inferredProvenance,
+      },
+    );
+    relations.push(
+      {
+        id: `semantic:contains:${systemId}:${workflowId}`,
+        from: systemId,
+        to: workflowId,
+        kind: "contains",
+        trust: "inferred",
+        status: "provisional",
+        confidence: 0.64,
+        evidence,
+        provenance: inferredProvenance,
+      },
+      {
+        id: `semantic:contains:${workflowId}:${stepId}`,
+        from: workflowId,
+        to: stepId,
+        kind: "contains",
+        trust: "inferred",
+        status: "provisional",
+        confidence: 0.64,
+        evidence,
+        provenance: inferredProvenance,
+      },
+      {
+        id: `semantic:executes:${stepId}:${symbolId}`,
+        from: stepId,
+        to: symbolId,
+        kind: "executes",
+        trust: "inferred",
+        status: "provisional",
+        confidence: 0.64,
+        evidence,
+        provenance: inferredProvenance,
+      },
+    );
+    inferredClaims.push({
+      id: `semantic:claim:${workflowId}:workflow`,
+      subjectId: workflowId,
+      key: "workflow",
+      value: `${symbol.qualifiedName || symbol.name} is treated as a ${stepKind} workflow entry point.`,
+      trust: "inferred",
+      status: "provisional",
+      confidence: 0.64,
+      reason:
+        "The symbol has an explicit registration, canonical entry-point name, or exported orchestration action supported by source evidence.",
+      evidence,
+      provenance: inferredProvenance,
+    });
+    const participants = (callsBySource.get(symbol.id) || [])
+      .filter((call) => call.toSourceSymbolId !== symbol.id)
+      .flatMap((call) =>
+        (call.sites?.length
+          ? call.sites
+          : call.evidence.map((item, index): ResolvedCallSite => ({
+              evidence: item,
+              ordinal: item.line * 10_000 + index,
+            }))
+        ).map((site) => ({ call, site })),
+      )
+      .sort(
+        (a, b) =>
+          a.site.ordinal - b.site.ordinal ||
+          a.call.toSourceSymbolId.localeCompare(b.call.toSourceSymbolId),
+      )
+      .slice(0, Math.max(0, Math.min(16, 800 - workflowParticipantCount)));
+    if (
+      (callsBySource.get(symbol.id) || []).length > participants.length ||
+      workflowParticipantCount >= 800
+    )
+      participantLimitReached = true;
+    const participantRecords: Array<{
+      id: string;
+      call: ResolvedSymbolCall;
+      site: ResolvedCallSite;
+    }> = [];
+    const controlNodes = new Map<string, string>();
+    const relationIds = new Set(relations.map((relation) => relation.id));
+    const addFlowRelation = (
+      from: string,
+      to: string,
+      kind: "precedes" | "branches-to" | "retries",
+      confidence: number,
+      relationEvidence: SourceEvidence[],
+      description: string,
+    ) => {
+      const id = `semantic:${kind}:${workflowId}:${contentHash(`${from}:${to}:${kind}`).slice(0, 16)}`;
+      if (from === to || relationIds.has(id)) return;
+      relationIds.add(id);
+      relations.push({
+        id,
+        from,
+        to,
+        kind,
+        trust: "inferred",
+        status: "provisional",
+        confidence,
+        description,
+        evidence: [
+          ...new Map(
+            relationEvidence.map((item) => [
+              `${item.path}:${item.line}:${item.excerpt || ""}`,
+              item,
+            ]),
+          ).values(),
+        ].slice(0, 4),
+        provenance: inferredProvenance,
       });
-      const participants = (callsBySource.get(symbol.id) || [])
-        .filter((call) => call.toSourceSymbolId !== symbol.id)
-        .flatMap((call) =>
-          (call.sites?.length
-            ? call.sites
-            : call.evidence.map((item, index): ResolvedCallSite => ({
-                evidence: item,
-                ordinal: item.line * 10_000 + index,
-              }))
-          ).map((site) => ({ call, site })),
-        )
-        .sort(
-          (a, b) =>
-            a.site.ordinal - b.site.ordinal ||
-            a.call.toSourceSymbolId.localeCompare(b.call.toSourceSymbolId),
-        )
-        .slice(0, Math.max(0, Math.min(16, 800 - workflowParticipantCount)));
-      const participantRecords: Array<{
-        id: string;
-        call: ResolvedSymbolCall;
-        site: ResolvedCallSite;
-      }> = [];
-      const controlNodes = new Map<string, string>();
-      const relationIds = new Set(relations.map((relation) => relation.id));
-      const addFlowRelation = (
-        from: string,
-        to: string,
-        kind: "precedes" | "branches-to" | "retries",
-        confidence: number,
-        relationEvidence: SourceEvidence[],
-        description: string,
-      ) => {
-        const id = `semantic:${kind}:${workflowId}:${contentHash(`${from}:${to}:${kind}`).slice(0, 16)}`;
-        if (from === to || relationIds.has(id)) return;
-        relationIds.add(id);
-        relations.push({
-          id,
-          from,
-          to,
-          kind,
-          trust: "inferred",
-          status: "provisional",
-          confidence,
-          description,
-          evidence: [
-            ...new Map(
-              relationEvidence.map((item) => [
-                `${item.path}:${item.line}:${item.excerpt || ""}`,
-                item,
-              ]),
-            ).values(),
-          ].slice(0, 4),
-          provenance: inferredProvenance,
-        });
-      };
-      const ensureControl = (control: ResolvedCallControl) => {
-        const existing = controlNodes.get(control.id);
-        if (existing) return existing;
-        const id = `${workflowId}:control:${contentHash(control.id).slice(0, 12)}`;
-        controlNodes.set(control.id, id);
-        const controlSource = sourceFiles.find(
-          (candidate) => candidate.id === control.evidence.path,
-        );
-        nodes.push({
-          id,
-          label: control.label,
-          kind: "workflow-step",
-          stepKind: control.kind === "branch" ? "guard" : "retry",
-          trust: "inferred",
-          status: "provisional",
-          confidence: control.kind === "branch" ? 0.88 : 0.9,
-          language: controlSource
-            ? languageFor(controlSource.language) || undefined
-            : undefined,
-          path: control.evidence.path,
-          description:
-            control.kind === "branch"
-              ? "Source control condition. Branch membership is statically inferred; runtime choice is not observed."
-              : `${control.maxAttempts ? `Bounded retry controller with up to ${control.maxAttempts} attempts.` : "Explicit retry-like loop or decorator; the runtime attempt count is not proven."}`,
-          evidence: [control.evidence],
-          provenance: inferredProvenance,
-        });
-        relations.push({
-          id: `semantic:contains:${workflowId}:${id}`,
+    };
+    const ensureControl = (control: ResolvedCallControl) => {
+      const existing = controlNodes.get(control.id);
+      if (existing) return existing;
+      const id = `${workflowId}:control:${contentHash(control.id).slice(0, 12)}`;
+      controlNodes.set(control.id, id);
+      const controlSource = sourceFiles.find(
+        (candidate) => candidate.id === control.evidence.path,
+      );
+      nodes.push({
+        id,
+        label: control.label,
+        kind: "workflow-step",
+        stepKind: control.kind === "branch" ? "guard" : "retry",
+        trust: "inferred",
+        status: "provisional",
+        confidence: control.kind === "branch" ? 0.88 : 0.9,
+        language: controlSource
+          ? languageFor(controlSource.language) || undefined
+          : undefined,
+        path: control.evidence.path,
+        description:
+          control.kind === "branch"
+            ? "Source control condition. Branch membership is statically inferred; runtime choice is not observed."
+            : `${control.maxAttempts ? `Bounded retry controller with up to ${control.maxAttempts} attempts.` : "Explicit retry-like loop or decorator; the runtime attempt count is not proven."}`,
+        evidence: [control.evidence],
+        provenance: inferredProvenance,
+      });
+      relations.push({
+        id: `semantic:contains:${workflowId}:${id}`,
+        from: workflowId,
+        to: id,
+        kind: "contains",
+        trust: "inferred",
+        status: "provisional",
+        confidence: control.kind === "branch" ? 0.88 : 0.9,
+        evidence: [control.evidence],
+        provenance: inferredProvenance,
+      });
+      return id;
+    };
+    for (const { call, site } of participants) {
+      const target = sourceSymbols.get(call.toSourceSymbolId);
+      const targetId = semanticSymbols.get(call.toSourceSymbolId);
+      if (!target || !targetId) continue;
+      workflowParticipantCount++;
+      const participantId = `${workflowId}:participant:${contentHash(`${call.toSourceSymbolId}:${site.evidence.path}:${site.ordinal}`).slice(0, 16)}`;
+      const participantKind = workflowStepFor(target.symbol) || "execute";
+      const confidence = Math.min(
+        call.confidence ?? (call.trust === "verified" ? 1 : 0.82),
+        site.branch || site.retry ? 0.86 : 0.82,
+      );
+      nodes.push({
+        id: participantId,
+        label: target.symbol.qualifiedName || target.symbol.name,
+        kind: "workflow-step",
+        stepKind: participantKind,
+        trust: "inferred",
+        status: "provisional",
+        confidence,
+        language: languageFor(target.source.language)!,
+        path: target.source.path,
+        sourceNodeId: target.source.id,
+        sourceSymbolId: target.symbol.id,
+        description:
+          call.resolver === "typescript" && !site.branch && !site.retry
+            ? "Direct compiler-resolved call participant; branch and runtime order are not asserted."
+            : `${call.resolver === "python-static" ? "Python" : call.resolver === "rust-static" ? "Rust" : "Static"} call participant${site.branch ? ` in ${site.branch.arm || site.branch.label}` : ""}${site.retry ? " under an explicit retry controller" : ""}. Runtime execution remains provisional.`,
+        evidence: [site.evidence],
+        provenance: inferredProvenance,
+      });
+      relations.push(
+        {
+          id: `semantic:contains:${workflowId}:${participantId}`,
           from: workflowId,
-          to: id,
+          to: participantId,
           kind: "contains",
           trust: "inferred",
           status: "provisional",
-          confidence: control.kind === "branch" ? 0.88 : 0.9,
-          evidence: [control.evidence],
+          confidence,
+          evidence: [site.evidence],
           provenance: inferredProvenance,
-        });
-        return id;
-      };
-      for (const { call, site } of participants) {
-        const target = sourceSymbols.get(call.toSourceSymbolId);
-        const targetId = semanticSymbols.get(call.toSourceSymbolId);
-        if (!target || !targetId) continue;
-        workflowParticipantCount++;
-        const participantId = `${workflowId}:participant:${contentHash(`${call.toSourceSymbolId}:${site.evidence.path}:${site.ordinal}`).slice(0, 16)}`;
-        const participantKind = workflowStepFor(target.symbol) || "execute";
-        const confidence = Math.min(
-          call.confidence ?? (call.trust === "verified" ? 1 : 0.82),
-          site.branch || site.retry ? 0.86 : 0.82,
-        );
-        nodes.push({
-          id: participantId,
-          label: target.symbol.qualifiedName || target.symbol.name,
-          kind: "workflow-step",
-          stepKind: participantKind,
+        },
+        {
+          id: `semantic:executes:${participantId}:${targetId}`,
+          from: participantId,
+          to: targetId,
+          kind: "executes",
           trust: "inferred",
           status: "provisional",
           confidence,
-          language: languageFor(target.source.language)!,
-          path: target.source.path,
-          sourceNodeId: target.source.id,
-          sourceSymbolId: target.symbol.id,
-          description:
-            call.resolver === "typescript" && !site.branch && !site.retry
-              ? "Direct compiler-resolved call participant; branch and runtime order are not asserted."
-              : `${call.resolver === "python-static" ? "Python" : call.resolver === "rust-static" ? "Rust" : "Static"} call participant${site.branch ? ` in ${site.branch.arm || site.branch.label}` : ""}${site.retry ? " under an explicit retry controller" : ""}. Runtime execution remains provisional.`,
           evidence: [site.evidence],
           provenance: inferredProvenance,
-        });
-        relations.push(
-          {
-            id: `semantic:contains:${workflowId}:${participantId}`,
-            from: workflowId,
-            to: participantId,
-            kind: "contains",
-            trust: "inferred",
-            status: "provisional",
-            confidence,
-            evidence: [site.evidence],
-            provenance: inferredProvenance,
-          },
-          {
-            id: `semantic:executes:${participantId}:${targetId}`,
-            from: participantId,
-            to: targetId,
-            kind: "executes",
-            trust: "inferred",
-            status: "provisional",
-            confidence,
-            evidence: [site.evidence],
-            provenance: inferredProvenance,
-          },
-        );
-        participantRecords.push({ id: participantId, call, site });
-        if (site.branch) ensureControl(site.branch);
-        if (site.retry) ensureControl(site.retry);
+        },
+      );
+      participantRecords.push({ id: participantId, call, site });
+      if (site.branch) ensureControl(site.branch);
+      if (site.retry) ensureControl(site.retry);
+    }
+    const entryFor = (record: (typeof participantRecords)[number]) =>
+      record.site.retry
+        ? ensureControl(record.site.retry)
+        : record.site.branch
+          ? ensureControl(record.site.branch)
+          : record.id;
+    if (participantRecords[0])
+      addFlowRelation(
+        stepId,
+        entryFor(participantRecords[0]),
+        "precedes",
+        0.78,
+        [...evidence, participantRecords[0].site.evidence],
+        "The inferred workflow entry reaches the first statically visible call/control site.",
+      );
+    const branchGroups = new Map<
+      string,
+      Map<string, typeof participantRecords>
+    >();
+    const retryGroups = new Map<string, typeof participantRecords>();
+    for (const record of participantRecords) {
+      if (record.site.branch) {
+        const arms = branchGroups.get(record.site.branch.id) || new Map();
+        const arm = record.site.branch.arm || record.site.branch.label;
+        arms.set(arm, [...(arms.get(arm) || []), record]);
+        branchGroups.set(record.site.branch.id, arms);
       }
-      const entryFor = (record: (typeof participantRecords)[number]) =>
-        record.site.retry
-          ? ensureControl(record.site.retry)
-          : record.site.branch
-            ? ensureControl(record.site.branch)
-            : record.id;
-      if (participantRecords[0])
-        addFlowRelation(
-          stepId,
-          entryFor(participantRecords[0]),
-          "precedes",
-          0.78,
-          [...evidence, participantRecords[0].site.evidence],
-          "The inferred workflow entry reaches the first statically visible call/control site.",
-        );
-      const branchGroups = new Map<
-        string,
-        Map<string, typeof participantRecords>
-      >();
-      const retryGroups = new Map<string, typeof participantRecords>();
-      for (const record of participantRecords) {
-        if (record.site.branch) {
-          const arms = branchGroups.get(record.site.branch.id) || new Map();
-          const arm = record.site.branch.arm || record.site.branch.label;
-          arms.set(arm, [...(arms.get(arm) || []), record]);
-          branchGroups.set(record.site.branch.id, arms);
-        }
-        if (record.site.retry)
-          retryGroups.set(record.site.retry.id, [
-            ...(retryGroups.get(record.site.retry.id) || []),
-            record,
-          ]);
-      }
-      for (const arms of branchGroups.values()) {
-        for (const records of arms.values()) {
-          const first = records[0];
-          const branch = first.site.branch!;
-          addFlowRelation(
-            ensureControl(branch),
-            first.id,
-            "branches-to",
-            0.88,
-            [branch.evidence, first.site.evidence],
-            `The call is lexically contained in branch arm ${branch.arm || branch.label}; the runtime branch choice is not observed.`,
-          );
-          for (let index = 1; index < records.length; index++)
-            addFlowRelation(
-              records[index - 1].id,
-              records[index].id,
-              "precedes",
-              0.8,
-              [records[index - 1].site.evidence, records[index].site.evidence],
-              "Lexical order within the same branch arm; exceptions and early exits can alter runtime execution.",
-            );
-        }
-      }
-      for (const records of retryGroups.values()) {
+      if (record.site.retry)
+        retryGroups.set(record.site.retry.id, [
+          ...(retryGroups.get(record.site.retry.id) || []),
+          record,
+        ]);
+    }
+    for (const arms of branchGroups.values()) {
+      for (const records of arms.values()) {
         const first = records[0];
-        const retry = first.site.retry!;
+        const branch = first.site.branch!;
         addFlowRelation(
-          ensureControl(retry),
-          first.site.branch ? ensureControl(first.site.branch) : first.id,
-          "retries",
-          retry.maxAttempts ? 0.92 : 0.86,
-          [retry.evidence, first.site.evidence],
-          retry.maxAttempts
-            ? `The source loop can repeat this body up to ${retry.maxAttempts} attempts.`
-            : "The explicit retry-like controller may repeat this body; the number of attempts is not statically bounded.",
+          ensureControl(branch),
+          first.id,
+          "branches-to",
+          0.88,
+          [branch.evidence, first.site.evidence],
+          `The call is lexically contained in branch arm ${branch.arm || branch.label}; the runtime branch choice is not observed.`,
         );
         for (let index = 1; index < records.length; index++)
-          if (
-            records[index - 1].site.branch?.id ===
-              records[index].site.branch?.id &&
-            records[index - 1].site.branch?.arm ===
-              records[index].site.branch?.arm
-          )
-            addFlowRelation(
-              records[index - 1].id,
-              records[index].id,
-              "precedes",
-              0.78,
-              [records[index - 1].site.evidence, records[index].site.evidence],
-              "Lexical order inside the same retry body; runtime completion is not observed.",
-            );
-      }
-      for (let index = 1; index < participantRecords.length; index++) {
-        const previousRecord = participantRecords[index - 1];
-        const currentRecord = participantRecords[index];
-        const sameBranch =
-          previousRecord.site.branch?.id === currentRecord.site.branch?.id &&
-          previousRecord.site.branch?.arm === currentRecord.site.branch?.arm;
-        const sameRetry =
-          previousRecord.site.retry?.id === currentRecord.site.retry?.id;
-        if (
-          !previousRecord.site.branch &&
-          !currentRecord.site.branch &&
-          sameRetry
-        )
           addFlowRelation(
-            previousRecord.id,
-            currentRecord.id,
+            records[index - 1].id,
+            records[index].id,
             "precedes",
             0.8,
-            [previousRecord.site.evidence, currentRecord.site.evidence],
-            "Straight-line lexical order; exceptions, returns, and runtime dispatch can alter execution.",
-          );
-        else if (sameBranch && sameRetry)
-          addFlowRelation(
-            previousRecord.id,
-            currentRecord.id,
-            "precedes",
-            0.8,
-            [previousRecord.site.evidence, currentRecord.site.evidence],
-            "Lexical order within the same control-flow arm; runtime execution is not observed.",
-          );
-        else if (
-          !previousRecord.site.branch &&
-          !previousRecord.site.retry &&
-          (currentRecord.site.branch || currentRecord.site.retry)
-        )
-          addFlowRelation(
-            previousRecord.id,
-            entryFor(currentRecord),
-            "precedes",
-            0.78,
-            [previousRecord.site.evidence, currentRecord.site.evidence],
-            "Lexical transition into a branch or retry controller.",
-          );
-      }
-      for (const arms of branchGroups.values()) {
-        const all = [...arms.values()].flat();
-        const end = Math.max(...all.map((record) => record.site.ordinal));
-        const next = participantRecords.find(
-          (record) =>
-            record.site.ordinal > end &&
-            record.site.branch?.id !== all[0].site.branch?.id,
-        );
-        if (!next) continue;
-        for (const records of arms.values()) {
-          const last = records.at(-1)!;
-          addFlowRelation(
-            last.id,
-            entryFor(next),
-            "precedes",
-            0.72,
-            [last.site.evidence, next.site.evidence],
-            "Possible branch convergence in lexical control flow; early return or exception can bypass it.",
-          );
-        }
-      }
-      for (const records of retryGroups.values()) {
-        const last = records.at(-1)!;
-        const next = participantRecords.find(
-          (record) =>
-            record.site.ordinal > last.site.ordinal &&
-            record.site.retry?.id !== last.site.retry?.id,
-        );
-        if (next)
-          addFlowRelation(
-            last.id,
-            entryFor(next),
-            "precedes",
-            0.7,
-            [last.site.evidence, next.site.evidence],
-            "Possible continuation after the retry controller succeeds or exits.",
+            [records[index - 1].site.evidence, records[index].site.evidence],
+            "Lexical order within the same branch arm; exceptions and early exits can alter runtime execution.",
           );
       }
     }
+    for (const records of retryGroups.values()) {
+      const first = records[0];
+      const retry = first.site.retry!;
+      addFlowRelation(
+        ensureControl(retry),
+        first.site.branch ? ensureControl(first.site.branch) : first.id,
+        "retries",
+        retry.maxAttempts ? 0.92 : 0.86,
+        [retry.evidence, first.site.evidence],
+        retry.maxAttempts
+          ? `The source loop can repeat this body up to ${retry.maxAttempts} attempts.`
+          : "The explicit retry-like controller may repeat this body; the number of attempts is not statically bounded.",
+      );
+      for (let index = 1; index < records.length; index++)
+        if (
+          records[index - 1].site.branch?.id ===
+            records[index].site.branch?.id &&
+          records[index - 1].site.branch?.arm ===
+            records[index].site.branch?.arm
+        )
+          addFlowRelation(
+            records[index - 1].id,
+            records[index].id,
+            "precedes",
+            0.78,
+            [records[index - 1].site.evidence, records[index].site.evidence],
+            "Lexical order inside the same retry body; runtime completion is not observed.",
+          );
+    }
+    for (let index = 1; index < participantRecords.length; index++) {
+      const previousRecord = participantRecords[index - 1];
+      const currentRecord = participantRecords[index];
+      const sameBranch =
+        previousRecord.site.branch?.id === currentRecord.site.branch?.id &&
+        previousRecord.site.branch?.arm === currentRecord.site.branch?.arm;
+      const sameRetry =
+        previousRecord.site.retry?.id === currentRecord.site.retry?.id;
+      if (
+        !previousRecord.site.branch &&
+        !currentRecord.site.branch &&
+        sameRetry
+      )
+        addFlowRelation(
+          previousRecord.id,
+          currentRecord.id,
+          "precedes",
+          0.8,
+          [previousRecord.site.evidence, currentRecord.site.evidence],
+          "Straight-line lexical order; exceptions, returns, and runtime dispatch can alter execution.",
+        );
+      else if (sameBranch && sameRetry)
+        addFlowRelation(
+          previousRecord.id,
+          currentRecord.id,
+          "precedes",
+          0.8,
+          [previousRecord.site.evidence, currentRecord.site.evidence],
+          "Lexical order within the same control-flow arm; runtime execution is not observed.",
+        );
+      else if (
+        !previousRecord.site.branch &&
+        !previousRecord.site.retry &&
+        (currentRecord.site.branch || currentRecord.site.retry)
+      )
+        addFlowRelation(
+          previousRecord.id,
+          entryFor(currentRecord),
+          "precedes",
+          0.78,
+          [previousRecord.site.evidence, currentRecord.site.evidence],
+          "Lexical transition into a branch or retry controller.",
+        );
+    }
+    for (const arms of branchGroups.values()) {
+      const all = [...arms.values()].flat();
+      const end = Math.max(...all.map((record) => record.site.ordinal));
+      const next = participantRecords.find(
+        (record) =>
+          record.site.ordinal > end &&
+          record.site.branch?.id !== all[0].site.branch?.id,
+      );
+      if (!next) continue;
+      for (const records of arms.values()) {
+        const last = records.at(-1)!;
+        addFlowRelation(
+          last.id,
+          entryFor(next),
+          "precedes",
+          0.72,
+          [last.site.evidence, next.site.evidence],
+          "Possible branch convergence in lexical control flow; early return or exception can bypass it.",
+        );
+      }
+    }
+    for (const records of retryGroups.values()) {
+      const last = records.at(-1)!;
+      const next = participantRecords.find(
+        (record) =>
+          record.site.ordinal > last.site.ordinal &&
+          record.site.retry?.id !== last.site.retry?.id,
+      );
+      if (next)
+        addFlowRelation(
+          last.id,
+          entryFor(next),
+          "precedes",
+          0.7,
+          [last.site.evidence, next.site.evidence],
+          "Possible continuation after the retry controller succeeds or exits.",
+        );
+    }
   }
+
+  if (participantLimitReached)
+    warnings.push(
+      "Workflow participants reached a per-workflow or global display/index bound; the visible control-flow projection is incomplete.",
+    );
 
   let authoredDocument: AuthoredSemanticDocument | null = null;
   try {
@@ -1159,5 +1302,12 @@ export function buildSemanticGraph({
       architectureNodes,
     ),
     warnings,
+    analysis: {
+      workflowCandidates: workflowCandidates.length,
+      workflowsEmitted: workflowCount,
+      workflowLimitReached,
+      supportCandidatesOmitted,
+      participantLimitReached,
+    },
   };
 }

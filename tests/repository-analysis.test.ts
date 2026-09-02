@@ -1,5 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { promises as fs } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { RepositoryAnalysisService } from "../apps/desktop/src/main/services/repository-analysis";
 import type { ArchitectureGraph } from "../apps/desktop/src/shared/architecture";
 import { finalizeArchitectureGraph } from "../apps/desktop/src/shared/architecture-ir";
@@ -62,4 +65,33 @@ test("project changes cancel obsolete source analysis", async () => {
   await first;
   assert.equal((await next).workspaceRoot, "next");
   service.dispose();
+});
+
+test("parsed symbols persist outside the project and can be rebuilt explicitly", async (t) => {
+  const directory = await fs.mkdtemp(
+    path.join(os.tmpdir(), "witch-index-test-"),
+  );
+  const root = path.join(directory, "project");
+  const indexes = path.join(directory, "indexes");
+  await fs.mkdir(root);
+  await fs.writeFile(
+    path.join(root, "agent.ts"),
+    "export function main() { return true }\n",
+  );
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+
+  const firstService = new RepositoryAnalysisService();
+  firstService.setIndexRoot(indexes);
+  const first = await firstService.analyze(root);
+  firstService.dispose();
+  assert.equal((await fs.readdir(indexes)).length, 1);
+
+  const secondService = new RepositoryAnalysisService();
+  secondService.setIndexRoot(indexes);
+  const second = await secondService.analyze(root);
+  assert.equal(second.revision, first.revision);
+  assert.equal(second.coverage?.cache.persistentHits, 1);
+  await secondService.clearIndex(root);
+  assert.deepEqual(await fs.readdir(indexes), []);
+  secondService.dispose();
 });

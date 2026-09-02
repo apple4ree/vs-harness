@@ -1,0 +1,5 @@
+{
+  "requiredPaths": ["src/retry.ts"],
+  "forbiddenPaths": ["README.md"],
+  "expectedVerificationPassed": true
+}

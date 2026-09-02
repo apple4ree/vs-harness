@@ -1,0 +1,4 @@
+{
+  "goal": "Keep retry attempts bounded and verify the limit",
+  "mode": "change"
+}

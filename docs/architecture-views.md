@@ -13,7 +13,13 @@ Witch의 구조 탐색은 하나의 검증된 `witch.architecture/v1` IR을 여�
 | Route                       | 현재 화면의 authored relation만 사용한 결정적 최단 경로                                                                                        | 실제 실행 call sequence                        |
 | Before · Delta · After      | 두 검증된 reading 사이의 정확한 노드·관계 추가/변경/삭제                                                                                       | 회귀 위험이나 의미 변화 추정                   |
 | Meaning · Calls             | TS checker verified call과 Python/Rust inferred internal call, call-site evidence                                                              | 임의 property/dynamic dispatch, 실제 실행 횟수 |
-| Meaning · Workflows         | provisional call step, lexical `precedes`, explicit `branches-to`/`retries`, one-workflow focus, graph/sequence and branch collapse projection | 관측된 실행, exception/return/data flow        |
+| Meaning · Workflows         | production-first summary catalog, Component grouping, provisional call step, lexical `precedes`, explicit `branches-to`/`retries`, one-workflow sequence and branch collapse projection | 관측된 실행, exception/return/data flow        |
+
+## Workflow summary-first 탐색
+
+Workflow lens의 기본 상태는 모든 step을 펼치는 전체 control-flow graph가 아니다. source-grounded Workflow를 Component 아래의 summary card로 투영하고 production 항목을 먼저 최대 12개 보여준다. 각 summary는 단계·분기·재시도 수, production/support 구분과 source context를 유지한다. test/docs/example 계열은 기본적으로 숨기며 사용자가 명시적으로 확장할 수 있다.
+
+summary를 열면 해당 Workflow 하나만 sequence로 투영하고 branch-only 구간은 기본 접기 상태로 시작한다. breadcrumb는 `Workflow catalog → Workflow detail` 왕복을 제공한다. 동일 source Workflow가 정적 분석과 Semantic Composer 양쪽에 존재하면 카탈로그에서만 하나로 합치며, 자세한 branch/retry 근거를 보존하는 정적 Workflow를 detail 대상으로 우선한다. canonical semantic IR과 두 provenance는 삭제하거나 합치지 않는다.
 
 ## Source ↔ Constellation 왕복 탐색
 

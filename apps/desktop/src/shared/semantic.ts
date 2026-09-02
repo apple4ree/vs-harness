@@ -38,6 +38,7 @@ export type SemanticRelationKind =
   | "depends-on"
   | "extends"
   | "implements"
+  | "overrides"
   | "guards"
   | "observes";
 
@@ -60,7 +61,12 @@ export type WorkflowStepKind =
   | "cancel";
 
 export type SemanticProvenance = {
-  source: "static-analysis" | "heuristic" | "language-server" | "authored";
+  source:
+    | "static-analysis"
+    | "heuristic"
+    | "language-server"
+    | "ai-composer"
+    | "authored";
   analyzer: string;
   policy: string;
   model?: string;

@@ -64,6 +64,8 @@ test("component chat runs isolated edits, honors canceled approval, applies diff
     await page
       .getByRole("button", { name: "Open repository", exact: true })
       .click();
+    await expect(page.locator(".analysis-coverage-summary")).toBeVisible();
+    await page.getByRole("button", { name: "Modules", exact: true }).click();
     await expect(page.locator(".architecture-card")).toHaveCount(1);
     const before = await page.evaluate(
       async () => (await window.witch.analysis.current())?.revision,
@@ -93,10 +95,36 @@ test("component chat runs isolated edits, honors canceled approval, applies diff
         exact: true,
       }),
     ).toBeVisible();
+    await expect(
+      page
+        .locator(".engineering-run-summary")
+        .filter({ hasText: "Harness · review-ready" }),
+    ).toBeVisible();
+    await expect(page.locator(".agent-native-controls")).toHaveCount(0);
     expect(await fs.readFile(path.join(root, "greeting.ts"), "utf8")).toBe(
       original,
     );
     const run = (await page.evaluate(() => window.witch.agent.list()))[0];
+    expect(run.engineering).toMatchObject({
+      contract: "witch.engineering-run/v1",
+      state: "review-ready",
+      healthy: true,
+    });
+    expect(run.engineering!.eventCount).toBeGreaterThan(5);
+    expect(
+      (
+        await fs.readFile(
+          path.join(profile, "engineering-runs", run.id, "events.ndjson"),
+          "utf8",
+        )
+      ).trim(),
+    ).toContain('"type":"review.created"');
+    expect(
+      await fs.readFile(
+        path.join(profile, "engineering-runs", run.id, "events.ndjson"),
+        "utf8",
+      ),
+    ).toContain('"type":"plan.evaluated"');
     expect(run.contexts[0].paths).toEqual(["greeting.ts"]);
     expect(run.stagingRoot).toBeTruthy();
     expect(
@@ -236,6 +264,7 @@ test("component chat runs isolated edits, honors canceled approval, applies diff
     const snapshot = JSON.parse(
       await fs.readFile(archived.archivePath!, "utf8"),
     );
+    expect(snapshot.version).toBe(2);
     expect(snapshot.run.changes[0].after).toContain("Partial edit");
     expect(await fs.readFile(path.join(root, "greeting.ts"), "utf8")).toContain(
       "Welcome to Witch",
@@ -246,11 +275,27 @@ test("component chat runs isolated edits, honors canceled approval, applies diff
         "utf8",
       ),
     ).toContain("Partial edit");
+    await page.getByText("Pending changes archived, not applied").click();
+    await page
+      .getByRole("button", { name: "Restore as new review", exact: true })
+      .click();
+    await expect(page.locator(".run-state.review")).toHaveCount(1);
+    const restored = (await page.evaluate(() => window.witch.agent.list()))[0];
+    expect(restored.parentRunId).toBe(archived.id);
+    expect(restored.engineering).toMatchObject({
+      state: "review-ready",
+      checkpointCount: 2,
+      verificationFailed: 0,
+    });
+    expect(await fs.readFile(path.join(root, "greeting.ts"), "utf8")).toContain(
+      "Welcome to Witch",
+    );
     await page.reload();
     await expect(page.locator(".run-state.applied")).toHaveCount(1);
     await expect(page.locator(".run-state.completed")).toHaveCount(1);
     await expect(page.locator(".run-state.interrupted")).toHaveCount(1);
     await expect(page.locator(".run-state.archived")).toHaveCount(1);
+    await expect(page.locator(".run-state.review")).toHaveCount(1);
     expect(errors).toEqual([]);
   } finally {
     if (application) await application.close();

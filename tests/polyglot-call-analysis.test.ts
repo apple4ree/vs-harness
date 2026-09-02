@@ -4,6 +4,7 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { analyzeRepository } from "../apps/desktop/src/main/services/architecture";
+import type { CodeSymbol } from "../apps/desktop/src/shared/architecture";
 
 async function project(t: TestContext) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "witch-call-flow-"));
@@ -40,6 +41,26 @@ async function project(t: TestContext) {
     ].join("\n"),
   );
   await fs.writeFile(
+    path.join(root, "src", "base.py"),
+    [
+      "class BaseAgent:",
+      "    def execute(self):",
+      "        return False",
+      "",
+    ].join("\n"),
+  );
+  await fs.writeFile(
+    path.join(root, "src", "types.py"),
+    [
+      "from .base import BaseAgent as InternalBase",
+      "",
+      "class TradingAgent(InternalBase):",
+      "    def execute(self):",
+      "        return True",
+      "",
+    ].join("\n"),
+  );
+  await fs.writeFile(
     path.join(root, "src", "worker.rs"),
     ["pub fn exact_call() {}", "pub fn dynamic_call() {}", ""].join("\n"),
   );
@@ -61,6 +82,19 @@ async function project(t: TestContext) {
       "    for retry_attempt in 1..=4 {",
       "        imported_call();",
       "    }",
+      "}",
+      "",
+    ].join("\n"),
+  );
+  await fs.writeFile(
+    path.join(root, "src", "types.rs"),
+    [
+      "pub trait Runner {",
+      "    fn run(&self);",
+      "}",
+      "pub struct Worker;",
+      "impl Runner for Worker {",
+      "    fn run(&self) {}",
       "}",
       "",
     ].join("\n"),
@@ -151,5 +185,55 @@ test("Python and Rust calls stay conservative while branch and retry controls re
         relation.status === "provisional" &&
         Boolean(relation.description),
     ),
+  );
+});
+
+test("Python and Rust type hierarchy keeps conservative trust and source evidence", async (t) => {
+  const root = await project(t);
+  const graph = await analyzeRepository(root);
+  const semantic = graph.semantic!;
+  const python = graph.nodes.find((node) => node.id === "src/types.py")!;
+  const baseNode = graph.nodes.find((node) => node.id === "src/base.py")!;
+  const base = baseNode.symbols.find((symbol) => symbol.name === "BaseAgent")!;
+  const child = python.symbols.find(
+    (symbol) => symbol.name === "TradingAgent",
+  )!;
+  const baseExecute = baseNode.symbols.find(
+    (symbol) => symbol.name === "execute" && symbol.containerId === base.id,
+  )!;
+  const childExecute = python.symbols.find(
+    (symbol) => symbol.name === "execute" && symbol.containerId === child.id,
+  )!;
+  const rust = graph.nodes.find((node) => node.id === "src/types.rs")!;
+  const trait = rust.symbols.find((symbol) => symbol.name === "Runner")!;
+  const implementation = rust.symbols.find(
+    (symbol) => symbol.kind === "implementation",
+  )!;
+  const traitRun = rust.symbols.find(
+    (symbol) => symbol.name === "run" && symbol.containerId === trait.id,
+  )!;
+  const implementationRun = rust.symbols.find(
+    (symbol) =>
+      symbol.name === "run" && symbol.containerId === implementation.id,
+  )!;
+  const relation = (kind: string, from: CodeSymbol, to: CodeSymbol) =>
+    semantic.relations.find(
+      (item) =>
+        item.kind === kind &&
+        item.from === `semantic:symbol:${from.id}` &&
+        item.to === `semantic:symbol:${to.id}`,
+    );
+  assert.equal(relation("extends", child, base)?.trust, "inferred");
+  assert.equal(
+    relation("overrides", childExecute, baseExecute)?.evidence[0].line,
+    childExecute.line,
+  );
+  assert.equal(
+    relation("implements", implementation, trait)?.trust,
+    "inferred",
+  );
+  assert.equal(
+    relation("implements", implementationRun, traitRun)?.evidence[0].line,
+    implementationRun.line,
   );
 });

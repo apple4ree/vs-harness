@@ -1,5 +1,9 @@
 # GitHub Trending Daily Top 10 — Witch real-repository benchmark
 
+> Follow-up: the same ten commits were rerun after coverage, workflow-policy,
+> progressive-view, and persistent-index improvements. See
+> [the before/after comparison](./github-trending-benchmark-2026-08-31-comparison.md).
+
 - Assessment date: 2026-08-31 (Asia/Seoul)
 - Ranking source: [GitHub Trending · repositories · daily · any language](https://github.com/trending?since=daily)
 - Witch core revision: `0aed569` (`feature/python-rust-language-intelligence`)

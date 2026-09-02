@@ -33,6 +33,7 @@ import {
   type FileActionKind,
 } from "./components/WorkspaceDialogs";
 import type { ComponentContext } from "../../shared/architecture";
+import type { SemanticComposerRequest } from "../../shared/semantic-composer";
 import type {
   CodeAction,
   DocumentSymbol,
@@ -68,6 +69,7 @@ export function Workbench() {
   const [lineTarget, setLineTarget] = useState<number | null>(null);
   const [graph, setGraph] = useState<ArchitectureGraph | null>(null);
   const [graphBusy, setGraphBusy] = useState(false);
+  const [compositionBusy, setCompositionBusy] = useState(false);
   const [contexts, setContexts] = useState<ComponentContext[]>([]);
   const [recentProjects, setRecentProjects] = useState<ProjectRecord[]>([]);
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
@@ -377,13 +379,51 @@ export function Workbench() {
         ].slice(0, 20),
       );
       setStatus(
-        `Structure indexed: ${result.scannedFiles} files · ${result.edges.length} evidence-backed relations · ${result.revision.slice(0, 8)}`,
+        `Structure indexed: ${result.coverage?.deepFiles ?? result.scannedFiles}/${result.coverage?.indexedFiles ?? result.scannedFiles} deep files · ${result.edges.length} evidence-backed relations · ${result.revision.slice(0, 8)}`,
       );
     } catch (reason) {
       if (root === rootRef.current)
         setStatus(`Structure analysis: ${errorText(reason)}`);
     } finally {
       if (root === rootRef.current) setGraphBusy(false);
+    }
+  }
+  async function clearAnalysisIndex() {
+    const root = rootRef.current;
+    if (!root || graphBusy) return;
+    setGraphBusy(true);
+    try {
+      const result = await window.witch.analysis.clearIndex();
+      if (root !== rootRef.current) return;
+      setGraph(result);
+      setStatus(
+        `Local analysis index rebuilt · ${result.coverage?.deepFiles ?? result.scannedFiles} deep files · ${result.revision.slice(0, 8)}`,
+      );
+    } catch (reason) {
+      if (root === rootRef.current)
+        setStatus(`Rebuild analysis index: ${errorText(reason)}`);
+    } finally {
+      if (root === rootRef.current) setGraphBusy(false);
+    }
+  }
+  async function composeMeaning(request: SemanticComposerRequest) {
+    const root = rootRef.current;
+    if (!root || !graph || compositionBusy) return false;
+    setCompositionBusy(true);
+    try {
+      const result = await window.witch.analysis.compose(request);
+      if (root !== rootRef.current) return false;
+      setGraph(result.graph);
+      setStatus(
+        `Semantic composition: ${result.receipt.componentCount} components · ${result.receipt.relationCount} relations · ${result.receipt.workflowCount} workflows · ${result.receipt.provider}${result.receipt.fallback ? " → rules fallback" : ""}.`,
+      );
+      return true;
+    } catch (reason) {
+      if (root === rootRef.current)
+        setStatus(`Semantic Composer: ${errorText(reason)}`);
+      return false;
+    } finally {
+      if (root === rootRef.current) setCompositionBusy(false);
     }
   }
   async function compareSnapshot(snapshot: Snapshot) {
@@ -1531,9 +1571,52 @@ export function Workbench() {
                 graph={graph}
                 busy={graphBusy}
                 onAnalyze={() => void analyze()}
+                onClearIndex={() => void clearAnalysisIndex()}
                 onOpenFile={(path, line) => void selectFile(path, line)}
                 onAttach={attach}
                 onExport={(format) => void exportArchitecture(format)}
+                composerProviders={[
+                  {
+                    id: "codex",
+                    label: "Codex CLI",
+                    available: Boolean(providers?.codex.authenticated),
+                    detail:
+                      providers?.codex.message || "Codex CLI is unavailable.",
+                  },
+                  {
+                    id: "claude",
+                    label: "Claude Code CLI",
+                    available: Boolean(providers?.claude.authenticated),
+                    detail:
+                      providers?.claude.message ||
+                      "Claude Code CLI is unavailable.",
+                  },
+                  {
+                    id: "openai",
+                    label: "OpenAI API",
+                    available: Boolean(providers?.openaiApi.configured),
+                    detail:
+                      providers?.openaiApi.message ||
+                      "OpenAI API key is not configured.",
+                  },
+                  {
+                    id: "anthropic",
+                    label: "Anthropic API",
+                    available: Boolean(providers?.anthropicApi.configured),
+                    detail:
+                      providers?.anthropicApi.message ||
+                      "Anthropic API key is not configured.",
+                  },
+                  {
+                    id: "rules",
+                    label: "Rules only",
+                    available: true,
+                    detail:
+                      "Deterministic local fallback. No project metadata leaves this computer.",
+                  },
+                ]}
+                compositionBusy={compositionBusy}
+                onCompose={composeMeaning}
                 activeFile={selectedFile}
                 revealRequest={architectureReveal}
               />
@@ -1665,6 +1748,7 @@ export function Workbench() {
             attachments={contexts}
             onAttachments={setContexts}
             available={Boolean(providers?.codex.installed)}
+            providerStatus={providers}
             onOpenFile={(path, line) => void selectFile(path, line)}
           />
         </aside>
@@ -1693,6 +1777,19 @@ export function Workbench() {
         <ProviderDialog
           providers={providers}
           onClose={() => setProvidersOpen(false)}
+          onConnect={async (provider) => {
+            setStatus(
+              `Waiting for ${provider === "codex" ? "Codex" : "Claude Code"} browser sign-in…`,
+            );
+            setProviders(await window.witch.providers.connectCli(provider));
+            setStatus(
+              `${provider === "codex" ? "Codex" : "Claude Code"} is signed in and available to Witch.`,
+            );
+          }}
+          onRefresh={async () => {
+            setProviders(await window.witch.providers.status());
+            setStatus("AI provider status refreshed.");
+          }}
           onSave={async (provider, key) => {
             setProviders(
               await window.witch.providers.saveApiKey(provider, key),
