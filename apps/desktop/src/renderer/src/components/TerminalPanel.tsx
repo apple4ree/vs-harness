@@ -52,6 +52,20 @@ function TerminalView({
       },
     });
     const fit = new FitAddon();
+    let pendingInput = "";
+    let writeQueue = Promise.resolve();
+    const writeInput = (data: string) => {
+      if (!sessionId) {
+        pendingInput += data;
+        return;
+      }
+      const targetSession = sessionId;
+      writeQueue = writeQueue
+        .then(() => window.witch.terminal.write(targetSession, data))
+        .catch((error) => {
+          if (!disposed) terminal.writeln(`\r\n${error}`);
+        });
+    };
     terminal.loadAddon(fit);
     terminal.open(container.current);
     const resize = () => {
@@ -70,12 +84,7 @@ function TerminalView({
     resizeRef.current = resize;
     const observer = new ResizeObserver(resize);
     observer.observe(container.current);
-    const input = terminal.onData((data) => {
-      if (sessionId)
-        void window.witch.terminal
-          .write(sessionId, data)
-          .catch((error) => terminal.writeln(`\r\n${error}`));
-    });
+    const input = terminal.onData(writeInput);
     const unsubscribe = window.witch.terminal.onData(
       ({ id, data, sequence }) => {
         if (sessionId === id) terminal.write(data);
@@ -108,6 +117,11 @@ function TerminalView({
           return;
         }
         sessionId = session.id;
+        if (pendingInput) {
+          const bufferedInput = pendingInput;
+          pendingInput = "";
+          writeInput(bufferedInput);
+        }
         if (session.buffer) terminal.write(session.buffer);
         for (const chunk of waiting.get(session.id) || [])
           if (chunk.sequence > session.sequence) terminal.write(chunk.data);
