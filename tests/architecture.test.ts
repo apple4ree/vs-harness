@@ -78,13 +78,14 @@ test("AST graph resolves aliases, re-exports and JSX components with source evid
   const member = graph.nodes
     .find((node) => node.id === "src/model.ts")!
     .symbols.find((symbol) => symbol.name === "calculateMember")!;
-  assert(
-    !graph.semantic?.relations.some(
-      (relation) =>
-        relation.kind === "calls" &&
-        relation.to === `semantic:symbol:${member.id}`,
-    ),
+  const memberCall = graph.semantic?.relations.find(
+    (relation) =>
+      relation.kind === "calls" &&
+      relation.from === `semantic:symbol:${viewSymbol.id}` &&
+      relation.to === `semantic:symbol:${member.id}`,
   );
+  assert.equal(memberCall?.trust, "inferred");
+  assert.equal(memberCall?.evidence[0].line, 3);
   assert(!graph.warnings.some((warning) => warning.includes("ghost")));
   const oldRevision = graph.revision;
   await fs.writeFile(

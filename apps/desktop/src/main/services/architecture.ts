@@ -8,6 +8,7 @@ import type {
   ArchitectureNode,
   ArchitectureEdge,
   CodeSymbol,
+  SourceEvidence,
 } from "../../shared/architecture";
 import type { SemanticGraph } from "../../shared/semantic";
 import { finalizeArchitectureGraph } from "../../shared/architecture-ir";
@@ -78,7 +79,7 @@ const DEEP_EXTENSIONS = new Set([
   ".py",
   ".rs",
 ]);
-export const ARCHITECTURE_ANALYZER_VERSION = "polyglot-static-v15";
+export const ARCHITECTURE_ANALYZER_VERSION = "polyglot-static-v17";
 
 function coverageLanguage(extension: string) {
   if ([".ts", ".tsx", ".mts", ".cts"].includes(extension)) return "typescript";
@@ -413,6 +414,74 @@ async function typeScriptResolvedFacts(
     const absolute = path.resolve(root, relative);
     records.set(canonical(absolute), { relative, absolute, text, node });
   }
+  const scriptKindFor = (relative: string) => {
+    const extension = typeScriptExtension(relative);
+    if (extension === ts.Extension.Tsx) return ts.ScriptKind.TSX;
+    if (extension === ts.Extension.Jsx) return ts.ScriptKind.JSX;
+    if (
+      [ts.Extension.Js, ts.Extension.Mjs, ts.Extension.Cjs].includes(extension)
+    )
+      return ts.ScriptKind.JS;
+    return ts.ScriptKind.TS;
+  };
+  // TypeScript follows imported source files synchronously while building a
+  // Program. A long import chain can therefore leave every parser frame on
+  // the JavaScript stack. Parse each source independently first and order
+  // roots dependency-first so Program construction reuses already-seen files.
+  const parsedSources = new Map<string, ts.SourceFile>();
+  for (const [index, [key, record]] of [...records].entries()) {
+    signal?.throwIfAborted();
+    if (index > 0 && index % 64 === 0)
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    parsedSources.set(
+      key,
+      ts.createSourceFile(
+        record.absolute,
+        record.text,
+        ts.ScriptTarget.Latest,
+        true,
+        scriptKindFor(record.relative),
+      ),
+    );
+  }
+  const dependencyCount = new Map<string, number>();
+  const dependents = new Map<string, Set<string>>();
+  for (const [key, record] of records) {
+    const dependencies = new Set<string>();
+    for (const imported of ts.preProcessFile(record.text, true, true)
+      .importedFiles) {
+      const target = resolveImport(record.relative, imported.fileName);
+      if (!target || target.startsWith("external:")) continue;
+      const targetKey = canonical(path.resolve(root, target));
+      if (targetKey !== key && records.has(targetKey))
+        dependencies.add(targetKey);
+    }
+    dependencyCount.set(key, dependencies.size);
+    for (const dependency of dependencies) {
+      const current = dependents.get(dependency) || new Set<string>();
+      current.add(key);
+      dependents.set(dependency, current);
+    }
+  }
+  const ready = [...records.keys()]
+    .filter((key) => dependencyCount.get(key) === 0)
+    .sort();
+  const orderedKeys: string[] = [];
+  for (let index = 0; index < ready.length; index++) {
+    const key = ready[index];
+    orderedKeys.push(key);
+    for (const dependent of [...(dependents.get(key) || [])].sort()) {
+      const remaining = (dependencyCount.get(dependent) || 0) - 1;
+      dependencyCount.set(dependent, remaining);
+      if (remaining === 0) ready.push(dependent);
+    }
+  }
+  if (orderedKeys.length < records.size) {
+    const ordered = new Set(orderedKeys);
+    orderedKeys.push(
+      ...[...records.keys()].filter((key) => !ordered.has(key)).sort(),
+    );
+  }
   const compilerOptions: ts.CompilerOptions = {
     allowJs: true,
     checkJs: false,
@@ -431,29 +500,7 @@ async function typeScriptResolvedFacts(
     fileExists: (file) => Boolean(recordFor(file)),
     readFile: (file) => recordFor(file)?.text,
     getCurrentDirectory: () => root,
-    getSourceFile: (file, languageVersion) => {
-      const record = recordFor(file);
-      return record
-        ? ts.createSourceFile(
-            record.absolute,
-            record.text,
-            languageVersion,
-            true,
-            typeScriptExtension(record.relative) === ts.Extension.Tsx
-              ? ts.ScriptKind.TSX
-              : [
-                    ts.Extension.Js,
-                    ts.Extension.Jsx,
-                    ts.Extension.Mjs,
-                    ts.Extension.Cjs,
-                  ].includes(typeScriptExtension(record.relative))
-                ? typeScriptExtension(record.relative) === ts.Extension.Jsx
-                  ? ts.ScriptKind.JSX
-                  : ts.ScriptKind.JS
-                : ts.ScriptKind.TS,
-          )
-        : undefined;
-    },
+    getSourceFile: (file) => parsedSources.get(canonical(file)),
     resolveModuleNames: (moduleNames, containingFile) => {
       const containing = recordFor(containingFile);
       return moduleNames.map((specifier) => {
@@ -472,7 +519,7 @@ async function typeScriptResolvedFacts(
     },
   };
   const program = ts.createProgram({
-    rootNames: [...records.values()].map((record) => record.absolute),
+    rootNames: orderedKeys.map((key) => records.get(key)!.absolute),
     options: compilerOptions,
     host,
   });
@@ -527,27 +574,16 @@ async function typeScriptResolvedFacts(
     return null;
   };
   const targetFor = (call: ts.CallExpression) => {
-    // A property call can dispatch to an override at runtime. This first
-    // source-grounded slice accepts only direct identifier bindings.
-    if (!ts.isIdentifier(call.expression)) return null;
-    let symbol = checker.getSymbolAtLocation(call.expression);
-    if (symbol?.flags && symbol.flags & ts.SymbolFlags.Alias)
-      symbol = checker.getAliasedSymbol(symbol);
-    for (const declaration of [
-      symbol?.valueDeclaration,
-      ...(symbol?.declarations || []),
-    ]) {
-      if (!declaration) continue;
-      if (
-        ts.isVariableDeclaration(declaration) &&
-        (!ts.isVariableDeclarationList(declaration.parent) ||
-          !(declaration.parent.flags & ts.NodeFlags.Const))
-      )
-        continue;
-      const target = symbolForDeclaration(declaration);
-      if (target) return target;
-    }
-    return null;
+    // Property bindings are accepted only when TypeScript resolves them to one
+    // concrete source declaration. They remain inferred because runtime
+    // overrides or JavaScript mutation can still replace the implementation.
+    if (
+      !ts.isIdentifier(call.expression) &&
+      !ts.isPropertyAccessExpression(call.expression) &&
+      !ts.isElementAccessExpression(call.expression)
+    )
+      return null;
+    return callableTargetForNode(call.expression);
   };
   const targetForNode = (node: ts.Node) => {
     let symbol = checker.getSymbolAtLocation(node);
@@ -563,8 +599,106 @@ async function typeScriptResolvedFacts(
     }
     return null;
   };
+  const callableTargetForNode = (
+    node: ts.Node,
+    seen = new Set<ts.Symbol>(),
+  ): CodeSymbol | null => {
+    let symbol = checker.getSymbolAtLocation(node);
+    if (symbol?.flags && symbol.flags & ts.SymbolFlags.Alias)
+      symbol = checker.getAliasedSymbol(symbol);
+    if (!symbol || seen.has(symbol)) return null;
+    seen.add(symbol);
+    for (const declaration of [
+      symbol.valueDeclaration,
+      ...(symbol.declarations || []),
+    ]) {
+      if (!declaration) continue;
+      if (ts.isVariableDeclaration(declaration)) {
+        if (
+          !ts.isVariableDeclarationList(declaration.parent) ||
+          !(declaration.parent.flags & ts.NodeFlags.Const)
+        )
+          continue;
+        if (declaration.initializer) {
+          const aliased = callableTargetForNode(declaration.initializer, seen);
+          if (aliased) return aliased;
+        }
+      }
+      const target = symbolForDeclaration(declaration);
+      if (target && ["function", "method", "component"].includes(target.kind))
+        return target;
+    }
+    return null;
+  };
+  type TypeScriptCallableReference =
+    | { kind: "symbol"; symbol: CodeSymbol }
+    | { kind: "parameter"; owner: CodeSymbol; name: string };
+  type TypeScriptInvocation = {
+    owner?: CodeSymbol;
+    callee: TypeScriptCallableReference;
+    arguments: Array<TypeScriptCallableReference | null>;
+    evidence: SourceEvidence;
+    ordinal: number;
+  };
   const calls = new Map<string, ResolvedSymbolCall>();
   const relations = new Map<string, ResolvedSymbolRelation>();
+  const parameters = new Map<string, string[]>();
+  const invocations: TypeScriptInvocation[] = [];
+  const addCallFact = (
+    from: CodeSymbol,
+    to: CodeSymbol,
+    item: SourceEvidence,
+    ordinal: number,
+    trust: ResolvedSymbolCall["trust"],
+    confidence: number,
+  ) => {
+    if (from.id === to.id || calls.size >= 10_000) return;
+    const key = `${from.id}->${to.id}`;
+    const existing = calls.get(key);
+    if (existing) {
+      if (
+        existing.evidence.length < 20 &&
+        !existing.evidence.some(
+          (candidate) =>
+            candidate.path === item.path && candidate.line === item.line,
+        )
+      )
+        existing.evidence.push(item);
+      if ((existing.sites?.length || 0) < 40)
+        existing.sites!.push({ evidence: item, ordinal });
+      if (existing.trust !== "verified" && trust === "verified") {
+        existing.trust = "verified";
+        existing.confidence = 1;
+      } else if (existing.trust !== "verified")
+        existing.confidence = Math.min(
+          existing.confidence || confidence,
+          confidence,
+        );
+      return;
+    }
+    calls.set(key, {
+      fromSourceSymbolId: from.id,
+      toSourceSymbolId: to.id,
+      evidence: [item],
+      trust,
+      confidence,
+      resolver: "typescript",
+      sites: [{ evidence: item, ordinal }],
+    });
+  };
+  const parameterReference = (
+    node: ts.Node,
+  ): TypeScriptCallableReference | null => {
+    let symbol = checker.getSymbolAtLocation(node);
+    if (symbol?.flags && symbol.flags & ts.SymbolFlags.Alias)
+      symbol = checker.getAliasedSymbol(symbol);
+    const declaration = (symbol?.declarations || []).find(ts.isParameter);
+    if (!declaration || !ts.isIdentifier(declaration.name)) return null;
+    const owner = symbolForDeclaration(declaration.parent);
+    return owner
+      ? { kind: "parameter", owner, name: declaration.name.text }
+      : null;
+  };
   const addRelation = (
     from: CodeSymbol | null,
     to: CodeSymbol | null,
@@ -648,38 +782,62 @@ async function typeScriptResolvedFacts(
         }
     }
     const visit = (node: ts.Node) => {
+      if (
+        ts.isFunctionDeclaration(node) ||
+        ts.isMethodDeclaration(node) ||
+        ts.isArrowFunction(node) ||
+        ts.isFunctionExpression(node)
+      ) {
+        const owner = symbolForDeclaration(node);
+        if (owner)
+          parameters.set(
+            owner.id,
+            node.parameters.flatMap((parameter) =>
+              ts.isIdentifier(parameter.name) ? [parameter.name.text] : [],
+            ),
+          );
+      }
       if (ts.isCallExpression(node) && calls.size < 10_000) {
         const from = ownerFor(node);
         const to = targetFor(node);
-        if (from && to) {
-          const key = `${from.id}->${to.id}`;
+        const callee: TypeScriptCallableReference | null = to
+          ? { kind: "symbol", symbol: to }
+          : parameterReference(node.expression);
+        if (callee) {
           const line =
             source.getLineAndCharacterOfPosition(node.getStart(source)).line +
             1;
-          const evidence = {
+          const evidence: SourceEvidence = {
             path: record.relative,
             line,
             hash: record.node.hash,
             excerpt: lines[line - 1]?.trim().slice(0, 300),
           };
-          const existing = calls.get(key);
-          if (existing) {
-            if (existing.evidence.length < 20) existing.evidence.push(evidence);
-            if ((existing.sites?.length || 0) < 40)
-              existing.sites!.push({
-                evidence,
-                ordinal: node.getStart(source),
-              });
-          } else
-            calls.set(key, {
-              fromSourceSymbolId: from.id,
-              toSourceSymbolId: to.id,
-              evidence: [evidence],
-              trust: "verified",
-              confidence: 1,
-              resolver: "typescript",
-              sites: [{ evidence, ordinal: node.getStart(source) }],
-            });
+          invocations.push({
+            ...(from ? { owner: from } : {}),
+            callee,
+            arguments: node.arguments.map((argument) => {
+              const target = callableTargetForNode(argument);
+              if (target)
+                return {
+                  kind: "symbol" as const,
+                  symbol: target,
+                };
+              const parameter = parameterReference(argument);
+              return parameter || null;
+            }),
+            evidence,
+            ordinal: node.getStart(source),
+          });
+          if (from && to)
+            addCallFact(
+              from,
+              to,
+              evidence,
+              node.getStart(source),
+              ts.isIdentifier(node.expression) ? "verified" : "inferred",
+              ts.isIdentifier(node.expression) ? 1 : 0.9,
+            );
         }
       }
       if (ts.isClassDeclaration(node) || ts.isClassExpression(node)) {
@@ -786,6 +944,52 @@ async function typeScriptResolvedFacts(
     };
     visit(source);
   }
+  const bindings = new Map<string, Map<string, CodeSymbol>>();
+  const bindingKey = (owner: CodeSymbol, name: string) =>
+    `${owner.id}:parameter:${name}`;
+  const targetsFor = (reference: TypeScriptCallableReference) =>
+    reference.kind === "symbol"
+      ? [reference.symbol]
+      : [
+          ...(bindings
+            .get(bindingKey(reference.owner, reference.name))
+            ?.values() || []),
+        ];
+  for (let pass = 0; pass < 16; pass++) {
+    let changed = false;
+    for (const invocation of invocations) {
+      for (const callee of targetsFor(invocation.callee)) {
+        if (invocation.owner && invocation.callee.kind === "parameter")
+          addCallFact(
+            invocation.owner,
+            callee,
+            invocation.evidence,
+            invocation.ordinal,
+            "inferred",
+            0.82,
+          );
+        const names = parameters.get(callee.id) || [];
+        for (
+          let index = 0;
+          index < Math.min(names.length, invocation.arguments.length);
+          index++
+        ) {
+          const key = bindingKey(callee, names[index]);
+          const current = bindings.get(key) || new Map<string, CodeSymbol>();
+          bindings.set(key, current);
+          if (current.size >= 24) continue;
+          const argument = invocation.arguments[index];
+          if (!argument) continue;
+          for (const target of targetsFor(argument))
+            if (!current.has(target.id)) {
+              current.set(target.id, target);
+              changed = true;
+            }
+        }
+      }
+    }
+    if (!changed) break;
+  }
   return {
     calls: [...calls.values()].sort(
       (a, b) =>
@@ -832,11 +1036,13 @@ function pythonSymbolsAndImports(file: string, content: string) {
     if (definition) {
       const container = [...stack]
         .reverse()
-        .find(
-          (item) => item.indent < indent && item.symbol.kind === "class",
-        )?.symbol;
+        .find((item) => item.indent < indent)?.symbol;
       const kind: CodeSymbol["kind"] =
-        definition[2] === "class" ? "class" : container ? "method" : "function";
+        definition[2] === "class"
+          ? "class"
+          : container?.kind === "class"
+            ? "method"
+            : "function";
       const symbol: CodeSymbol = {
         id: `${file}#${definition[3]}:${index + 1}`,
         name: definition[3],
@@ -1386,9 +1592,9 @@ export async function analyzeRepository(
     (total, content) => total + Buffer.byteLength(content),
     0,
   );
-  if (typeScriptTexts.size > 2_500 || typeScriptBytes > 32_000_000) {
+  if (typeScriptTexts.size > 5_000 || typeScriptBytes > 64_000_000) {
     const message =
-      "TypeScript symbol calls and type hierarchy were skipped because the analyzed program exceeds 2,500 files or 32 MB. File/import structure remains available.";
+      "TypeScript symbol calls and type hierarchy were skipped because the analyzed program exceeds 5,000 files or 64 MB. File/import structure remains available.";
     warnings.push(message);
     limits.push({ code: "typescript-calls", reached: true, message });
   } else if (typeScriptTexts.size) {

@@ -24,7 +24,7 @@ import {
 } from "../../shared/semantic-ir";
 import { contentHash } from "./workspace-files";
 
-export const SEMANTIC_ANALYZER_VERSION = "semantic-static-v10";
+export const SEMANTIC_ANALYZER_VERSION = "semantic-static-v12";
 export const SEMANTIC_POLICY_VERSION = "evidence-first-workflow-v2";
 
 export type ResolvedSymbolCall = {

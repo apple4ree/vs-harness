@@ -237,3 +237,196 @@ test("Python and Rust type hierarchy keeps conservative trust and source evidenc
     implementationRun.line,
   );
 });
+
+test("Python and JavaScript propagate callable arguments through stable aliases", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "witch-callable-flow-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  await fs.writeFile(
+    path.join(root, "main.py"),
+    [
+      "def callback():",
+      "    return True",
+      "",
+      "def invoke(action):",
+      "    return action()",
+      "",
+      "alias = callback",
+      "invoke(alias)",
+      "",
+    ].join("\n"),
+  );
+  await fs.writeFile(
+    path.join(root, "main.js"),
+    [
+      "function callbackJs() { return true; }",
+      "function invokeJs(action) { return action(); }",
+      "const aliasJs = callbackJs;",
+      "invokeJs(aliasJs);",
+      "",
+    ].join("\n"),
+  );
+
+  const graph = await analyzeRepository(root);
+  const python = graph.nodes.find((node) => node.id === "main.py")!;
+  const javascript = graph.nodes.find((node) => node.id === "main.js")!;
+  const pythonCallback = python.symbols.find(
+    (symbol) => symbol.name === "callback",
+  )!;
+  const pythonInvoke = python.symbols.find(
+    (symbol) => symbol.name === "invoke",
+  )!;
+  const jsCallback = javascript.symbols.find(
+    (symbol) => symbol.name === "callbackJs",
+  )!;
+  const jsInvoke = javascript.symbols.find(
+    (symbol) => symbol.name === "invokeJs",
+  )!;
+  const call = (from: CodeSymbol, to: CodeSymbol) =>
+    graph.semantic!.relations.find(
+      (relation) =>
+        relation.kind === "calls" &&
+        relation.from === `semantic:symbol:${from.id}` &&
+        relation.to === `semantic:symbol:${to.id}`,
+    );
+
+  assert.equal(call(pythonInvoke, pythonCallback)?.trust, "inferred");
+  assert.equal(call(pythonInvoke, pythonCallback)?.evidence[0].line, 5);
+  assert.equal(call(jsInvoke, jsCallback)?.trust, "inferred");
+  assert.equal(call(jsInvoke, jsCallback)?.evidence[0].line, 2);
+});
+
+test("Python self aliases and TypeScript-resolved properties remain bounded inferred calls", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "witch-property-flow-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  await fs.writeFile(
+    path.join(root, "worker.py"),
+    [
+      "class Worker:",
+      "    def target(self):",
+      "        return True",
+      "",
+      "    def invoke(self):",
+      "        alias = self",
+      "        return alias.target()",
+      "",
+    ].join("\n"),
+  );
+  await fs.writeFile(
+    path.join(root, "worker.ts"),
+    [
+      "export class WorkerTs {",
+      "  target() { return true; }",
+      "  invoke() {",
+      "    const alias = this;",
+      "    return alias.target();",
+      "  }",
+      "}",
+      "",
+    ].join("\n"),
+  );
+
+  const graph = await analyzeRepository(root);
+  const relation = (file: string, fromName: string, toName: string) => {
+    const node = graph.nodes.find((candidate) => candidate.id === file)!;
+    const from = node.symbols.find((symbol) => symbol.name === fromName)!;
+    const to = node.symbols.find((symbol) => symbol.name === toName)!;
+    return graph.semantic!.relations.find(
+      (candidate) =>
+        candidate.kind === "calls" &&
+        candidate.from === `semantic:symbol:${from.id}` &&
+        candidate.to === `semantic:symbol:${to.id}`,
+    );
+  };
+
+  assert.equal(relation("worker.py", "invoke", "target")?.trust, "inferred");
+  assert.equal(relation("worker.py", "invoke", "target")?.evidence[0].line, 7);
+  assert.equal(relation("worker.ts", "invoke", "target")?.trust, "inferred");
+  assert.equal(relation("worker.ts", "invoke", "target")?.evidence[0].line, 5);
+});
+
+test("Python MRO, decorator composition, and returned callables retain bounded targets", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "witch-python-flow-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  await fs.writeFile(
+    path.join(root, "main.py"),
+    [
+      "def leaf():",
+      "    return True",
+      "",
+      "def factory():",
+      "    return leaf",
+      "",
+      "def invoke():",
+      "    selected = factory()",
+      "    selected()",
+      "    factory()()",
+      "",
+      "def d1(fn):",
+      "    def wrapper1():",
+      "        return fn()",
+      "    return wrapper1",
+      "",
+      "def d2(fn):",
+      "    def wrapper2():",
+      "        return fn()",
+      "    return wrapper2",
+      "",
+      "@d1",
+      "@d2",
+      "def decorated():",
+      "    return leaf()",
+      "",
+      "def run_decorated():",
+      "    decorated()",
+      "",
+      "class Base:",
+      "    def execute(self):",
+      "        self.hook()",
+      "",
+      "class Child(Base):",
+      "    def hook(self):",
+      "        return True",
+      "",
+      "    def relay(self):",
+      "        super().execute()",
+      "",
+    ].join("\n"),
+  );
+
+  const graph = await analyzeRepository(root);
+  const node = graph.nodes.find((candidate) => candidate.id === "main.py")!;
+  const symbol = (qualifiedName: string) =>
+    node.symbols.find((candidate) => candidate.qualifiedName === qualifiedName)!;
+  const call = (from: CodeSymbol, to: CodeSymbol) =>
+    graph.semantic!.relations.find(
+      (relation) =>
+        relation.kind === "calls" &&
+        relation.from === `semantic:symbol:${from.id}` &&
+        relation.to === `semantic:symbol:${to.id}`,
+    );
+
+  assert.deepEqual(
+    call(symbol("invoke"), symbol("leaf"))?.evidence.map((item) => item.line),
+    [9, 10],
+  );
+  assert.equal(
+    call(symbol("run_decorated"), symbol("d1.wrapper1"))?.trust,
+    "inferred",
+  );
+  assert.equal(
+    call(symbol("d1.wrapper1"), symbol("d2.wrapper2"))?.trust,
+    "inferred",
+  );
+  assert.equal(
+    call(symbol("d2.wrapper2"), symbol("decorated"))?.trust,
+    "inferred",
+  );
+  assert.equal(
+    call(symbol("Base.execute"), symbol("Child.hook"))?.trust,
+    "inferred",
+  );
+  assert.equal(
+    call(symbol("Child.relay"), symbol("Base.execute"))?.trust,
+    "inferred",
+  );
+});

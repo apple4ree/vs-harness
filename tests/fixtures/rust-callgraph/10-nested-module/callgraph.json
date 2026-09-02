@@ -1,0 +1,5 @@
+{
+  "src.lib.run": ["src.pipeline.mod.start"],
+  "src.pipeline.mod.step": [],
+  "src.pipeline.mod.start": ["src.pipeline.mod.step"]
+}

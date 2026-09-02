@@ -1,0 +1,5 @@
+{
+  "src.lib.fast_path": [],
+  "src.lib.safe_path": [],
+  "src.lib.run": ["src.lib.fast_path", "src.lib.safe_path"]
+}

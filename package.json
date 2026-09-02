@@ -19,6 +19,8 @@
     "benchmark:repository": "tsx scripts/benchmark-repository.ts",
     "benchmark:behavior": "tsx scripts/benchmark-behavior.ts",
     "benchmark:frameworks": "tsx scripts/benchmark-frameworks.ts",
+    "benchmark:callgraph": "tsx scripts/benchmark-callgraph.ts",
+    "benchmark:callgraph:rust": "tsx scripts/benchmark-callgraph.ts tests/fixtures/rust-callgraph docs/benchmarks/rust-callgraph-ground-truth.json",
     "benchmark:structure-tools": "tsx scripts/benchmark-structure-tools.ts",
     "eval:offline": "tsx scripts/run-evaluations.ts",
     "capture:benchmarks": "tsx scripts/capture-benchmark-screenshots.ts",
