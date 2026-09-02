@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
 import {
+  f1Score,
   normalizeOracleSymbol,
   resolveBenchmarkPath,
 } from "../scripts/benchmark-callgraph";
@@ -52,4 +53,10 @@ test("benchmark paths allow dotted children but reject corpus escapes", () => {
     () => resolveBenchmarkPath(root, path.resolve("outside")),
     /non-empty and relative/,
   );
+});
+
+test("F1 remains zero when both precision and recall are zero", () => {
+  assert.equal(f1Score(0, 0), 0);
+  assert.equal(f1Score(1, 0), 0);
+  assert.equal(f1Score(0.5, 0.5), 0.5);
 });

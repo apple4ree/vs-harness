@@ -111,6 +111,11 @@ export function normalizeOracleSymbol(
 const ratio = (numerator: number, denominator: number) =>
   denominator === 0 ? 1 : numerator / denominator;
 
+export const f1Score = (precision: number, recall: number) =>
+  precision + recall === 0
+    ? 0
+    : (2 * precision * recall) / (precision + recall);
+
 export function resolveBenchmarkPath(
   benchmarkRoot: string,
   relativePath: string,
@@ -421,13 +426,17 @@ export async function evaluateCallgraphBenchmark(
     metrics: {
       precision,
       recall,
-      f1: ratio(2 * precision * recall, precision + recall),
+      f1: f1Score(precision, recall),
       scopedPrecision,
       scopedRecall,
-      scopedF1: ratio(
-        2 * scopedPrecision * scopedRecall,
-        scopedPrecision + scopedRecall,
-      ),
+      scopedF1: f1Score(scopedPrecision, scopedRecall),
+    },
+    metricValidity: {
+      precision: totals.witchEdges > 0,
+      recall: totals.goldEdges > 0,
+      scopedPrecision: totals.scopedWitchEdges > 0,
+      scopedRecall: totals.scopedGoldEdges > 0,
+      scopedF1: totals.scopedGoldEdges > 0,
     },
     errors,
     cases,

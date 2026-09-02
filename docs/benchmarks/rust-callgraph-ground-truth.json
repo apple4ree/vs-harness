@@ -24,7 +24,7 @@
       "returned callables"
     ]
   },
-  "generatedAt": "2026-09-02T14:13:56.075Z",
+  "generatedAt": "2026-09-02T14:43:41.698Z",
   "benchmarkRoot": "tests/fixtures/rust-callgraph",
   "evaluatedCases": 12,
   "failedCases": 0,
@@ -64,6 +64,13 @@
     "scopedPrecision": 1,
     "scopedRecall": 0.8823529411764706,
     "scopedF1": 0.9375
+  },
+  "metricValidity": {
+    "precision": true,
+    "recall": true,
+    "scopedPrecision": true,
+    "scopedRecall": true,
+    "scopedF1": true
   },
   "errors": [],
   "cases": [
