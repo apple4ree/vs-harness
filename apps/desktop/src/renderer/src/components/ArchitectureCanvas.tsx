@@ -1353,6 +1353,7 @@ export function ArchitectureCanvas({
             </span>
           </div>
         )}
+      <div className="architecture-graph-region">
       {!graph ? (
         <div className="empty-state">
           <img
@@ -2199,6 +2200,7 @@ export function ArchitectureCanvas({
           )}
         </aside>
       )}
+      </div>
       {graph && graph.warnings.length > 0 && (
         <details className="graph-warnings">
           <summary>

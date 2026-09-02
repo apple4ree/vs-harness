@@ -6,7 +6,15 @@
   min-height: 0;
   background: #100b18;
 }
-.architecture-workspace > .empty-state {
+.architecture-graph-region {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+.architecture-graph-region > .empty-state {
+  flex: 1;
   position: relative;
   isolation: isolate;
   overflow: hidden;
@@ -1121,9 +1129,9 @@
 }
 .component-details {
   position: absolute;
-  top: 57px;
+  top: 12px;
   right: 12px;
-  bottom: 44px;
+  bottom: 12px;
   width: 285px;
   z-index: 5;
   overflow: auto;
@@ -1132,16 +1140,6 @@
   padding: 14px;
   background: #17101ff5;
   box-shadow: 0 12px 45px #0008;
-}
-.architecture-workspace:has(.graph-trace-bar) .component-details {
-  top: 92px;
-}
-.architecture-workspace:has(.workflow-projection-bar) .component-details {
-  top: 95px;
-}
-.architecture-workspace:has(.workflow-projection-bar):has(.graph-trace-bar)
-  .component-details {
-  top: 130px;
 }
 .component-details header {
   display: flex;
