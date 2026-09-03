@@ -9,6 +9,11 @@ import {
   type AnalysisOptions,
 } from "./architecture";
 import type { ArchitectureGraph } from "../../shared/architecture";
+import {
+  acceptedByUserReceipt,
+  evaluateArchitectureCandidate,
+} from "../../shared/analysis-integrity";
+import { finalizeArchitectureGraph } from "../../shared/architecture-ir";
 import type { SemanticGraph } from "../../shared/semantic";
 import { contentHash } from "./workspace-files";
 
@@ -29,6 +34,11 @@ export class RepositoryAnalysisService {
   private cache: ArchitectureCache = new Map();
   private previousSemantic: SemanticGraph | null = null;
   private indexRoot: string | null = null;
+  private lastKnownGood: ArchitectureGraph | null = null;
+  private pendingCandidate: {
+    graph: ArchitectureGraph;
+    cache: ArchitectureCache;
+  } | null = null;
   constructor(
     private analyzer: (
       root: string,
@@ -44,6 +54,112 @@ export class RepositoryAnalysisService {
     if (!this.indexRoot) return null;
     const id = contentHash(path.resolve(root).toLowerCase()).slice(0, 32);
     return path.join(this.indexRoot, `${id}.json`);
+  }
+  private lastKnownGoodPath(root: string) {
+    if (!this.indexRoot) return null;
+    const id = contentHash(path.resolve(root).toLowerCase()).slice(0, 32);
+    return path.join(
+      path.dirname(this.indexRoot),
+      "last-known-good",
+      `${id}.json`,
+    );
+  }
+  private sourceGraph(graph: ArchitectureGraph): ArchitectureGraph {
+    const { integrity: _integrity, ...source } = graph;
+    return structuredClone(source);
+  }
+  private async loadLastKnownGood(root: string) {
+    const target = this.lastKnownGoodPath(root);
+    if (!target) return null;
+    try {
+      const stat = await fs.stat(target);
+      if (!stat.isFile() || stat.size > 150_000_000)
+        throw new Error("Last-known-good graph exceeds its 150 MB safety bound");
+      const value = JSON.parse(await fs.readFile(target, "utf8"));
+      if (
+        !value ||
+        value.contract !== "witch.last-known-good/v1" ||
+        value.workspaceRoot !== path.resolve(root) ||
+        !value.graph ||
+        value.graph.workspaceRoot !== path.resolve(root)
+      )
+        return null;
+      const {
+        validation: _validation,
+        integrity: _integrity,
+        ...draft
+      } = value.graph as ArchitectureGraph;
+      return finalizeArchitectureGraph(draft);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw new Error(
+        `Cannot load the persistent last-known-good architecture: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+  private async atomicWrite(target: string, value: unknown) {
+    await fs.mkdir(path.dirname(target), { recursive: true });
+    const temporary = `${target}.${randomUUID()}.tmp`;
+    const handle = await fs.open(temporary, "wx", 0o600);
+    try {
+      try {
+        await handle.writeFile(JSON.stringify(value) + "\n", "utf8");
+        await handle.sync();
+      } finally {
+        await handle.close();
+      }
+      await fs.rename(temporary, target);
+    } finally {
+      await fs.unlink(temporary).catch(() => undefined);
+    }
+  }
+  private async saveLastKnownGood(root: string, graph: ArchitectureGraph) {
+    const target = this.lastKnownGoodPath(root);
+    if (!target) return;
+    await this.atomicWrite(target, {
+      contract: "witch.last-known-good/v1",
+      workspaceRoot: path.resolve(root),
+      acceptedAt: new Date().toISOString(),
+      graph: this.sourceGraph(graph),
+    });
+  }
+  private async confirmedDeletedPaths(
+    root: string,
+    baseline: ArchitectureGraph,
+    candidate: ArchitectureGraph,
+  ) {
+    const candidatePaths = new Set(
+      candidate.nodes
+        .filter((node) => node.kind === "file" && node.path)
+        .map((node) => node.path!),
+    );
+    const missing = baseline.nodes
+      .filter(
+        (node) =>
+          node.kind === "file" && node.path && !candidatePaths.has(node.path),
+      )
+      .map((node) => node.path!);
+    const resolvedRoot = path.resolve(root);
+    const deleted = new Set<string>();
+    for (let offset = 0; offset < missing.length; offset += 64) {
+      await Promise.all(
+        missing.slice(offset, offset + 64).map(async (relative) => {
+          const target = path.resolve(resolvedRoot, relative);
+          if (
+            target !== resolvedRoot &&
+            !target.startsWith(resolvedRoot + path.sep)
+          )
+            return;
+          try {
+            await fs.lstat(target);
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === "ENOENT")
+              deleted.add(relative);
+          }
+        }),
+      );
+    }
+    return deleted;
   }
   private async loadIndex(root: string): Promise<ArchitectureCache> {
     const target = this.indexPath(root);
@@ -101,31 +217,44 @@ export class RepositoryAnalysisService {
       savedAt: new Date().toISOString(),
       entries,
     };
-    await fs.mkdir(path.dirname(target), { recursive: true });
-    const temporary = `${target}.${randomUUID()}.tmp`;
-    const handle = await fs.open(temporary, "wx", 0o600);
-    try {
-      try {
-        await handle.writeFile(JSON.stringify(value) + "\n", "utf8");
-        await handle.sync();
-      } finally {
-        await handle.close();
-      }
-      await fs.rename(temporary, target);
-    } finally {
-      await fs.unlink(temporary).catch(() => undefined);
-    }
+    await this.atomicWrite(target, value);
   }
   async clearIndex(root: string) {
     if (this.currentRoot === root) {
       this.cache.clear();
-      this.previousSemantic = null;
+      this.previousSemantic = this.lastKnownGood?.semantic || null;
+      this.pendingCandidate = null;
     }
     const target = this.indexPath(root);
     if (target)
       await fs.unlink(target).catch((error: NodeJS.ErrnoException) => {
         if (error.code !== "ENOENT") throw error;
       });
+  }
+  async acceptPendingCandidate(root: string, revision: string) {
+    if (
+      this.currentRoot !== root ||
+      !this.pendingCandidate ||
+      this.pendingCandidate.graph.workspaceRoot !== path.resolve(root) ||
+      this.pendingCandidate.graph.revision !== revision
+    )
+      throw new Error(
+        "The quarantined architecture candidate is no longer available; analyze again.",
+      );
+    const candidate = this.sourceGraph(this.pendingCandidate.graph);
+    const baseline = this.lastKnownGood;
+    const receipt = acceptedByUserReceipt(
+      evaluateArchitectureCandidate(baseline, candidate),
+    );
+    this.cache = this.pendingCandidate.cache;
+    this.pendingCandidate = null;
+    this.lastKnownGood = candidate;
+    this.previousSemantic = candidate.semantic || null;
+    await Promise.all([
+      this.saveIndex(root),
+      this.saveLastKnownGood(root, candidate),
+    ]);
+    return { ...candidate, integrity: receipt };
   }
   analyze(
     root: string,
@@ -165,13 +294,27 @@ export class RepositoryAnalysisService {
               new Error("Analysis superseded by a different project"),
             );
         if (this.currentRoot !== root) {
-          this.cache.clear();
-          this.previousSemantic = null;
-          this.cache = this.indexRoot ? await this.loadIndex(root) : new Map();
+          try {
+            this.cache.clear();
+            this.previousSemantic = null;
+            this.lastKnownGood = null;
+            this.pendingCandidate = null;
+            this.cache = this.indexRoot
+              ? await this.loadIndex(root)
+              : new Map();
+            this.lastKnownGood = this.indexRoot
+              ? await this.loadLastKnownGood(root)
+              : null;
+            this.previousSemantic = this.lastKnownGood?.semantic || null;
+          } catch (error) {
+            for (const request of batch) request.reject(error);
+            continue;
+          }
         }
         this.currentRoot = root;
         this.controller = new AbortController();
         try {
+          const baselineCache = new Map(this.cache);
           const graph = await this.analyzer(root, {
             cache: this.cache,
             signal: this.controller.signal,
@@ -182,9 +325,42 @@ export class RepositoryAnalysisService {
             ),
           });
           this.controller.signal.throwIfAborted();
-          this.previousSemantic = graph.semantic || null;
-          await this.saveIndex(root);
-          for (const request of batch) request.resolve(graph);
+          const sourceGraph = this.sourceGraph(graph);
+          let receipt = evaluateArchitectureCandidate(
+            this.lastKnownGood,
+            sourceGraph,
+          );
+          if (receipt.status === "fallback" && this.lastKnownGood) {
+            receipt = evaluateArchitectureCandidate(
+              this.lastKnownGood,
+              sourceGraph,
+              await this.confirmedDeletedPaths(
+                root,
+                this.lastKnownGood,
+                sourceGraph,
+              ),
+            );
+          }
+          if (receipt.status === "fallback" && this.lastKnownGood) {
+            const candidateCache = new Map(this.cache);
+            this.cache = baselineCache;
+            this.pendingCandidate = { graph: sourceGraph, cache: candidateCache };
+            const fallback = {
+              ...this.sourceGraph(this.lastKnownGood),
+              integrity: receipt,
+            };
+            for (const request of batch) request.resolve(fallback);
+            continue;
+          }
+          this.pendingCandidate = null;
+          this.lastKnownGood = sourceGraph;
+          this.previousSemantic = sourceGraph.semantic || null;
+          await Promise.all([
+            this.saveIndex(root),
+            this.saveLastKnownGood(root, sourceGraph),
+          ]);
+          const accepted = { ...sourceGraph, integrity: receipt };
+          for (const request of batch) request.resolve(accepted);
         } catch (error) {
           for (const request of batch) request.reject(error);
         }
@@ -201,5 +377,7 @@ export class RepositoryAnalysisService {
       request.reject(new Error("Repository analyzer closed"));
     this.cache.clear();
     this.previousSemantic = null;
+    this.lastKnownGood = null;
+    this.pendingCandidate = null;
   }
 }

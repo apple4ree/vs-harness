@@ -372,12 +372,19 @@ export function Workbench() {
       const result = await window.witch.analysis.start();
       if (root !== rootRef.current) return;
       setGraph(result);
-      setSnapshots((previous) =>
-        [
-          result.snapshot,
-          ...previous.filter((item) => item.id !== result.snapshot.id),
-        ].slice(0, 20),
-      );
+      if (result.snapshot)
+        setSnapshots((previous) =>
+          [
+            result.snapshot!,
+            ...previous.filter((item) => item.id !== result.snapshot!.id),
+          ].slice(0, 20),
+        );
+      if (result.integrity?.status === "fallback") {
+        setStatus(
+          `Analysis guard: quarantined ${result.integrity.candidateRevision.slice(0, 8)} after unexplained graph loss; showing last-known-good ${result.revision.slice(0, 8)}.`,
+        );
+        return;
+      }
       setStatus(
         `Structure indexed: ${result.coverage?.deepFiles ?? result.scannedFiles}/${result.coverage?.indexedFiles ?? result.scannedFiles} deep files · ${result.edges.length} evidence-backed relations · ${result.revision.slice(0, 8)}`,
       );
@@ -402,6 +409,25 @@ export function Workbench() {
     } catch (reason) {
       if (root === rootRef.current)
         setStatus(`Rebuild analysis index: ${errorText(reason)}`);
+    } finally {
+      if (root === rootRef.current) setGraphBusy(false);
+    }
+  }
+  async function acceptAnalysisCandidate(candidateRevision: string) {
+    const root = rootRef.current;
+    if (!root || graphBusy) return;
+    setGraphBusy(true);
+    try {
+      const result =
+        await window.witch.analysis.acceptCandidate(candidateRevision);
+      if (root !== rootRef.current) return;
+      setGraph(result);
+      setStatus(
+        `Architecture baseline accepted explicitly · ${result.nodes.length} nodes · ${result.revision.slice(0, 8)}.`,
+      );
+    } catch (reason) {
+      if (root === rootRef.current)
+        setStatus(`Accept architecture candidate: ${errorText(reason)}`);
     } finally {
       if (root === rootRef.current) setGraphBusy(false);
     }
@@ -1579,6 +1605,9 @@ export function Workbench() {
                 busy={graphBusy}
                 onAnalyze={() => void analyze()}
                 onClearIndex={() => void clearAnalysisIndex()}
+                onAcceptCandidate={(revision) =>
+                  void acceptAnalysisCandidate(revision)
+                }
                 onOpenFile={(path, line) => void selectFile(path, line)}
                 onAttach={attach}
                 onExport={(format) => void exportArchitecture(format)}

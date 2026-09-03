@@ -22,6 +22,48 @@ const graph = (root: string, revision: string): ArchitectureGraph =>
     truncated: false,
     warnings: [],
   });
+
+const populatedGraph = (
+  root: string,
+  revision: string,
+  files: number,
+): ArchitectureGraph =>
+  finalizeArchitectureGraph({
+    schemaVersion: 1,
+    diagramKind: "architecture",
+    analyzerVersion: "test",
+    workspaceRoot: root,
+    revision,
+    generatedAt: "now",
+    nodes: Array.from({ length: files }, (_, index) => {
+      const relative = `src/file-${index}.ts`;
+      const hash = `sha256:${String(index).padStart(64, "0")}`;
+      return {
+        id: relative,
+        label: relative,
+        kind: "file" as const,
+        path: relative,
+        module: "src",
+        language: "typescript",
+        count: 2,
+        hash,
+        symbols: [0, 1].map((symbol) => ({
+          id: `${relative}#${symbol}`,
+          name: `symbol${symbol}`,
+          kind: "function" as const,
+          line: symbol + 1,
+          endLine: symbol + 1,
+          exported: true,
+        })),
+        evidence: [{ path: relative, line: 1, hash }],
+      };
+    }),
+    edges: [],
+    scannedFiles: files,
+    totalFiles: files,
+    truncated: false,
+    warnings: [],
+  });
 test("repository watcher bursts coalesce without concurrent scans", async () => {
   let release!: () => void;
   const gate = new Promise<void>((resolve) => {
@@ -93,5 +135,85 @@ test("parsed symbols persist outside the project and can be rebuilt explicitly",
   assert.equal(second.coverage?.cache.persistentHits, 1);
   await secondService.clearIndex(root);
   assert.deepEqual(await fs.readdir(indexes), []);
+  secondService.dispose();
+});
+
+test("last-known-good survives restart and quarantined candidates require explicit acceptance", async (t) => {
+  const directory = await fs.mkdtemp(
+    path.join(os.tmpdir(), "witch-last-good-test-"),
+  );
+  const root = path.join(directory, "project");
+  const indexes = path.join(directory, "indexes");
+  await fs.mkdir(path.join(root, "src"), { recursive: true });
+  await Promise.all(
+    Array.from({ length: 40 }, (_, index) =>
+      fs.writeFile(path.join(root, "src", `file-${index}.ts`), "export {}\n"),
+    ),
+  );
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+
+  const firstService = new RepositoryAnalysisService(async () =>
+    populatedGraph(root, "baseline", 40),
+  );
+  firstService.setIndexRoot(indexes);
+  const first = await firstService.analyze(root);
+  assert.equal(first.integrity?.decision, "initial");
+  firstService.dispose();
+
+  const secondService = new RepositoryAnalysisService(async () =>
+    populatedGraph(root, "collapsed", 10),
+  );
+  secondService.setIndexRoot(indexes);
+  const fallback = await secondService.analyze(root);
+  assert.equal(fallback.revision, "baseline");
+  assert.equal(fallback.integrity?.status, "fallback");
+  assert.equal(fallback.integrity?.candidateRevision, "collapsed");
+
+  const accepted = await secondService.acceptPendingCandidate(
+    root,
+    "collapsed",
+  );
+  assert.equal(accepted.revision, "collapsed");
+  assert.equal(accepted.integrity?.decision, "user-accepted");
+  await assert.rejects(
+    secondService.acceptPendingCandidate(root, "collapsed"),
+    /no longer available/,
+  );
+  secondService.dispose();
+});
+
+test("corrupt last-known-good storage fails closed without being overwritten", async (t) => {
+  const directory = await fs.mkdtemp(
+    path.join(os.tmpdir(), "witch-last-good-corrupt-test-"),
+  );
+  const root = path.join(directory, "project");
+  const indexes = path.join(directory, "indexes");
+  await fs.mkdir(root);
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+
+  const firstService = new RepositoryAnalysisService(async () =>
+    populatedGraph(root, "baseline", 20),
+  );
+  firstService.setIndexRoot(indexes);
+  await firstService.analyze(root);
+  firstService.dispose();
+
+  const lastGoodDirectory = path.join(directory, "last-known-good");
+  const [file] = await fs.readdir(lastGoodDirectory);
+  const target = path.join(lastGoodDirectory, file);
+  await fs.writeFile(target, "{damaged", "utf8");
+
+  let analyzerCalled = false;
+  const secondService = new RepositoryAnalysisService(async () => {
+    analyzerCalled = true;
+    return populatedGraph(root, "replacement", 20);
+  });
+  secondService.setIndexRoot(indexes);
+  await assert.rejects(
+    secondService.analyze(root),
+    /Cannot load the persistent last-known-good architecture/,
+  );
+  assert.equal(analyzerCalled, false);
+  assert.equal(await fs.readFile(target, "utf8"), "{damaged");
   secondService.dispose();
 });

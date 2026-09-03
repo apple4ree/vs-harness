@@ -45,6 +45,68 @@
   font-size: 12px;
   color: #b3a5c3;
 }
+.review-impact {
+  margin: 0 20px 14px;
+  padding: 10px 12px;
+  border: 1px solid #574169;
+  border-left: 3px solid #9b74cc;
+  border-radius: 8px;
+  background: #21152f;
+  color: #dcd0eb;
+}
+.review-impact.risk-medium {
+  border-left-color: #d2a95d;
+}
+.review-impact.risk-high,
+.review-impact.risk-critical {
+  border-left-color: #df708e;
+}
+.review-impact > div:first-child {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.review-impact strong {
+  text-transform: capitalize;
+  font-size: 12px;
+}
+.review-impact dl {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 9px 0 0;
+}
+.review-impact dl > div {
+  min-width: 0;
+}
+.review-impact dt {
+  color: #9f8eb2;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.review-impact dd {
+  margin: 2px 0 0;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.review-impact > small {
+  display: block;
+  margin-top: 8px;
+  color: #e0b8c4;
+}
+.review-impact details {
+  margin-top: 8px;
+  font-size: 10px;
+}
+.review-impact ul {
+  max-height: 64px;
+  margin: 5px 0 0;
+  padding-left: 18px;
+  overflow: auto;
+  font-family: "Cascadia Code", monospace;
+}
 .review-body {
   flex: 1;
   min-height: 0;

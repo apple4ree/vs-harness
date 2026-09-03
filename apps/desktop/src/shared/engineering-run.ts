@@ -4,6 +4,10 @@ import type {
   AgentProviderId,
   AgentRun,
 } from "./agent";
+import type {
+  AgentExperienceRecord,
+  GraphImpactReviewReceipt,
+} from "./agent-graph-tools";
 
 export type HarnessRunState =
   | "created"
@@ -169,6 +173,8 @@ export type HarnessEventType =
   | "repair.started"
   | "repair.completed"
   | "repair.stopped"
+  | "impact.analyzed"
+  | "experience.recorded"
   | "analysis.updated"
   | "review.created"
   | "run.completed"
@@ -245,6 +251,8 @@ export type HarnessEventPayloads = {
     reason: "same-fingerprint" | "budget-exhausted" | "provider-interrupted";
     stoppedAt: string;
   };
+  "impact.analyzed": { receipt: GraphImpactReviewReceipt };
+  "experience.recorded": { receipt: AgentExperienceRecord };
   "analysis.updated": { receipt: AnalysisUpdateReceipt };
   "review.created": {
     reviewId: string;
@@ -309,6 +317,8 @@ export type EngineeringRunProjection = {
   verification: VerificationReceipt[];
   repairs: RepairAttemptReceipt[];
   repairStopReason?: HarnessEventPayloads["repair.stopped"]["reason"];
+  impactAnalyses: GraphImpactReviewReceipt[];
+  experiences: AgentExperienceRecord[];
   analysisUpdates: AnalysisUpdateReceipt[];
   changedPaths: string[];
   checkpointIds: string[];

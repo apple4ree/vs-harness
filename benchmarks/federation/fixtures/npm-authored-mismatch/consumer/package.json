@@ -1,0 +1,6 @@
+{
+  "name": "@bench/mismatch-consumer",
+  "dependencies": {
+    "@bench/mismatch": "workspace:*"
+  }
+}

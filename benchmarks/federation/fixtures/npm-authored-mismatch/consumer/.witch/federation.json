@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "repositoryKey": "mismatch-consumer",
+  "mappings": [
+    {
+      "ecosystem": "npm",
+      "package": "@bench/mismatch",
+      "provider": "missing-provider"
+    }
+  ]
+}

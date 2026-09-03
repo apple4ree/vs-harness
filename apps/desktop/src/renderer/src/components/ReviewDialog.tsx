@@ -1,10 +1,12 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { DiffEditor } from "@monaco-editor/react";
 import {
   languageFor,
   monaco,
   restoreMonacoHoverFactory,
 } from "./editor-runtime";
+import type { GraphImpactReviewReceipt } from "../../../shared/agent-graph-tools";
 import "./review.css";
 
 export type ReviewFile = {
@@ -20,10 +22,12 @@ export function ReviewDialog({
   onApply,
   applyLabel = "Apply selected changes",
   description,
+  impact,
 }: {
   title: string;
   files: ReviewFile[];
   description?: string;
+  impact?: GraphImpactReviewReceipt;
   onClose: () => void;
   onApply: (paths: string[]) => Promise<void>;
   applyLabel?: string;
@@ -74,7 +78,7 @@ export function ReviewDialog({
       setBusy(false);
     }
   }
-  return (
+  return createPortal(
     <div className="review-backdrop">
       <div
         className="review-dialog"
@@ -97,6 +101,60 @@ export function ReviewDialog({
           {description ||
             "Left: current baseline. Right: proposed content. Only checked files will be changed."}
         </p>
+        {impact && (
+          <section
+            className={`review-impact risk-${impact.risk.level}`}
+            aria-label="Graph impact receipt"
+          >
+            <div>
+              <span className="eyebrow">Graph impact · immutable receipt</span>
+              <strong>
+                {impact.risk.level} risk · {impact.risk.score}/100
+              </strong>
+            </div>
+            <dl>
+              <div>
+                <dt>Resolved</dt>
+                <dd>{impact.changedNodeIds.length} changed nodes</dd>
+              </div>
+              <div>
+                <dt>Affected</dt>
+                <dd>{impact.affectedCount} downstream nodes</dd>
+              </div>
+              <div>
+                <dt>Boundaries</dt>
+                <dd>
+                  {impact.componentIds.length} components ·{" "}
+                  {impact.workflowIds.length} workflows
+                </dd>
+              </div>
+              <div>
+                <dt>Tests</dt>
+                <dd>{impact.suggestedTestPaths.length} graph-linked paths</dd>
+              </div>
+            </dl>
+            {(impact.unresolvedInputs.length > 0 || impact.truncated) && (
+              <small>
+                {impact.unresolvedInputs.length
+                  ? `${impact.unresolvedInputs.length} changed path(s) are outside the current graph. `
+                  : ""}
+                {impact.truncated
+                  ? `${impact.omittedAffected} affected node(s) omitted from this bounded receipt.`
+                  : ""}
+              </small>
+            )}
+            {!!impact.suggestedTestPaths.length && (
+              <details>
+                <summary>Suggested verification targets</summary>
+                <ul>
+                  {impact.suggestedTestPaths.map((testPath) => (
+                    <li key={testPath}>{testPath}</li>
+                  ))}
+                </ul>
+              </details>
+            )}
+          </section>
+        )}
         <div className="review-body">
           <nav aria-label="Changed files">
             {files.map((file) => (
@@ -192,6 +250,7 @@ export function ReviewDialog({
           </button>
         </footer>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

@@ -2,6 +2,11 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import type { AgentRun } from "./agent";
 import {
+  isAgentExperienceRecord,
+  type AgentExperienceRecord,
+  type GraphImpactReviewReceipt,
+} from "./agent-graph-tools";
+import {
   defaultRunBudget,
   emptyRunBudgetUsage,
   type AnyHarnessEvent,
@@ -337,6 +342,51 @@ function validRepairReceipt(value: unknown): value is RepairAttemptReceipt {
   );
 }
 
+function validImpactReceipt(value: unknown): value is GraphImpactReviewReceipt {
+  if (!record(value) || !record(value.risk)) return false;
+  const nodes = value.affectedNodes;
+  return (
+    value.contract === "witch.graph-impact-review/v1" &&
+    value.sourceContract === "witch.graph-impact/v1" &&
+    text(value.sourceRevision, 1_000) &&
+    optionalText(value.semanticRevision, 1_000) &&
+    optionalText(value.behaviorRevision, 1_000) &&
+    optionalText(value.knowledgeRevision, 1_000) &&
+    integer(value.maxDepth, 8) &&
+    Number(value.maxDepth) >= 1 &&
+    strings(value.changedPaths) &&
+    strings(value.changedNodeIds) &&
+    integer(value.affectedCount, 1_000_000) &&
+    Array.isArray(nodes) &&
+    nodes.length <= 120 &&
+    nodes.every(
+      (node) =>
+        record(node) &&
+        text(node.id, 10_000) &&
+        text(node.label, 10_000) &&
+        text(node.kind, 1_000) &&
+        optionalText(node.path, 32_000) &&
+        integer(node.depth, 8) &&
+        strings(node.relationPath, 8),
+    ) &&
+    integer(value.omittedAffected, 1_000_000) &&
+    strings(value.componentIds) &&
+    strings(value.workflowIds) &&
+    strings(value.suggestedTestPaths) &&
+    integer(value.risk.score, 100) &&
+    ["low", "medium", "high", "critical"].includes(String(value.risk.level)) &&
+    strings(value.risk.reasons, 12) &&
+    strings(value.unresolvedInputs) &&
+    typeof value.truncated === "boolean"
+  );
+}
+
+function validExperienceReceipt(
+  value: unknown,
+): value is AgentExperienceRecord {
+  return isAgentExperienceRecord(value);
+}
+
 function payloadValid(type: HarnessEventType, payload: unknown) {
   if (!record(payload)) return false;
   switch (type) {
@@ -483,6 +533,10 @@ function payloadValid(type: HarnessEventType, payload: unknown) {
         ].includes(String(payload.reason)) &&
         timestamp(payload.stoppedAt)
       );
+    case "impact.analyzed":
+      return validImpactReceipt(payload.receipt);
+    case "experience.recorded":
+      return validExperienceReceipt(payload.receipt);
     case "analysis.updated": {
       const receipt = payload.receipt;
       return (
@@ -566,6 +620,8 @@ export function validateHarnessEvent(value: unknown): HarnessEventValidation {
       "repair.started",
       "repair.completed",
       "repair.stopped",
+      "impact.analyzed",
+      "experience.recorded",
       "analysis.updated",
       "review.created",
       "run.completed",
@@ -674,6 +730,8 @@ function createdProjection(
     tools: [],
     verification: [],
     repairs: [],
+    impactAnalyses: [],
+    experiences: [],
     analysisUpdates: [],
     changedPaths: [],
     checkpointIds: [],
@@ -739,6 +797,10 @@ export function applyHarnessEvent(
       ...receipt,
       failedIntentIds: [...receipt.failedIntentIds],
     })),
+    impactAnalyses: current.impactAnalyses.map((receipt) =>
+      structuredClone(receipt),
+    ),
+    experiences: current.experiences.map((receipt) => structuredClone(receipt)),
     analysisUpdates: [...current.analysisUpdates],
     changedPaths: [...current.changedPaths],
     checkpointIds: [...current.checkpointIds],
@@ -888,6 +950,20 @@ export function applyHarnessEvent(
     case "repair.stopped":
       next.repairStopReason = candidate.payload.reason;
       break;
+    case "impact.analyzed":
+      next.impactAnalyses.push(structuredClone(candidate.payload.receipt));
+      break;
+    case "experience.recorded":
+      if (
+        next.experiences.some(
+          (experience) => experience.id === candidate.payload.receipt.id,
+        )
+      )
+        throw new Error("Experience id must be unique within a run");
+      if (candidate.payload.receipt.runId !== current.runId)
+        throw new Error("Experience receipt belongs to another run");
+      next.experiences.push(structuredClone(candidate.payload.receipt));
+      break;
     case "analysis.updated":
       next.analysisUpdates.push(structuredClone(candidate.payload.receipt));
       break;
@@ -1032,6 +1108,13 @@ export function projectLegacyAgentRun(run: AgentRun): LegacyAgentRunProjection {
       evidenceIds: [],
       priority: 1_000,
     });
+  for (const experience of run.experiences || [])
+    if (experience.runId === run.id)
+      emit(
+        "experience.recorded",
+        { receipt: structuredClone(experience) },
+        run.createdAt,
+      );
 
   const target = legacyTargetState(run.status);
   if (target === "planning") transition("planning");

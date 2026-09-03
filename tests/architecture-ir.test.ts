@@ -106,6 +106,55 @@ test("architecture IR fails closed when topology or evidence is ungrounded", () 
   assert.throws(() => finalizeArchitectureGraph(broken), /validation failed/);
 });
 
+test("architecture IR fails closed on an integrity receipt bound to another revision", () => {
+  const broken = draft();
+  broken.integrity = {
+    contract: "witch.analysis-integrity/v1",
+    status: "accepted",
+    decision: "stable",
+    baselineRevision: "revision-0",
+    candidateRevision: "another-revision",
+    baseline: {
+      files: 2,
+      nodes: 2,
+      symbols: 0,
+      relations: 1,
+      semanticNodes: 0,
+      workflows: 0,
+      knowledgeNodes: 0,
+    },
+    candidate: {
+      files: 2,
+      nodes: 2,
+      symbols: 0,
+      relations: 1,
+      semanticNodes: 0,
+      workflows: 0,
+      knowledgeNodes: 0,
+    },
+    loss: {
+      files: 0,
+      nodes: 0,
+      symbols: 0,
+      relations: 0,
+      semanticNodes: 0,
+      workflows: 0,
+      knowledgeNodes: 0,
+    },
+    missingPaths: [],
+    confirmedDeletedPaths: [],
+    detectedAt: "2026-09-03T00:00:00.000Z",
+  };
+  const receipt = validateArchitectureGraph(broken);
+  assert.equal(receipt.valid, false);
+  assert(
+    receipt.diagnostics.some(
+      (item) => item.code === "IR_INTEGRITY_RECEIPT_INVALID",
+    ),
+  );
+  assert.throws(() => finalizeArchitectureGraph(broken), /validation failed/);
+});
+
 test("reach and route traces reuse only authored directed relations", () => {
   const relations = [
     { id: "e-z", source: "a", target: "c" },

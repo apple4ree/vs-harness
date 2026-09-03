@@ -60,6 +60,159 @@ export type WorkflowCatalogSummary = {
   hidden: number;
   supportHidden: number;
 };
+export type ArchitectureReadingPresentation = {
+  eyebrow: string;
+  title: string;
+  description: string;
+  trail: string[];
+  stats: Array<{ label: string; value: string }>;
+};
+
+export function buildArchitectureReadingPresentation(input: {
+  scope: ArchitectureScope;
+  lens: SemanticLens;
+  density: GraphDensity;
+  visibleNodes: number;
+  visibleEdges: number;
+  moduleLabel?: string | null;
+  componentLabel?: string | null;
+  workflowLabel?: string | null;
+  workflowSteps?: number;
+  workflowBranches?: number;
+  workflowRetries?: number;
+}): ArchitectureReadingPresentation {
+  const stats = [
+    { label: "Visible", value: `${input.visibleNodes} nodes` },
+    { label: "Relations", value: `${input.visibleEdges}` },
+    {
+      label: "Detail",
+      value: input.density === "readable" ? "Readable" : "Complete",
+    },
+  ];
+  if (input.scope === "modules")
+    return {
+      eyebrow: "Source structure",
+      title: "Repository modules at a glance",
+      description:
+        "Start with authored module boundaries, then open a module to inspect its files and imports.",
+      trail: ["System", "Modules"],
+      stats,
+    };
+  if (input.scope === "files")
+    return {
+      eyebrow: "Source structure",
+      title: input.moduleLabel
+        ? `${input.moduleLabel} source boundary`
+        : "Repository files",
+      description:
+        "Read file-level imports and re-exports before moving into symbol meaning or exact source.",
+      trail: ["System", "Modules", input.moduleLabel || "Files"],
+      stats,
+    };
+  if (input.scope === "focus")
+    return {
+      eyebrow: "Focused source neighborhood",
+      title: input.moduleLabel || "Active file connections",
+      description:
+        "Only direct incoming and outgoing source relations for the active file are shown.",
+      trail: ["System", "Source", input.moduleLabel || "Active file"],
+      stats,
+    };
+
+  const semantic = {
+    overview: {
+      eyebrow: "Meaning overview",
+      title: "System meaning at a glance",
+      description:
+        "A readable backbone connects system, component, and workflow meaning before code-level drill-down.",
+      label: "Overview",
+    },
+    components: {
+      eyebrow: "Component boundaries",
+      title: input.componentLabel
+        ? `Inside ${input.componentLabel}`
+        : "Component responsibilities and boundaries",
+      description: input.componentLabel
+        ? "Inspect the source files, workflows, and evidence contained by this component."
+        : "See which components own behavior and how their source-backed boundaries relate.",
+      label: input.componentLabel || "Components",
+    },
+    workflows: {
+      eyebrow: input.workflowLabel ? "Workflow detail" : "Workflow catalog",
+      title: input.workflowLabel
+        ? `${input.workflowLabel} execution story`
+        : "Production workflows grouped by component",
+      description: input.workflowLabel
+        ? "Follow ordered steps, branches, retries, and convergence, then move into the participating calls or source."
+        : "Open one outcome-oriented workflow to inspect its control-flow sequence and code evidence.",
+      label: input.workflowLabel || "Workflows",
+    },
+    calls: {
+      eyebrow: "Code architecture",
+      title: "Source-resolved call graph",
+      description:
+        "Trace callers and callees that resolve to source symbols; ambiguous dynamic dispatch remains excluded.",
+      label: "Calls",
+    },
+    types: {
+      eyebrow: "Code architecture",
+      title: "Type hierarchy and implementation map",
+      description:
+        "Inspect source-backed extends, implements, overrides, protocols, and trait implementation relations.",
+      label: "Types",
+    },
+    data: {
+      eyebrow: "Code architecture",
+      title: "State access map",
+      description:
+        "See which resolved symbols read or write internal state before following the exact evidence line.",
+      label: "Data",
+    },
+    behavior: {
+      eyebrow: "Behavior architecture",
+      title: "Inputs, outputs, state, and side effects",
+      description:
+        "Compare static behavior with optional runtime observations without persisting source values.",
+      label: "Behavior",
+    },
+    frameworks: {
+      eyebrow: "Framework architecture",
+      title: "Routes, tasks, channels, and registrations",
+      description:
+        "Review explicit framework entry points and exclusions with their source evidence.",
+      label: "Frameworks",
+    },
+    questions: {
+      eyebrow: "Architecture review",
+      title: "Open questions and conflicts",
+      description:
+        "Authored and inferred readings stay side by side until source evidence resolves the uncertainty.",
+      label: "Questions",
+    },
+    verified: {
+      eyebrow: "Architecture evidence",
+      title: "Verified and authored facts",
+      description:
+        "Review evidence-backed claims separately from provisional inference before using them for Agent work.",
+      label: "Verified",
+    },
+  }[input.lens];
+  if (input.lens === "workflows" && input.workflowLabel)
+    stats.splice(
+      0,
+      stats.length,
+      { label: "Steps", value: String(input.workflowSteps || 0) },
+      { label: "Branches", value: String(input.workflowBranches || 0) },
+      { label: "Retries", value: String(input.workflowRetries || 0) },
+    );
+  return {
+    eyebrow: semantic.eyebrow,
+    title: semantic.title,
+    description: semantic.description,
+    trail: ["System", "Meaning", semantic.label],
+    stats,
+  };
+}
 export type CardKind =
   | "module"
   | "file"
@@ -82,6 +235,7 @@ export type CardData = {
   changed: boolean;
   dimmed: boolean;
   traced: boolean;
+  layoutDirection?: "LR" | "TB";
   semanticId?: string;
   trust?: "verified" | "inferred" | "authored";
   status?: string;
@@ -266,6 +420,7 @@ function arrangeCards(
     const position = layout.node(node.id);
     const height = options.height(node);
     node.position = { x: position.x - 111, y: position.y - height / 2 };
+    node.data = { ...node.data, layoutDirection: options.rankdir };
   });
   edges.forEach((edge) => {
     const route = layout.edge({
@@ -273,7 +428,12 @@ function arrangeCards(
       w: edge.target,
       name: edge.id,
     }) as { points?: VisualPoint[] } | undefined;
-    if (route?.points?.length) routes.set(edge.id, route.points);
+    if (route?.points?.length) {
+      const points = route.points.map((point) => ({ x: point.x, y: point.y }));
+      routes.set(edge.id, points);
+      edge.type = "routed";
+      edge.data = { ...edge.data, route: points };
+    }
   });
   const quality = validateVisualGraph(
     nodes.map((node) => ({
@@ -614,11 +774,16 @@ export function buildSemanticView(
       : node.id.startsWith("compose:component:")
         ? 1
         : 0;
+  const componentIdentity = (label: string) =>
+    label
+      .toLowerCase()
+      .replace(/[\\/_\s-]+/g, "-")
+      .replace(/^-|-$/g, "");
   const canonicalComponentByLabel = new Map<string, SemanticNode>();
   for (const component of available.filter(
     (node) => node.kind === "component",
   )) {
-    const key = component.label.toLowerCase();
+    const key = componentIdentity(component.label);
     const existing = canonicalComponentByLabel.get(key);
     if (
       !existing ||
@@ -633,7 +798,7 @@ export function buildSemanticView(
       node.id,
       workflowComponents(node.id).map(
         (component) =>
-          canonicalComponentByLabel.get(component.label.toLowerCase()) ||
+          canonicalComponentByLabel.get(componentIdentity(component.label)) ||
           component,
       ),
     ]),
@@ -699,14 +864,11 @@ export function buildSemanticView(
       }
     : undefined;
   const allowed = new Set<string>();
-  if (lens === "overview")
-    available
-      .filter((node) =>
-        ["system", "component", "workflow", "workflow-step"].includes(
-          node.kind,
-        ),
-      )
-      .forEach((node) => allowed.add(node.id));
+  if (lens === "overview") {
+    if (catalogSystem) allowed.add(catalogSystem.id);
+    canonicalComponentByLabel.forEach((node) => allowed.add(node.id));
+    allWorkflowNodes.forEach((node) => allowed.add(node.id));
+  }
   if (lens === "components") {
     const focus = available.find(
       (node) =>
@@ -723,10 +885,13 @@ export function buildSemanticView(
             relation.kind === "contains" && relation.from === focus.id,
         )
         .forEach((relation) => allowed.add(relation.to));
-    } else
+    } else {
+      if (catalogSystem) allowed.add(catalogSystem.id);
+      canonicalComponentByLabel.forEach((node) => allowed.add(node.id));
       available
-        .filter((node) => ["system", "component", "file"].includes(node.kind))
+        .filter((node) => node.kind === "file")
         .forEach((node) => allowed.add(node.id));
+    }
   }
   if (lens === "workflows") {
     const focus = available.find(
@@ -1062,7 +1227,12 @@ export function buildSemanticView(
           type: MarkerType.ArrowClosed,
           color: trustColor[relation.trust],
         },
-        label: relation.kind,
+        label:
+          density === "readable" &&
+          ["overview", "components"].includes(lens) &&
+          relation.kind === "contains"
+            ? undefined
+            : relation.kind,
         data: {
           count: 1,
           semantic: true,
@@ -1158,8 +1328,8 @@ export function buildSemanticView(
   const shouldProject = density === "readable" && lens !== "workflows";
   const readable = shouldProject
     ? selectReadableBackbone(nodes, allEdges, {
-        maxNodes: 12,
-        maxEdges: 11,
+        maxNodes: lens === "overview" ? 6 : 12,
+        maxEdges: lens === "overview" ? 5 : 11,
         maxDegree: 3,
         nodeScore: (node) =>
           Number(node.data.confidence || 0) * 100 +
@@ -1175,10 +1345,24 @@ export function buildSemanticView(
       };
   const sequence = lens === "workflows" && workflow.mode === "sequence";
   const arrangeOptions = {
-    rankdir: sequence ? ("TB" as const) : ("LR" as const),
-    ranksep: sequence ? 36 : density === "readable" ? 125 : 110,
+    rankdir:
+      sequence || ["overview", "components"].includes(lens)
+        ? ("TB" as const)
+        : ("LR" as const),
+    ranksep: sequence
+      ? 36
+      : ["overview", "components"].includes(lens)
+        ? 42
+        : density === "readable"
+          ? 125
+          : 110,
     nodesep: sequence ? 38 : density === "readable" ? 58 : 52,
-    height: () => (sequence ? 92 : 132),
+    height: () =>
+      sequence
+        ? 92
+        : ["overview", "components"].includes(lens)
+          ? 112
+          : 132,
     profile:
       density === "readable" ? ("showcase" as const) : ("standard" as const),
   };

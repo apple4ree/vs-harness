@@ -86,3 +86,43 @@ test("visual validation reports edge crossings and unrelated node traversal", ()
     ),
   );
 });
+
+test("visual validation records label, boundary and projected text evidence", () => {
+  const nodes = [node("left", 0, 0), node("right", 300, 0)];
+  const edges = [edge("route", "left", "right")];
+  const routes = new Map([
+    [
+      "route",
+      [
+        { x: 100, y: 30 },
+        { x: 220, y: 30 },
+        { x: 300, y: 30 },
+      ],
+    ],
+  ]);
+  const receipt = validateVisualGraph(nodes, edges, routes, "showcase", {
+    labels: [
+      {
+        id: "unrelated-label",
+        rect: { left: 145, top: 25, right: 175, bottom: 35 },
+      },
+    ],
+    boundaries: [
+      {
+        id: "system-boundary",
+        rect: { left: 120, top: 30, right: 200, bottom: 90 },
+      },
+    ],
+    projectedText: [{ id: "left:label", pixels: 6.5 }],
+    minimumTextPx: 7,
+  });
+  assert.equal(receipt.contract, "witch.visual-quality/v1");
+  assert.equal(receipt.metrics.labelRouteClearanceIssues, 1);
+  assert.equal(receipt.metrics.boundaryBorderRuns, 1);
+  assert.equal(receipt.metrics.projectedTextIssues, 1);
+  const diagnostic = receipt.diagnostics.find(
+    (item) => item.code === "composition/label-route-clearance",
+  );
+  assert.deepEqual(diagnostic?.subject.elements, ["unrelated-label"]);
+  assert(diagnostic?.supportedFixes.includes("move-edge-label"));
+});

@@ -2,16 +2,41 @@
 
 [English](README.md) · [한국어](README.ko.md)
 
-
 Witch is a local-first desktop ADE for exploring code as **structure, meaning, workflows, behavior, and observed execution**, then carrying that evidence into AI Agent work.
 
 The current release is a development preview that can open real projects for editing, search, execution, and debugging. It is not a full VS Code-compatible product. Git UI and remote file workspaces are not implemented yet.
 
+## Product model
+
+Witch connects three activities that are usually split across separate tools:
+
+```text
+Source and language services
+  → validated Architecture / Semantic / Behavior / Runtime readings
+  → interactive Constellation with evidence and uncertainty
+  → bounded Agent context
+  → isolated change, verification, diff review, selected apply
+  → re-analysis of the accepted source
+```
+
+It is not a VS Code fork, a skin around one Agent CLI, or an AI-generated
+diagram viewer. Monaco provides the editor, local language servers provide IDE
+intelligence, deterministic analyzers produce versioned readings, and Codex or
+Claude Code can be connected as replaceable Agent Providers.
+
+| Layer                    | Witch today                                                                                                              | Deliberate boundary                                                   |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------- |
+| Code intelligence        | Python, Rust, and TypeScript/JavaScript structure, calls, workflows, behavior, frameworks, and optional runtime evidence | Dynamic dispatch and unsupported framework magic remain explicit gaps |
+| Interactive architecture | Summary-first System → Component → Workflow → Calls → Source navigation with evidence and provenance                     | A visual projection never replaces the canonical validated graph      |
+| Local ADE                | Explorer, Monaco, search, LSP, Tasks, terminals, Node/Python debug, file watching, settings                              | No VSIX host, Git UI, or remote file workspace yet                    |
+| Agent engineering        | Codex/Claude adapters, bounded context, isolated copy, verification journal, selective apply                             | An isolated copy is a review boundary, not a VM security sandbox      |
+| Computer use             | Optional bounded observation                                                                                             | Agent clicking and typing remain disabled                             |
+
 ![Witch Runtime Trace Compare](docs/screenshots/product/runtime-trace-compare.png)
 
-### What you can do
+## What you can do
 
-#### 1. Open a repository and read its structure
+### 1. Open a repository and read its structure
 
 1. Select a local project with **Open repository**.
 2. Witch indexes it statically without executing project code.
@@ -22,17 +47,29 @@ The current release is a development preview that can open real projects for edi
 
 The analysis contracts remain separate:
 
-| Reading | Purpose |
-| --- | --- |
-| `witch.architecture/v1` | File, module, import, and export structure |
-| `witch.semantic/v1` | System, Component, Workflow, WorkflowStep, File, and Symbol meaning |
-| `witch.behavior/v1` | Direct argument, return, state-access, and side-effect candidates |
-| `witch.framework/v1` | Explicit route, task, graph, and spawn registrations |
-| `witch.runtime-trace/v1` | Structural events observed during one approved Task run |
+| Reading                     | Purpose                                                              |
+| --------------------------- | -------------------------------------------------------------------- |
+| `witch.architecture/v1`     | File, module, import, and export structure                           |
+| `witch.semantic/v1`         | System, Component, Workflow, WorkflowStep, File, and Symbol meaning  |
+| `witch.behavior/v1`         | Direct argument, return, state-access, and side-effect candidates    |
+| `witch.framework/v1`        | Explicit route, task, graph, and spawn registrations                 |
+| `witch.knowledge/v1`        | ADR/RFC decisions, packages, dependencies, and project configuration |
+| `witch.graph-meta/v1`       | Derived drill-down hierarchy from System to source Symbol            |
+| `witch.graph-federation/v1` | Cross-repository package links over separate validated readings      |
+| `witch.runtime-trace/v1`    | Structural events observed during one approved Task run              |
+| `witch.visual-quality/v1`   | Deterministic graph-projection geometry checks                       |
+| `witch.rendered-graph/v1`   | Post-paint React Flow DOM/SVG measurements                           |
+| `witch.graph-delivery/v1`   | Source, projection, and rendered acceptance state                    |
 
 Every reading retains a source revision, endpoints, evidence, provenance, and a validation receipt. `Verified`, `Inferred`, `Authored`, and `Observed` are never collapsed into one indistinguishable fact.
 
-#### 2. Explore large workflows summary-first
+Open **Intelligence → Knowledge** after reading a repository to inspect ADR/RFC rationale, manifest-declared npm/Python/Cargo packages, dependencies, and recognized configuration. Witch keeps authored decisions separate from inferred System links and does not copy arbitrary configuration values into the knowledge graph.
+
+**Intelligence → Map** avoids shrinking the complete graph onto one canvas. It drills through System → Community → Component → Workflow → Symbol, separates solid hierarchy links from dotted aggregated relations, and never presents derived fallback ownership as an architecture claim.
+
+**Intelligence → Federation** connects the active reading with the latest saved readings of recent projects. Select repositories and build a read-only system map; Witch links only exact npm/Python/Cargo package identities and preserves each repository's revisions. Portable `.witch/federation.json` keys can author a provider mapping. Duplicate inferred providers remain Grill-me questions until explicitly approved, and that choice is stored as a revision-bound app-data receipt rather than written into source. The approval history marks applied, stale, superseded, out-of-map, and revoked decisions; revocation appends an audit event instead of erasing history.
+
+### 2. Explore large workflows summary-first
 
 **Meaning → Workflows** opens with a workflow catalog. After selecting one workflow, switch between a graph and a top-to-bottom sequence, then collapse or expand branch-only paths.
 
@@ -47,7 +84,7 @@ Deep analysis currently targets TypeScript/JavaScript, Python, and Rust:
 
 Workflow relations use call sites and explicit syntax to produce `precedes`, `branches-to`, and `retries`. Static candidates remain provisional and are not presented as proven runtime order.
 
-#### 3. Inspect framework registrations and behavior
+### 3. Inspect framework registrations and behavior
 
 **Meaning → Frameworks** currently uses source-only adapters for:
 
@@ -59,7 +96,7 @@ Dynamic paths, unresolved endpoints, and lambda or property handlers are preserv
 
 **Meaning → Behavior** shows direct parameter binding, returns, module-state access, and framework relations. Witch does not claim complete object-field, message, database-lineage, or dynamic-dispatch recovery.
 
-#### 4. Compare static analysis with an approved run
+### 4. Compare static analysis with an approved run
 
 Runtime Trace is off by default.
 
@@ -79,7 +116,7 @@ Witch stores symbol identity, parent call, order, duration, and outcome only. It
 
 Automatic instrumentation, Debug-launch tracing, and cross-process causal tracing are not implemented yet.
 
-#### 5. Continue from a graph into AI Agent work
+### 5. Continue from a graph into AI Agent work
 
 Use **Add to Agent context** on a Meaning card, or drag the card into the conversation panel. The main process resolves the selection again from the current validated graph instead of trusting renderer-provided labels or paths.
 
@@ -99,7 +136,7 @@ An Agent's completion message is not accepted as evidence. Witch uses actual cha
 
 You can apply only selected files. Apply is rejected if the original changed externally. Unapplied reviews can be archived, restored, or continued as a child run from the current baseline.
 
-#### 6. Use regular ADE capabilities
+### 6. Use regular ADE capabilities
 
 ![Source editor and terminals](docs/screenshots/product/source-terminals.png)
 
@@ -116,23 +153,23 @@ You can apply only selected files. Apply is rejected if the original changed ext
 
 SSH currently provides remote terminals only. Explorer, Editor, Search, LSP, Tasks, Debugger, analysis, and Agent work still use the opened local workspace.
 
-### AI Provider connections
+## AI Provider connections
 
 Open **AI providers** to inspect local CLI installation and sign-in state, or API-key configuration.
 
-| Provider | Current use |
-| --- | --- |
-| Signed-in Codex CLI | Ask, isolated Change, Semantic Composer |
-| Signed-in Claude Code CLI | Ask, isolated Change, Semantic Composer |
-| OpenAI API key | Semantic Composer |
-| Anthropic API key | Semantic Composer |
-| Rules only | Deterministic Semantic Composer without an AI call |
+| Provider                  | Current use                                        |
+| ------------------------- | -------------------------------------------------- |
+| Signed-in Codex CLI       | Ask, isolated Change, Semantic Composer            |
+| Signed-in Claude Code CLI | Ask, isolated Change, Semantic Composer            |
+| OpenAI API key            | Semantic Composer                                  |
+| Anthropic API key         | Semantic Composer                                  |
+| Rules only                | Deterministic Semantic Composer without an AI call |
 
 Stored API keys are encrypted with Electron `safeStorage` and cannot be read back by the renderer. Local analysis, editing, and search do not call an AI. Running an Agent or AI Composer can send the selected bounded source context to that Provider.
 
 The current Codex and Claude adapters do not expose native resume/fork capabilities. Controls remain hidden unless the selected Provider explicitly advertises support.
 
-### Getting started
+## Getting started
 
 Node.js 22 or newer and npm are required.
 
@@ -159,7 +196,7 @@ npm run package:mac
 
 The macOS preview uses ad-hoc signing. It is not a Developer ID-signed and notarized public distribution.
 
-### Common shortcuts
+## Common shortcuts
 
 `Mod` means Ctrl on Windows and Cmd on macOS. App shortcuts can be changed in Settings.
 
@@ -173,25 +210,31 @@ The macOS preview uses ad-hoc signing. It is not a Developer ID-signed and notar
 - `Mod+Shift+Space`: signature help
 - `F9` / `F5` / `Shift+F5`: breakpoint / debug / stop
 
-### Project configuration
+## Project configuration
 
 Within the supported subset, Witch reads `.witch/tasks.json`, `.witch/launch.json`, `.vscode/tasks.json`, and `.vscode/launch.json`. Opening a project never runs Tasks, builds, tests, migrations, or shell initialization scripts automatically.
 
 Rust LSP uses a system `rust-analyzer` or the absolute `WITCH_RUST_ANALYZER_PATH`. Rust build scripts and procedural macros are not enabled automatically. Python debugging requires `debugpy` to be installed in the selected environment; Witch does not install it.
 
-### Evaluation and verification
+## Evaluation and verification
 
-Witch publishes how it measures quality without copying third-party benchmark source into this repository. See the [evaluation guide](docs/evaluation/README.md), [reproduction instructions](docs/evaluation/reproducibility.md), and [limitations](docs/evaluation/limitations.md).
+Witch publishes how it measures quality without copying third-party benchmark source into this repository. The [product benchmark](docs/evaluation/product-benchmark.md) separates analysis fidelity, explanation usability, IDE/ADE workflow, Agent harness quality, safety, and scale instead of hiding them behind one score. See also the [evaluation guide](docs/evaluation/README.md), [reproduction instructions](docs/evaluation/reproducibility.md), and [limitations](docs/evaluation/limitations.md).
 
-Key results at the 2026-09-02 source checkpoint:
+The product suite distinguishes code-structure explorers, IDEs, ADEs, Agent
+harnesses, and computer-use agents. Every comparison records whether evidence is
+only `documented`, manually `observed`, or commonly `measured`. Unsupported
+capabilities are reported as `not-applicable`, while a failed claimed capability
+remains `fail`.
 
-| Verification axis | Result | Interpretation boundary |
-| --- | ---: | --- |
-| Unit/integration tests | 140 passed | Real filesystem, LSP, debugger, PTY, and local Provider doubles |
-| Electron E2E | 25 passed | Real UI and IPC with disposable workspaces and profiles |
-| SWARM-CG Python | Scoped F1 87.64% | Development micro; oracle edge coverage 17.99% |
-| PyAnalyzer macro C | Scoped F1 58.20% | Holdout macro; oracle edge coverage 31.68% |
-| Witch Rust v1 | F1 93.75% | Development micro; no separate Rust macro holdout yet |
+Current verification counts plus benchmark results frozen at the 2026-09-02 source checkpoint:
+
+| Verification axis            |                      Result | Interpretation boundary                                                       |
+| ---------------------------- | --------------------------: | ----------------------------------------------------------------------------- |
+| Unit/integration tests       |                  173 passed | Real filesystem, LSP, debugger, PTY, and local Provider doubles               |
+| Electron E2E                 |                   25 passed | Real UI and IPC with disposable workspaces and profiles                       |
+| SWARM-CG Python              |            Scoped F1 87.64% | Development micro; oracle edge coverage 17.99%                                |
+| PyAnalyzer macro C           |            Scoped F1 58.20% | Holdout macro; oracle edge coverage 31.68%                                    |
+| Witch Rust v1                |                   F1 93.75% | Development micro; no separate Rust macro holdout yet                         |
 | DyPyBench five-project pilot | Dynamic agreement F1 62.73% | Agreement with calls observed by upstream tests, not a complete static oracle |
 
 Micro, macro, development, and holdout measurements are never pooled. Detailed numbers are frozen in the [call-graph result](docs/evaluation/results/callgraph-2026-09-02.md); product verification is recorded in the [product-quality result](docs/evaluation/results/product-quality-2026-09-02.md).
@@ -213,9 +256,23 @@ npm run benchmark:repository
 npm run benchmark:behavior
 npm run benchmark:frameworks
 npm run benchmark:callgraph:rust
+npm run benchmark:product:check
+npm run benchmark:composer
+npm run benchmark:comprehension:check
+npm run capture:visual-matrix -- path/to/project test-results/visual-matrix
 ```
 
-### Important safety boundaries
+The [graph delivery protocol](docs/evaluation/visual-validation.md) checks both
+the deterministic layout and the actual painted DOM/SVG. Invalid later
+candidates preserve the latest validated view instead of replacing it. Composer
+first candidates remain frozen per Provider, while human comprehension results
+remain `pending` until a named reviewer completes the fixed tasks.
+
+External adapters are mapped for call-graph corpora, SWE-bench, IDE-Bench,
+Terminal-Bench, OSWorld, and AgentDojo. A mapped adapter is not a measured result:
+live Agent, container, VM, and CUA runs remain explicit opt-in evaluations.
+
+## Important safety boundaries
 
 - Terminal, Task, Debugger, and SSH processes run with the user's permissions; they are not Agent sandboxes.
 - An Agent workspace copy separates original files for review but is not a VM or container security boundary.
@@ -225,8 +282,8 @@ npm run benchmark:callgraph:rust
 - Known `.env`, credential, and private-key paths are excluded from Agent copies, but Witch cannot guarantee detection of every secret embedded in source files.
 - Analysis readings, Agent journals, checkpoints, reviews, and Runtime Traces remain in app data until removed by the user.
 
-See [implementation status](docs/implementation-status.md), the [Engineering Core specification](docs/engineering-core-spec-v0.md), and [Runtime Trace and evaluation](docs/evaluation-runtime-trace.md) for detailed boundaries. The bilingual maintenance contract is defined in the [documentation language policy](docs/documentation-policy.md).
+See [implementation status](docs/implementation-status.md), the [Engineering Core specification](docs/engineering-core-spec-v0.md), the [Graph Intelligence v1 specification](docs/graph-intelligence-v1.md), the [Architecture Knowledge v1 specification](docs/architecture-knowledge-v1.md), the [Multi-resolution Meta Graph v1 specification](docs/multi-resolution-meta-graph-v1.md), the [Multi-repository Federation v1 specification](docs/multi-repository-federation-v1.md), and [Runtime Trace and evaluation](docs/evaluation-runtime-trace.md) for detailed boundaries. The bilingual maintenance contract is defined in the [documentation language policy](docs/documentation-policy.md).
 
-### Project status
+## Project status
 
 Witch is a development preview. It can be built and tested from source, but it does not claim VS Code compatibility or production distribution stability. Review the documented limits first for large monorepos, dynamic-dispatch-heavy systems, unsupported frameworks, and remote workspaces.

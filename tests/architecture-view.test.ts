@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  buildArchitectureReadingPresentation,
   buildView,
   relationsForEdge,
 } from "../apps/desktop/src/renderer/src/components/architecture-view";
@@ -124,6 +125,14 @@ test("readable maps retain a sparse source-backed backbone and visual receipt", 
   assert(view.projection.omittedEdges > 0);
   assert.equal(view.quality.profile, "showcase");
   assert.equal(view.quality.nodeCount, view.nodes.length);
+  assert(
+    view.edges.every(
+      (edge) =>
+        edge.type === "routed" &&
+        Array.isArray((edge.data as { route?: unknown })?.route),
+    ),
+    "the renderer must draw the same Dagre routes that validation measured",
+  );
 });
 
 test("large module attachments keep full scope with a bounded path preview", () => {
@@ -148,4 +157,54 @@ test("large module attachments keep full scope with a bounded path preview", () 
   );
   assert(long.paths.length < 80);
   assert(JSON.stringify(long).length < 50000);
+});
+
+test("architecture reading presents workflow outcomes before graph detail", () => {
+  const reading = buildArchitectureReadingPresentation({
+    scope: "semantics",
+    lens: "workflows",
+    density: "readable",
+    visibleNodes: 8,
+    visibleEdges: 9,
+    workflowLabel: "Execute trade",
+    workflowSteps: 7,
+    workflowBranches: 2,
+    workflowRetries: 1,
+  });
+
+  assert.equal(reading.title, "Execute trade execution story");
+  assert.deepEqual(reading.trail, ["System", "Meaning", "Execute trade"]);
+  assert.deepEqual(reading.stats, [
+    { label: "Steps", value: "7" },
+    { label: "Branches", value: "2" },
+    { label: "Retries", value: "1" },
+  ]);
+  assert.match(reading.description, /calls or source/);
+});
+
+test("architecture reading keeps code lenses and source hierarchy explicit", () => {
+  const calls = buildArchitectureReadingPresentation({
+    scope: "semantics",
+    lens: "calls",
+    density: "complete",
+    visibleNodes: 42,
+    visibleEdges: 76,
+  });
+  assert.equal(calls.title, "Source-resolved call graph");
+  assert.deepEqual(calls.trail, ["System", "Meaning", "Calls"]);
+  assert.deepEqual(calls.stats.at(-1), {
+    label: "Detail",
+    value: "Complete",
+  });
+
+  const files = buildArchitectureReadingPresentation({
+    scope: "files",
+    lens: "overview",
+    density: "readable",
+    visibleNodes: 12,
+    visibleEdges: 14,
+    moduleLabel: "src/risk",
+  });
+  assert.equal(files.title, "src/risk source boundary");
+  assert.deepEqual(files.trail, ["System", "Modules", "src/risk"]);
 });

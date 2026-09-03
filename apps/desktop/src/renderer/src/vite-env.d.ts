@@ -217,8 +217,9 @@ declare global {
         gitStatus(): Promise<string>;
       };
       analysis: {
-        start(): Promise<ArchitectureGraph & { snapshot: Snapshot }>;
+        start(): Promise<ArchitectureGraph & { snapshot?: Snapshot }>;
         clearIndex(): Promise<ArchitectureGraph>;
+        acceptCandidate(candidateRevision: string): Promise<ArchitectureGraph>;
         compose(
           request: import("../../shared/semantic-composer").SemanticComposerRequest,
         ): Promise<
@@ -226,6 +227,23 @@ declare global {
         >;
         snapshots(): Promise<Snapshot[]>;
         current(): Promise<ArchitectureGraph | null>;
+        federationCandidates(): Promise<
+          import("../../shared/federation").FederationCandidate[]
+        >;
+        federationApprovals(): Promise<
+          import("../../shared/federation").FederationApprovalHistoryEntry[]
+        >;
+        revokeFederationApproval(
+          approvalId: string,
+        ): Promise<
+          import("../../shared/federation").FederationApprovalHistoryEntry[]
+        >;
+        federate(
+          snapshotIds: string[],
+        ): Promise<import("../../shared/federation").ArchitectureFederation>;
+        approveFederation(
+          request: import("../../shared/federation").FederationApprovalRequest,
+        ): Promise<import("../../shared/federation").ArchitectureFederation>;
         delta(snapshotId: string): Promise<ArchitectureDelta>;
         export(format: "json" | "html"): Promise<string | null>;
         onUpdated(listener: (graph: ArchitectureGraph) => void): () => void;

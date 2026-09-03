@@ -47,6 +47,25 @@ The complete ordinary source gate is:
 npm run test:all
 ```
 
+Validate the cross-product benchmark taxonomy and its no-composite-score policy:
+
+```sh
+npm run benchmark:product:check
+```
+
+This validates the local contract only. It does not run or download any external
+benchmark, product, Provider, container, or VM.
+
+Run the Witch-owned static Federation regression suite:
+
+```sh
+npm run benchmark:federation:check
+```
+
+It analyzes six local npm, Python, and Cargo multi-repository cases without
+executing their code. The report keeps link, question, authored mapping,
+approval, staleness, validation, and order-invariance metrics separate.
+
 Package verification is a separate platform-specific operation. See the root
 README and GitHub workflows for Windows and macOS packaging commands.
 

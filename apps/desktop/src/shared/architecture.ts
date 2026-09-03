@@ -7,6 +7,7 @@ import type {
 import type { SemanticCompositionReceipt } from "./semantic-composer";
 import type { BehaviorGraph } from "./behavior";
 import type { FrameworkGraph } from "./framework";
+import type { KnowledgeGraph } from "./knowledge";
 
 export type SourceEvidence = {
   path: string;
@@ -137,6 +138,40 @@ export type AnalysisCoverage = {
   limits: AnalysisLimit[];
 };
 
+export type AnalysisGraphMetrics = {
+  files: number;
+  nodes: number;
+  symbols: number;
+  relations: number;
+  semanticNodes: number;
+  workflows: number;
+  knowledgeNodes: number;
+};
+
+/**
+ * Source-grounded admission receipt for a newly analyzed graph. A fallback
+ * reading keeps the accepted graph visible while describing the quarantined
+ * candidate; it never pretends that the old revision is current.
+ */
+export type AnalysisIntegrityReceipt = {
+  contract: "witch.analysis-integrity/v1";
+  status: "accepted" | "fallback";
+  decision:
+    | "initial"
+    | "stable"
+    | "explained-shrink"
+    | "user-accepted"
+    | "unexplained-shrink";
+  baselineRevision: string | null;
+  candidateRevision: string;
+  baseline: AnalysisGraphMetrics | null;
+  candidate: AnalysisGraphMetrics;
+  loss: AnalysisGraphMetrics;
+  missingPaths: string[];
+  confirmedDeletedPaths: string[];
+  detectedAt: string;
+};
+
 export type ArchitectureGraph = {
   schemaVersion: 1;
   diagramKind: "architecture";
@@ -158,8 +193,12 @@ export type ArchitectureGraph = {
   behavior?: BehaviorGraph;
   /** Optional source-only framework adapter findings and coverage receipt. */
   frameworks?: FrameworkGraph;
+  /** Optional authored/verified architecture knowledge overlay. */
+  knowledge?: KnowledgeGraph;
   /** Audited Semantic Composer run. The composed nodes live in `semantic`. */
   composition?: SemanticCompositionReceipt;
+  /** Admission state for persistent last-known-good graph protection. */
+  integrity?: AnalysisIntegrityReceipt;
   validation: ArchitectureValidationReceipt;
 };
 

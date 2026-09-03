@@ -171,6 +171,24 @@ test.beforeAll(async () => {
   await expect(page.getByLabel("Meaning lens")).toHaveValue("overview");
   await page.getByRole("button", { name: "Modules", exact: true }).click();
   await expect(page.locator(".architecture-card")).toHaveCount(3);
+  const graphStage = page.locator(".graph-stage");
+  await expect(graphStage).toHaveAttribute(
+    "data-graph-contract",
+    "witch.graph-delivery/v1",
+  );
+  await expect(graphStage).toHaveAttribute(
+    "data-render-status",
+    /pass|warning|fail/,
+  );
+  const deliveryReceipt = JSON.parse(
+    (await graphStage
+      .locator(".graph-delivery-receipt")
+      .getAttribute("data-receipt")) || "{}",
+  );
+  expect(deliveryReceipt).toMatchObject({
+    contract: "witch.graph-delivery/v1",
+    stages: { analysis: "pass" },
+  });
 });
 
 test.afterAll(async () => {
@@ -424,10 +442,10 @@ test("architecture edges and drag-to-chat source context work in Electron", asyn
   await page.getByLabel("Meaning lens").selectOption("overview");
   await expect(page.getByLabel("Meaning lens")).toHaveValue("overview");
   await expect(
-    page.locator('.react-flow__node[data-id="compose:system:workspace"]'),
+    page.locator('.react-flow__node[data-id="semantic:system:workspace"]'),
   ).toBeVisible();
   const semanticComponent = page.locator(
-    '.react-flow__node[data-id="compose:component:src-api"]',
+    '.react-flow__node[data-id="semantic:component:src/api"]',
   );
   await semanticComponent.click();
   await expect(page.locator(".semantic-inspector")).toContainText(
@@ -441,9 +459,12 @@ test("architecture edges and drag-to-chat source context work in Electron", asyn
     .getByRole("button", { name: "Explore component files", exact: true })
     .click();
   await expect(page.getByLabel("Meaning lens")).toHaveValue("components");
-  await expect(page.locator(".graph-breadcrumb")).toContainText("src/api");
+  await expect(page.locator(".architecture-reading-trail")).toContainText(
+    "src/api",
+  );
   await page
-    .getByRole("button", { name: "Meaning overview", exact: false })
+    .locator(".architecture-reading-trail")
+    .getByRole("button", { name: "Back to Meaning overview", exact: true })
     .click();
   await page.getByLabel("Meaning lens").selectOption("calls");
   expect(
@@ -491,9 +512,12 @@ test("architecture edges and drag-to-chat source context work in Electron", asyn
     "aria-pressed",
     "true",
   );
-  await expect(page.locator(".graph-breadcrumb")).toContainText(
-    "Workflow catalog",
+  await expect(page.locator(".architecture-reading")).toContainText(
+    "run_agent workflow execution story",
   );
+  await expect(
+    page.getByRole("button", { name: "Workflow catalog", exact: true }),
+  ).toBeVisible();
   await page.getByLabel("Collapse workflow branches").click();
   await expect(page.getByLabel("Collapse workflow branches")).toHaveAttribute(
     "aria-pressed",

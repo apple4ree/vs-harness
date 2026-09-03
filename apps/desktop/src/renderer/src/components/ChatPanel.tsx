@@ -366,6 +366,12 @@ export function ChatPanel({
                     {run.engineering.analysisStatus
                       ? ` · analysis ${run.engineering.analysisStatus}`
                       : ""}
+                    {run.engineering.impactRiskLevel
+                      ? ` · impact ${run.engineering.impactRiskLevel} ${run.engineering.impactRiskScore}/100 (${run.engineering.impactAffectedNodes} nodes)`
+                      : ""}
+                    {run.engineering.experienceCount
+                      ? ` · ${run.engineering.experienceCount} experience`
+                      : ""}
                     {" · "}
                     {run.engineering.healthy
                       ? "journal verified"
@@ -373,6 +379,22 @@ export function ChatPanel({
                   </small>
                 </div>
               )}
+              {run.graphContext?.experience &&
+                (run.graphContext.experience.included.length > 0 ||
+                  run.graphContext.experience.staleRecordIds.length > 0 ||
+                  run.graphContext.experience.unknownRecordIds.length > 0) && (
+                  <div className="agent-experience-context">
+                    <span>Experience context</span>
+                    <small>
+                      {run.graphContext.experience.included.length} fresh used ·{" "}
+                      {run.graphContext.experience.staleRecordIds.length} stale
+                      excluded
+                      {run.graphContext.experience.unknownRecordIds.length
+                        ? ` · ${run.graphContext.experience.unknownRecordIds.length} unknown excluded`
+                        : ""}
+                    </small>
+                  </div>
+                )}
               {run.response ? (
                 <div className="assistant-text">{run.response}</div>
               ) : (
@@ -406,13 +428,12 @@ export function ChatPanel({
               )}
               {(Boolean(
                 run.nativeSession &&
-                  agentHost?.providers.find(
-                    (item) => item.id === run.providerId,
-                  )?.capabilities.sessionResume,
+                agentHost?.providers.find((item) => item.id === run.providerId)
+                  ?.capabilities.sessionResume,
               ) ||
                 Boolean(
                   provider?.capabilities.fork &&
-                    provider.capabilities.modes.includes(run.mode),
+                  provider.capabilities.modes.includes(run.mode),
                 )) && (
                 <div className="agent-native-controls">
                   {run.nativeSession &&
@@ -445,6 +466,22 @@ export function ChatPanel({
               )}
               {run.status === "review" && (
                 <>
+                  {run.graphImpact && (
+                    <div
+                      className={`agent-impact-summary risk-${run.graphImpact.risk.level}`}
+                    >
+                      <span>Graph impact</span>
+                      <strong>
+                        {run.graphImpact.risk.level} ·{" "}
+                        {run.graphImpact.risk.score}/100
+                      </strong>
+                      <small>
+                        {run.graphImpact.affectedCount} affected ·{" "}
+                        {run.graphImpact.workflowIds.length} workflows ·{" "}
+                        {run.graphImpact.suggestedTestPaths.length} test targets
+                      </small>
+                    </div>
+                  )}
                   <button
                     className="review-changes-button"
                     disabled={busy || !!archiving}
@@ -463,6 +500,22 @@ export function ChatPanel({
                       : "Archive without applying"}
                   </button>
                 </>
+              )}
+              {!!run.experiences?.length && (
+                <div
+                  className="agent-experience-outcomes"
+                  aria-label="Agent experiences"
+                >
+                  {run.experiences.map((experience) => (
+                    <span
+                      key={experience.id}
+                      className={`experience-${experience.outcome}`}
+                      title={experience.reason}
+                    >
+                      {experience.outcome}
+                    </span>
+                  ))}
+                </div>
               )}
               {run.status === "archived" && (
                 <details className="archived-note">
@@ -649,6 +702,7 @@ export function ChatPanel({
           key={review.id}
           title="Review agent changes"
           files={review.changes}
+          impact={review.graphImpact}
           onClose={() => setReview(null)}
           onApply={async (paths) => {
             const updated = await window.witch.agent.apply(review.id, paths);

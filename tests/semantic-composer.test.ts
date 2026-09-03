@@ -11,6 +11,7 @@ async function fixture(t: test.TestContext) {
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   await fs.mkdir(path.join(root, "src/api"), { recursive: true });
   await fs.mkdir(path.join(root, "src/agent"), { recursive: true });
+  await fs.mkdir(path.join(root, "docs/adr"), { recursive: true });
   await fs.writeFile(
     path.join(root, "src/api/client.ts"),
     "export function requestModel() { return 'ok' }\n",
@@ -18,6 +19,14 @@ async function fixture(t: test.TestContext) {
   await fs.writeFile(
     path.join(root, "src/agent/run.ts"),
     'import { requestModel } from "../api/client";\nexport function runAgent() { return requestModel() }\n',
+  );
+  await fs.writeFile(
+    path.join(root, "package.json"),
+    '{"name":"composer-fixture","dependencies":{"openai":"latest"}}\n',
+  );
+  await fs.writeFile(
+    path.join(root, "docs/adr/0001-provider.md"),
+    "# Use provider boundary\n\n## Decision\nKeep provider calls behind one adapter.\n",
   );
   return { root, graph: await analyzeRepository(root) };
 }
@@ -90,6 +99,16 @@ test("rules composer adds provisional, evidence-backed system components", async
   assert.ok(composed.every((node) => node.trust === "inferred"));
   assert.ok(composed.every((node) => node.status === "provisional"));
   assert.equal(result.graph.composition?.revision, result.receipt.revision);
+  assert.ok(result.graph.knowledge?.validation.valid);
+  assert.equal(
+    result.graph.knowledge?.semanticRevision,
+    result.graph.semantic?.revision,
+  );
+  assert(
+    result.graph.knowledge?.nodes.some(
+      (node) => node.kind === "decision" && node.label === "Use provider boundary",
+    ),
+  );
 });
 
 test("AI composer accepts only relations cited by the source candidate packet", async (t) => {

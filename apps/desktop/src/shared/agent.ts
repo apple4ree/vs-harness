@@ -1,5 +1,10 @@
 import type { ComponentContext } from "./architecture";
 import type { HarnessRunState } from "./engineering-run";
+import type {
+  AgentGraphContextReceipt,
+  AgentExperienceRecord,
+  GraphImpactReviewReceipt,
+} from "./agent-graph-tools";
 export type AgentMode = "ask" | "change";
 export type AgentProviderId = "codex" | "claude";
 export type AgentProviderCapabilities = {
@@ -39,12 +44,15 @@ export type AgentEngineeringRunSummary = {
   repairAttempts: number;
   planUnexpectedFiles: number;
   repairStopReason?:
-    | "same-fingerprint"
-    | "budget-exhausted"
-    | "provider-interrupted";
+    "same-fingerprint" | "budget-exhausted" | "provider-interrupted";
   analysisStatus?: "completed" | "failed" | "skipped";
   analysisChangedNodes?: number;
   analysisChangedRelations?: number;
+  impactAffectedNodes?: number;
+  impactRiskScore?: number;
+  impactRiskLevel?: GraphImpactReviewReceipt["risk"]["level"];
+  experienceCount: number;
+  latestExperienceOutcome?: AgentExperienceRecord["outcome"];
   healthy: boolean;
   error?: string;
 };
@@ -79,6 +87,9 @@ export type AgentRun = {
   prompt: string;
   mode: AgentMode;
   contexts: ComponentContext[];
+  graphContext?: AgentGraphContextReceipt;
+  graphImpact?: GraphImpactReviewReceipt;
+  experiences?: AgentExperienceRecord[];
   status: AgentRunStatus;
   createdAt: string;
   completedAt?: string;

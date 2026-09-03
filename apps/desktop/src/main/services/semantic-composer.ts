@@ -18,6 +18,7 @@ import type {
   WorkflowStepKind,
 } from "../../shared/semantic";
 import { finalizeSemanticGraph } from "../../shared/semantic-ir";
+import { finalizeKnowledgeGraph } from "../../shared/knowledge-ir";
 import type {
   SemanticComposerDraft,
   SemanticComposerProviderId,
@@ -1405,12 +1406,50 @@ function applyDraft(
   const {
     behavior: _staleBehavior,
     frameworks: _staleFrameworks,
+    knowledge: _staleKnowledge,
     ...sourceGraph
   } = graph;
+  let knowledge = undefined;
+  if (graph.knowledge) {
+    const endpoints = new Set([
+      ...graph.nodes.map((node) => node.id),
+      ...composedSemantic.nodes.map((node) => node.id),
+      ...graph.knowledge.nodes.map((node) => node.id),
+    ]);
+    const relations = graph.knowledge.relations.filter(
+      (relation) => endpoints.has(relation.from) && endpoints.has(relation.to),
+    );
+    const { validation: _knowledgeValidation, ...knowledgeDraft } =
+      graph.knowledge;
+    knowledge = finalizeKnowledgeGraph(
+      {
+        ...knowledgeDraft,
+        semanticRevision: composedSemantic.revision,
+        revision: hash(
+          JSON.stringify({
+            sourceRevision: graph.revision,
+            semanticRevision: composedSemantic.revision,
+            nodes: graph.knowledge.nodes,
+            relations,
+          }),
+        ),
+        generatedAt: now,
+        relations,
+      },
+      graph.nodes,
+      composedSemantic,
+    );
+  }
   return {
     // Behavior endpoints are tied to an exact semantic revision. A composed
     // semantic graph must be re-analyzed before it can receive a new overlay.
-    graph: { ...sourceGraph, semantic: composedSemantic, composition: receipt },
+    // Source-authored knowledge is retained after rebinding valid endpoints.
+    graph: {
+      ...sourceGraph,
+      semantic: composedSemantic,
+      ...(knowledge ? { knowledge } : {}),
+      composition: receipt,
+    },
     receipt,
   };
 }

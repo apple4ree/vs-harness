@@ -53,7 +53,13 @@ import {
 } from "./services/provider-key-store";
 import { SemanticComposerService } from "./services/semantic-composer";
 import { RuntimeTraceService } from "./services/runtime-trace-service";
+import {
+  federateSnapshots,
+  federationCandidates,
+} from "./services/federation-service";
+import { FederationApprovalStore } from "./services/federation-approval-store";
 import type { SemanticComposerRequest } from "../shared/semantic-composer";
+import type { FederationApprovalRequest } from "../shared/federation";
 import type {
   SnapshotMetadata as Snapshot,
   TaskRecord,
@@ -228,6 +234,7 @@ let providerKeyStore: ProviderKeyStore | null = null;
 let semanticComposerService: SemanticComposerService | null = null;
 let runtimeTraceService: RuntimeTraceService | null = null;
 let sessionStore: SessionStore | null = null;
+let federationApprovalStore: FederationApprovalStore | null = null;
 const repositoryAnalysis = new RepositoryAnalysisService();
 const workspaceOperation = new WorkspaceOperation();
 let acceptingSessionUpdates = true;
@@ -291,6 +298,13 @@ function getHistoryStore() {
       },
     );
   return historyStore;
+}
+function getFederationApprovalStore() {
+  if (!federationApprovalStore)
+    federationApprovalStore = new FederationApprovalStore(
+      path.join(app.getPath("userData"), "state", "federation-approvals.json"),
+    );
+  return federationApprovalStore;
 }
 const loadWitchState = () => getHistoryStore().get();
 
@@ -1175,6 +1189,13 @@ async function updateArchitecture(
   return graph;
 }
 
+function assertAcceptedArchitecture(graph: ArchitectureGraph) {
+  if (graph.integrity?.status === "fallback")
+    throw new Error(
+      "Resolve the quarantined architecture candidate before running Semantic Composer or an Agent.",
+    );
+}
+
 async function activateWorkspace(root: string): Promise<Workspace> {
   if (currentWorkspace && path.resolve(root) === currentWorkspace.root)
     return currentWorkspace;
@@ -1980,6 +2001,7 @@ app.whenReady().then(() => {
     const graph = await updateArchitecture(workspace.root);
     if (currentWorkspace?.root !== workspace.root)
       throw new Error("The active workspace changed");
+    if (graph.integrity?.status === "fallback") return graph;
     const snapshot = await saveSnapshot(workspace, graph);
     return { ...graph, snapshot };
   });
@@ -1992,10 +2014,151 @@ app.whenReady().then(() => {
       throw new Error("The active workspace changed");
     return graph;
   });
+  handleDesktop(
+    "analysis:accept-candidate",
+    async (_event, candidateRevision: string) => {
+      if (!currentWorkspace) throw new Error("Open a repository first");
+      if (typeof candidateRevision !== "string" || !candidateRevision)
+        throw new Error("A candidate revision is required");
+      const root = currentWorkspace.root;
+      const graph = await repositoryAnalysis.acceptPendingCandidate(
+        root,
+        candidateRevision,
+      );
+      if (currentWorkspace?.root !== root)
+        throw new Error("The active workspace changed");
+      latestGraph = graph;
+      if (!applicationWindow?.isDestroyed())
+        applicationWindow?.webContents.send("analysis:updated", graph);
+      return graph;
+    },
+  );
   handleDesktop("analysis:snapshots", async () =>
     listSnapshots(currentWorkspace?.root),
   );
   handleDesktop("analysis:current", () => latestGraph);
+  handleDesktop("analysis:federation-candidates", async () => {
+    if (!currentWorkspace) throw new Error("Open a repository first");
+    return federationCandidates(
+      await getHistoryStore().get(),
+      currentWorkspace.root,
+    );
+  });
+  handleDesktop("analysis:federation-approvals", () =>
+    getFederationApprovalStore().history(),
+  );
+  handleDesktop(
+    "analysis:revoke-federation-approval",
+    async (_event, approvalId: string) => {
+      if (typeof approvalId !== "string" || !approvalId)
+        throw new Error("A federation approval id is required");
+      await getFederationApprovalStore().revoke(approvalId);
+      return getFederationApprovalStore().history();
+    },
+  );
+  handleDesktop("analysis:federate", async (_event, snapshotIds: string[]) => {
+    if (!currentWorkspace || !latestGraph)
+      throw new Error("Open and analyze a repository first");
+    const workspace = currentWorkspace;
+    const source = latestGraph;
+    assertAcceptedArchitecture(source);
+    if (source.workspaceRoot !== workspace.root)
+      throw new Error("The active architecture reading is stale");
+    const federation = await federateSnapshots({
+      activeGraph: source,
+      activeWorkspaceName: workspace.name,
+      snapshotIds,
+      state: await getHistoryStore().get(),
+      approvals: await getFederationApprovalStore().list(),
+      loadSnapshot: (id, root) => getHistoryStore().loadSnapshot(id, root),
+    });
+    if (
+      currentWorkspace?.root !== workspace.root ||
+      latestGraph?.revision !== source.revision
+    )
+      throw new Error("The active workspace changed while federating");
+    return federation;
+  });
+  handleDesktop(
+    "analysis:approve-federation",
+    async (_event, request: FederationApprovalRequest) => {
+      if (!currentWorkspace || !latestGraph)
+        throw new Error("Open and analyze a repository first");
+      if (
+        !request ||
+        !Array.isArray(request.snapshotIds) ||
+        typeof request.federationRevision !== "string" ||
+        typeof request.questionId !== "string" ||
+        typeof request.providerRepositoryId !== "string"
+      )
+        throw new Error("A complete federation approval request is required");
+      const workspace = currentWorkspace;
+      const source = latestGraph;
+      assertAcceptedArchitecture(source);
+      if (source.workspaceRoot !== workspace.root)
+        throw new Error("The active architecture reading is stale");
+      const state = await getHistoryStore().get();
+      const existingApprovals = await getFederationApprovalStore().list();
+      const federation = await federateSnapshots({
+        activeGraph: source,
+        activeWorkspaceName: workspace.name,
+        snapshotIds: request.snapshotIds,
+        state,
+        approvals: existingApprovals,
+        loadSnapshot: (id, root) => getHistoryStore().loadSnapshot(id, root),
+      });
+      if (
+        currentWorkspace?.root !== workspace.root ||
+        latestGraph?.revision !== source.revision
+      )
+        throw new Error("The active workspace changed while approving");
+      if (federation.revision !== request.federationRevision)
+        throw new Error("The federation changed before approval");
+      const question = federation.questions.find(
+        (candidate) => candidate.id === request.questionId,
+      );
+      if (!question || question.kind !== "ambiguous-provider")
+        throw new Error(
+          "Only a current inferred provider ambiguity can be approved",
+        );
+      if (
+        !question.candidateRepositoryIds.includes(request.providerRepositoryId)
+      )
+        throw new Error("The selected provider is not a question candidate");
+      const subject = federation.repositories.find(
+        (repository) => repository.id === question.subjectRepositoryId,
+      );
+      const provider = federation.repositories.find(
+        (repository) => repository.id === request.providerRepositoryId,
+      );
+      if (!subject || !provider)
+        throw new Error("Federation approval endpoints are stale");
+      const approval = await getFederationApprovalStore().approve({
+        questionId: question.id,
+        federationRevision: federation.revision,
+        subjectWorkspaceRoot: subject.workspaceRoot,
+        subjectSourceRevision: subject.sourceRevision,
+        providerWorkspaceRoot: provider.workspaceRoot,
+        providerSourceRevision: provider.sourceRevision,
+        ecosystem: question.ecosystem,
+        packageName: question.packageName,
+      });
+      const resolved = await federateSnapshots({
+        activeGraph: source,
+        activeWorkspaceName: workspace.name,
+        snapshotIds: request.snapshotIds,
+        state,
+        approvals: [approval, ...existingApprovals],
+        loadSnapshot: (id, root) => getHistoryStore().loadSnapshot(id, root),
+      });
+      if (
+        currentWorkspace?.root !== workspace.root ||
+        latestGraph?.revision !== source.revision
+      )
+        throw new Error("The active workspace changed after approval");
+      return resolved;
+    },
+  );
   handleDesktop(
     "analysis:compose",
     async (_event, request: SemanticComposerRequest) => {
@@ -2009,6 +2172,7 @@ app.whenReady().then(() => {
         throw new Error("Semantic Composer is already running");
       const root = currentWorkspace.root;
       const source = latestGraph;
+      assertAcceptedArchitecture(source);
       if (source.workspaceRoot !== root)
         throw new Error("The active architecture reading is stale");
       compositionBusy = true;
@@ -2091,6 +2255,7 @@ app.whenReady().then(() => {
     const graph = await updateArchitecture(root);
     if (currentWorkspace?.root !== root || dirtyPaths.size)
       throw new Error("The active workspace changed");
+    assertAcceptedArchitecture(graph);
     return getAgentService().start(root, graph, request);
   });
   handleDesktop("agent:resume", async (_event, id: string, prompt: string) => {
@@ -2103,6 +2268,7 @@ app.whenReady().then(() => {
     const graph = await updateArchitecture(root);
     if (currentWorkspace?.root !== root || dirtyPaths.size)
       throw new Error("The active workspace changed");
+    assertAcceptedArchitecture(graph);
     return getAgentService().resume(root, graph, id, prompt);
   });
   handleDesktop(
@@ -2117,6 +2283,7 @@ app.whenReady().then(() => {
       const graph = await updateArchitecture(root);
       if (currentWorkspace?.root !== root || dirtyPaths.size)
         throw new Error("The active workspace changed");
+      assertAcceptedArchitecture(graph);
       return getAgentService().fork(root, graph, id, providerId, prompt);
     },
   );
@@ -2654,6 +2821,7 @@ app.on("will-quit", (event) => {
         providerKeyStore?.flush(),
         runtimeTraceService?.flush(),
         historyStore?.flush(),
+        federationApprovalStore?.flush(),
         debugService?.flush(),
       ])),
     );

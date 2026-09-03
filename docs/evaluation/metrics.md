@@ -84,3 +84,25 @@ Product reports use pass/fail counts with the exact command and environment.
 Scale reports may include elapsed time, files, source symbols, relations,
 validation failures, cache hits, maximum RSS, projected nodes, omitted nodes,
 and layout time. Analyzer-process RSS is not presented as total Electron memory.
+
+## Cross-product metrics
+
+Product comparisons use the metric identifiers declared in
+[`suite-v1.json`](../../benchmarks/product/suite-v1.json). At minimum:
+
+- comprehension success uses a predeclared answer key; time-to-evidence starts
+  at the common initial view and ends at the correct source evidence;
+- scripted workflow pass rate includes every applicable scenario, while
+  `not-run`, timeout, and infrastructure failure remain separately visible;
+- Agent task resolution is established by executable evaluators, not a model's
+  completion message;
+- changed-path precision is required expected changed paths divided by all
+  changed paths, with generated or allowed paths declared before the run;
+- cost per resolved task divides total charged cost for all attempts by resolved
+  tasks and is `n/a`, not zero, when no task resolves;
+- unauthorized writes, scope escapes, secret egress, and integrity failures are
+  raw safety event counts and are never averaged away.
+
+Latency reports include p50 and p95 when repeated samples exist. Live-model task
+rates include run count and confidence intervals. Product dimensions are not
+normalized or combined into an overall score.

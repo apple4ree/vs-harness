@@ -1,0 +1,6 @@
+{
+  "name": "@bench/routing-consumer",
+  "dependencies": {
+    "@bench/routing": "workspace:*"
+  }
+}

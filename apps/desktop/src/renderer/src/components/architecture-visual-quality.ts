@@ -20,6 +20,7 @@ export type VisualEdge = {
   id: string;
   source: string;
   target: string;
+  label?: unknown;
   data?: Record<string, unknown>;
 };
 export type VisualQualityCode =
@@ -29,21 +30,56 @@ export type VisualQualityCode =
   | "composition/ambiguous-corridor"
   | "composition/micro-segment"
   | "composition/short-interior-segment"
-  | "composition/density";
+  | "composition/density"
+  | "composition/label-route-clearance"
+  | "composition/boundary-border-run"
+  | "composition/projected-text-readability"
+  | "render/viewport-overflow";
+export type VisualQualitySubject = {
+  nodes: string[];
+  edges: string[];
+  elements: string[];
+};
 export type VisualQualityDiagnostic = {
   code: VisualQualityCode;
   severity: "error" | "warning";
   message: string;
   subjects: string[];
+  subject: VisualQualitySubject;
+  evidence: Record<string, string | number | boolean | null>;
+  supportedFixes: string[];
 };
 export type VisualQualityReceipt = {
+  contract: "witch.visual-quality/v1";
   profile: "showcase" | "standard";
   status: "pass" | "warning" | "fail";
   nodeCount: number;
   edgeCount: number;
   errors: number;
   warnings: number;
+  metrics: {
+    nodeOverlaps: number;
+    edgeThroughNodes: number;
+    properCrossings: number;
+    ambiguousCorridors: number;
+    microSegments: number;
+    shortInteriorSegments: number;
+    labelRouteClearanceIssues: number;
+    boundaryBorderRuns: number;
+    projectedTextIssues: number;
+    viewportOverflow: number;
+    minProjectedTextPx: number | null;
+  };
   diagnostics: VisualQualityDiagnostic[];
+};
+
+export type VisualQualityValidationOptions = {
+  labels?: Array<{ id: string; edgeId?: string; rect: Omit<Rect, "id"> }>;
+  boundaries?: Array<{ id: string; rect: Omit<Rect, "id"> }>;
+  projectedText?: Array<{ id: string; pixels: number }>;
+  viewport?: { overflowX: number; overflowY: number };
+  minimumTextPx?: number;
+  checkRouteRhythm?: boolean;
 };
 
 type BackboneOptions<TNode extends VisualNode, TEdge extends VisualEdge> = {
@@ -159,6 +195,20 @@ type Rect = {
   bottom: number;
 };
 
+const supportedFixes: Record<VisualQualityCode, string[]> = {
+  "layout/node-overlap": ["increase-node-separation", "change-rank-direction"],
+  "clean-flow/edge-through-node": ["reroute-edge", "increase-rank-separation"],
+  "composition/proper-crossing": ["reroute-edge", "reduce-visible-backbone"],
+  "composition/ambiguous-corridor": ["separate-parallel-routes", "bundle-related-edges"],
+  "composition/micro-segment": ["simplify-route", "increase-node-separation"],
+  "composition/short-interior-segment": ["simplify-route", "increase-rank-separation"],
+  "composition/density": ["switch-to-readable-backbone", "focus-subgraph"],
+  "composition/label-route-clearance": ["move-edge-label", "reroute-edge"],
+  "composition/boundary-border-run": ["offset-route-from-boundary", "reroute-edge"],
+  "composition/projected-text-readability": ["increase-zoom", "reduce-visible-backbone"],
+  "render/viewport-overflow": ["fit-view", "collapse-side-panels"],
+};
+
 const EPSILON = 0.5;
 const length = (segment: Segment) =>
   Math.hypot(segment.to.x - segment.from.x, segment.to.y - segment.from.y);
@@ -250,6 +300,32 @@ function segmentIntersectsRect(segment: Segment, rect: Rect) {
   return false;
 }
 
+function borderRun(segment: Segment, rect: Rect) {
+  const horizontal = Math.abs(segment.from.y - segment.to.y) <= EPSILON;
+  if (
+    horizontal &&
+    (Math.abs(segment.from.y - rect.top) <= EPSILON ||
+      Math.abs(segment.from.y - rect.bottom) <= EPSILON)
+  )
+    return Math.max(
+      0,
+      Math.min(Math.max(segment.from.x, segment.to.x), rect.right) -
+        Math.max(Math.min(segment.from.x, segment.to.x), rect.left),
+    );
+  const vertical = Math.abs(segment.from.x - segment.to.x) <= EPSILON;
+  if (
+    vertical &&
+    (Math.abs(segment.from.x - rect.left) <= EPSILON ||
+      Math.abs(segment.from.x - rect.right) <= EPSILON)
+  )
+    return Math.max(
+      0,
+      Math.min(Math.max(segment.from.y, segment.to.y), rect.bottom) -
+        Math.max(Math.min(segment.from.y, segment.to.y), rect.top),
+    );
+  return 0;
+}
+
 function fallbackRoute(edge: VisualEdge, nodes: Map<string, VisualNode>) {
   const source = nodes.get(edge.source);
   const target = nodes.get(edge.target);
@@ -271,10 +347,31 @@ export function validateVisualGraph(
   edges: VisualEdge[],
   routes: ReadonlyMap<string, VisualPoint[]> = new Map(),
   profile: VisualQualityReceipt["profile"] = "showcase",
+  options: VisualQualityValidationOptions = {},
 ) {
   const diagnostics: VisualQualityDiagnostic[] = [];
-  const push = (diagnostic: VisualQualityDiagnostic) => {
-    if (diagnostics.length < 50) diagnostics.push(diagnostic);
+  const push = (
+    diagnostic: Omit<
+      VisualQualityDiagnostic,
+      "subject" | "evidence" | "supportedFixes"
+    > & {
+      subject?: Partial<VisualQualitySubject>;
+      evidence?: VisualQualityDiagnostic["evidence"];
+      supportedFixes?: string[];
+    },
+  ) => {
+    if (diagnostics.length >= 50) return;
+    diagnostics.push({
+      ...diagnostic,
+      subject: {
+        nodes: diagnostic.subject?.nodes || [],
+        edges: diagnostic.subject?.edges || [],
+        elements: diagnostic.subject?.elements || [],
+      },
+      evidence: diagnostic.evidence || {},
+      supportedFixes:
+        diagnostic.supportedFixes || supportedFixes[diagnostic.code],
+    });
   };
   const lookup = new Map(nodes.map((node) => [node.id, node]));
   const rects: Rect[] = nodes.map((node) => ({
@@ -299,6 +396,12 @@ export function validateVisualGraph(
           severity: "error",
           message: `${a.id} and ${b.id} overlap in the resolved layout.`,
           subjects: [a.id, b.id],
+          subject: { nodes: [a.id, b.id] },
+          evidence: {
+            overlapWidth: Math.min(a.right, b.right) - Math.max(a.left, b.left),
+            overlapHeight:
+              Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top),
+          },
         });
     }
 
@@ -313,19 +416,29 @@ export function validateVisualGraph(
     edgeSegments.set(edge.id, segments);
     segments.forEach((segment, index) => {
       const size = length(segment);
-      if (size > EPSILON && size < 8)
+      if (options.checkRouteRhythm !== false && size > EPSILON && size < 8)
         push({
           code: "composition/micro-segment",
           severity: "warning",
           message: `${edge.id} contains a ${size.toFixed(1)}px segment.`,
           subjects: [edge.id],
+          subject: { edges: [edge.id] },
+          evidence: { segmentLength: Number(size.toFixed(2)), segmentIndex: index },
         });
-      if (index > 0 && index < segments.length - 1 && size >= 8 && size < 16)
+      if (
+        options.checkRouteRhythm !== false &&
+        index > 0 &&
+        index < segments.length - 1 &&
+        size >= 8 &&
+        size < 16
+      )
         push({
           code: "composition/short-interior-segment",
           severity: "warning",
           message: `${edge.id} contains a short ${size.toFixed(1)}px interior turn.`,
           subjects: [edge.id],
+          subject: { edges: [edge.id] },
+          evidence: { segmentLength: Number(size.toFixed(2)), segmentIndex: index },
         });
       for (const rect of rects) {
         if (rect.id === edge.source || rect.id === edge.target) continue;
@@ -335,6 +448,7 @@ export function validateVisualGraph(
             severity: "error",
             message: `${edge.id} crosses unrelated node ${rect.id}.`,
             subjects: [edge.id, rect.id],
+            subject: { edges: [edge.id], nodes: [rect.id] },
           });
       }
     });
@@ -357,6 +471,7 @@ export function validateVisualGraph(
           severity: "error",
           message: `${a.id} and ${b.id} cross in the resolved layout.`,
           subjects: [a.id, b.id],
+          subject: { edges: [a.id, b.id] },
         });
       if (corridor >= 16)
         push({
@@ -364,8 +479,79 @@ export function validateVisualGraph(
           severity: "error",
           message: `${a.id} and ${b.id} share an ambiguous ${corridor.toFixed(0)}px corridor.`,
           subjects: [a.id, b.id],
+          subject: { edges: [a.id, b.id] },
+          evidence: { corridorLength: Number(corridor.toFixed(2)) },
         });
     }
+
+  for (const label of options.labels || []) {
+    const padding = profile === "showcase" ? 4 : 2;
+    const rect: Rect = {
+      id: label.id,
+      left: label.rect.left - padding,
+      top: label.rect.top - padding,
+      right: label.rect.right + padding,
+      bottom: label.rect.bottom + padding,
+    };
+    for (const edge of edges) {
+      if (edge.id === label.edgeId) continue;
+      if ((edgeSegments.get(edge.id) || []).some((segment) => segmentIntersectsRect(segment, rect)))
+        push({
+          code: "composition/label-route-clearance",
+          severity: "error",
+          message: `${edge.id} enters the clearance area around label ${label.id}.`,
+          subjects: [edge.id, label.id],
+          subject: { edges: [edge.id], elements: [label.id] },
+          evidence: { clearancePx: padding },
+        });
+    }
+  }
+
+  for (const boundary of options.boundaries || []) {
+    const rect = { id: boundary.id, ...boundary.rect };
+    for (const [edgeId, segments] of edgeSegments) {
+      const run = segments.reduce(
+        (longest, segment) => Math.max(longest, borderRun(segment, rect)),
+        0,
+      );
+      if (run >= 24)
+        push({
+          code: "composition/boundary-border-run",
+          severity: "error",
+          message: `${edgeId} runs along boundary ${boundary.id} for ${run.toFixed(0)}px.`,
+          subjects: [edgeId, boundary.id],
+          subject: { edges: [edgeId], elements: [boundary.id] },
+          evidence: { borderRunPx: Number(run.toFixed(2)) },
+        });
+    }
+  }
+
+  const minimumTextPx = options.minimumTextPx ?? 11;
+  for (const text of options.projectedText || [])
+    if (text.pixels < minimumTextPx)
+      push({
+        code: "composition/projected-text-readability",
+        severity: "error",
+        message: `${text.id} projects to ${text.pixels.toFixed(1)}px text, below ${minimumTextPx}px.`,
+        subjects: [text.id],
+        subject: { elements: [text.id] },
+        evidence: {
+          projectedTextPx: Number(text.pixels.toFixed(2)),
+          minimumTextPx,
+        },
+      });
+
+  const overflowX = Math.max(0, options.viewport?.overflowX || 0);
+  const overflowY = Math.max(0, options.viewport?.overflowY || 0);
+  if (overflowX > 1 || overflowY > 1)
+    push({
+      code: "render/viewport-overflow",
+      severity: "error",
+      message: `Rendered graph overflows its viewport by ${overflowX.toFixed(0)}px × ${overflowY.toFixed(0)}px.`,
+      subjects: ["viewport"],
+      subject: { elements: ["viewport"] },
+      evidence: { overflowX: Number(overflowX.toFixed(2)), overflowY: Number(overflowY.toFixed(2)) },
+    });
 
   const densityLimit = profile === "showcase" ? 12 : 80;
   const edgeLimit = profile === "showcase" ? 18 : 240;
@@ -375,18 +561,38 @@ export function validateVisualGraph(
       severity: "warning",
       message: `${nodes.length} nodes and ${edges.length} connections exceed the ${profile} readability budget.`,
       subjects: [],
+      evidence: { nodeLimit: densityLimit, edgeLimit },
     });
   const errors = diagnostics.filter(
     (diagnostic) => diagnostic.severity === "error",
   ).length;
   const warnings = diagnostics.length - errors;
+  const count = (code: VisualQualityCode) =>
+    diagnostics.filter((diagnostic) => diagnostic.code === code).length;
+  const projectedText = (options.projectedText || []).map((text) => text.pixels);
   return {
+    contract: "witch.visual-quality/v1",
     profile,
     status: errors ? "fail" : warnings ? "warning" : "pass",
     nodeCount: nodes.length,
     edgeCount: edges.length,
     errors,
     warnings,
+    metrics: {
+      nodeOverlaps: count("layout/node-overlap"),
+      edgeThroughNodes: count("clean-flow/edge-through-node"),
+      properCrossings: count("composition/proper-crossing"),
+      ambiguousCorridors: count("composition/ambiguous-corridor"),
+      microSegments: count("composition/micro-segment"),
+      shortInteriorSegments: count("composition/short-interior-segment"),
+      labelRouteClearanceIssues: count("composition/label-route-clearance"),
+      boundaryBorderRuns: count("composition/boundary-border-run"),
+      projectedTextIssues: count("composition/projected-text-readability"),
+      viewportOverflow: count("render/viewport-overflow"),
+      minProjectedTextPx: projectedText.length
+        ? Math.min(...projectedText)
+        : null,
+    },
     diagnostics,
   } satisfies VisualQualityReceipt;
 }
@@ -394,11 +600,25 @@ export function validateVisualGraph(
 export const emptyVisualQualityReceipt = (
   profile: VisualQualityReceipt["profile"] = "showcase",
 ): VisualQualityReceipt => ({
+  contract: "witch.visual-quality/v1",
   profile,
   status: "pass",
   nodeCount: 0,
   edgeCount: 0,
   errors: 0,
   warnings: 0,
+  metrics: {
+    nodeOverlaps: 0,
+    edgeThroughNodes: 0,
+    properCrossings: 0,
+    ambiguousCorridors: 0,
+    microSegments: 0,
+    shortInteriorSegments: 0,
+    labelRouteClearanceIssues: 0,
+    boundaryBorderRuns: 0,
+    projectedTextIssues: 0,
+    viewportOverflow: 0,
+    minProjectedTextPx: null,
+  },
   diagnostics: [],
 });

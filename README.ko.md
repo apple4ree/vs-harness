@@ -2,10 +2,35 @@
 
 [한국어](README.ko.md) · [English](README.md)
 
-
 Witch는 코드를 파일 목록으로만 읽지 않고 **구조, 의미, Workflow, Behavior, 실제 관측 결과**로 탐색하면서 AI Agent 작업까지 이어가는 로컬 우선 Desktop ADE입니다.
 
 현재 버전은 실제 프로젝트를 열어 편집·검색·실행·디버그할 수 있는 preview입니다. VS Code 전체 호환 제품은 아니며, Git UI와 원격 파일 Workspace 등은 아직 지원하지 않습니다.
+
+## 제품 모델
+
+Witch는 보통 서로 다른 도구로 나뉘는 세 가지 활동을 하나로 연결합니다.
+
+```text
+Source와 Language Service
+  → 검증된 Architecture / Semantic / Behavior / Runtime Reading
+  → 근거와 불확실성을 표시하는 Interactive Constellation
+  → 범위가 제한된 Agent Context
+  → 격리 변경, 검증, Diff Review, 선택 적용
+  → 승인된 Source 재분석
+```
+
+Witch는 VS Code fork도, 하나의 Agent CLI를 감싼 skin도, AI가 그림만 생성하는
+Viewer도 아닙니다. Monaco는 Editor를 제공하고, 로컬 Language Server가 IDE
+Intelligence를 제공하며, 결정적 분석기가 versioned Reading을 만듭니다. Codex와
+Claude Code는 교체 가능한 Agent Provider로 연결합니다.
+
+| 계층                     | 현재 Witch                                                                                      | 의도적인 경계                                                    |
+| ------------------------ | ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| Code intelligence        | Python, Rust, TypeScript/JavaScript 구조·호출·Workflow·Behavior·Framework와 선택적 Runtime 근거 | Dynamic dispatch와 미지원 Framework magic은 명시적 공백으로 유지 |
+| Interactive architecture | Summary-first System → Component → Workflow → Calls → Source 탐색과 evidence·provenance         | 화면 projection이 canonical validated graph를 대체하지 않음      |
+| Local ADE                | Explorer, Monaco, Search, LSP, Task, Terminal, Node/Python Debug, File Watch, Settings          | VSIX host, Git UI, Remote File Workspace는 아직 없음             |
+| Agent engineering        | Codex/Claude adapter, bounded context, isolated copy, verification journal, selective apply     | 격리 복사본은 review 경계이며 VM 보안 sandbox가 아님             |
+| Computer use             | 선택적인 bounded observation                                                                    | Agent 클릭·타이핑은 비활성 상태                                  |
 
 ![Witch Runtime Trace Compare](docs/screenshots/product/runtime-trace-compare.png)
 
@@ -22,15 +47,27 @@ Witch는 코드를 파일 목록으로만 읽지 않고 **구조, 의미, Workfl
 
 분석 결과는 다음 계약으로 서로 분리됩니다.
 
-| Reading | 실제 용도 |
-| --- | --- |
-| `witch.architecture/v1` | 파일·모듈·import 구조 |
-| `witch.semantic/v1` | System·Component·Workflow·Symbol 의미 계층 |
-| `witch.behavior/v1` | 호출 인자 전달·반환·상태 접근·side effect 후보 |
-| `witch.framework/v1` | 명시적인 route·task·graph·spawn registration |
-| `witch.runtime-trace/v1` | 승인된 한 번의 Task 실행에서 관측한 구조 이벤트 |
+| Reading                     | 실제 용도                                                   |
+| --------------------------- | ----------------------------------------------------------- |
+| `witch.architecture/v1`     | 파일·모듈·import 구조                                       |
+| `witch.semantic/v1`         | System·Component·Workflow·Symbol 의미 계층                  |
+| `witch.behavior/v1`         | 호출 인자 전달·반환·상태 접근·side effect 후보              |
+| `witch.framework/v1`        | 명시적인 route·task·graph·spawn registration                |
+| `witch.knowledge/v1`        | ADR/RFC 결정·package·dependency·프로젝트 설정               |
+| `witch.graph-meta/v1`       | System에서 Symbol까지 단계적으로 확대하는 derived 탐색 계층 |
+| `witch.graph-federation/v1` | 분리된 검증 Reading 사이의 Cross-repository Package Link    |
+| `witch.runtime-trace/v1`    | 승인된 한 번의 Task 실행에서 관측한 구조 이벤트             |
+| `witch.visual-quality/v1`   | 결정적인 graph projection geometry 검사                     |
+| `witch.rendered-graph/v1`   | 실제 React Flow DOM/SVG의 paint 후 측정                     |
+| `witch.graph-delivery/v1`   | Source·projection·rendered의 전달 승인 상태                 |
 
 모든 Reading은 source revision, endpoint, evidence, provenance와 validation receipt를 유지합니다. `Verified`, `Inferred`, `Authored`, `Observed`는 합쳐서 하나의 사실처럼 저장하지 않습니다.
+
+저장소를 분석한 뒤 **Intelligence → Knowledge**에서 ADR/RFC rationale, manifest에 선언된 npm/Python/Cargo package와 dependency, 알려진 설정 파일을 확인할 수 있습니다. Witch는 authored 결정과 inferred System 연결을 분리하며 임의 설정 값을 knowledge graph에 복사하지 않습니다.
+
+**Intelligence → Map**은 전체 그래프를 한 번에 축소하지 않고 System → Community → Component → Workflow → Symbol 순서로 확대합니다. 실선 계층과 점선 집계 관계를 분리하며, derived fallback을 실제 architecture claim으로 취급하지 않습니다.
+
+**Intelligence → Federation**은 활성 Reading과 최근 프로젝트의 최신 저장 Reading을 연결합니다. 저장소를 선택해 읽기 전용 System Map을 만들면 Witch는 정확히 일치하는 npm/Python/Cargo Package Identity만 연결하고 각 저장소 Revision을 보존합니다. 휴대 가능한 `.witch/federation.json` Key로 Provider Mapping을 작성할 수 있습니다. 중복 추론 Provider는 명시적으로 승인하기 전까지 Grill-me 질문으로 남고, 선택은 Source가 아니라 Revision-bound App-data Receipt로 기록됩니다. Approval History는 적용·오래됨·대체됨·현재 Map 밖·폐기 상태를 구분하며, 폐기할 때 History를 지우지 않고 Audit Event를 추가합니다.
 
 ### 2. 큰 Workflow를 요약부터 세부 순서까지 보기
 
@@ -120,13 +157,13 @@ SSH는 현재 터미널만 원격입니다. Explorer, Editor, Search, LSP, Task,
 
 **AI providers**에서 로컬 CLI 설치·로그인 상태 또는 API key 설정 상태를 확인합니다.
 
-| Provider | 현재 사용 위치 |
-| --- | --- |
-| 로그인된 Codex CLI | Ask, 격리 Change, Semantic Composer |
-| 로그인된 Claude Code CLI | Ask, 격리 Change, Semantic Composer |
-| OpenAI API key | Semantic Composer |
-| Anthropic API key | Semantic Composer |
-| Rules only | AI 호출 없는 결정적 Semantic Composer |
+| Provider                 | 현재 사용 위치                        |
+| ------------------------ | ------------------------------------- |
+| 로그인된 Codex CLI       | Ask, 격리 Change, Semantic Composer   |
+| 로그인된 Claude Code CLI | Ask, 격리 Change, Semantic Composer   |
+| OpenAI API key           | Semantic Composer                     |
+| Anthropic API key        | Semantic Composer                     |
+| Rules only               | AI 호출 없는 결정적 Semantic Composer |
 
 저장된 API key는 Electron `safeStorage`로 암호화되며 Renderer에서 다시 읽을 수 없습니다. 로컬 구조 분석, 편집, 검색은 AI 요청이 아닙니다. Agent나 AI Composer를 실행하면 선택된 bounded source context가 해당 Provider로 전달될 수 있습니다.
 
@@ -181,13 +218,18 @@ Rust LSP는 시스템 `rust-analyzer` 또는 절대 경로 `WITCH_RUST_ANALYZER_
 
 ## Evaluation과 검증
 
-Witch는 외부 벤치마크 코드를 저장소에 복사하지 않고, 어떤 데이터·버전·지표·실행 경계로 성능을 측정했는지를 공개합니다. 세부 기준은 [Evaluation 문서](docs/evaluation/README.ko.md), [재현 절차](docs/evaluation/reproducibility.ko.md), [한계](docs/evaluation/limitations.ko.md)에서 확인할 수 있습니다.
+Witch는 외부 벤치마크 코드를 저장소에 복사하지 않고, 어떤 데이터·버전·지표·실행 경계로 성능을 측정했는지를 공개합니다. [제품 벤치마크](docs/evaluation/product-benchmark.ko.md)는 분석 충실도, 설명 사용성, IDE/ADE Workflow, Agent Harness, 안전성과 규모를 하나의 점수로 숨기지 않고 분리합니다. 세부 기준은 [Evaluation 문서](docs/evaluation/README.ko.md), [재현 절차](docs/evaluation/reproducibility.ko.md), [한계](docs/evaluation/limitations.ko.md)에서 확인할 수 있습니다.
 
-2026-09-02 source checkpoint의 핵심 결과입니다. Call graph의 micro·macro 및 development·holdout 결과는 서로 합산하지 않습니다.
+제품 Suite는 코드 구조 탐색기, IDE, ADE, Agent Harness와 Computer-use Agent를
+구분합니다. 비교표의 근거도 문서상 `documented`, 직접 재현한 `observed`, 같은
+Task로 실행한 `measured`로 표시합니다. 제품 유형 밖의 기능은 `not-applicable`로
+남기지만, 지원한다고 주장한 기능의 실패는 `fail`로 보존합니다.
+
+현재 검증 수와 2026-09-02 source checkpoint에 고정된 Benchmark 결과입니다. Call graph의 micro·macro 및 development·holdout 결과는 서로 합산하지 않습니다.
 
 | 검증 축                   |                        결과 | 해석 경계                                                         |
 | ------------------------- | --------------------------: | ----------------------------------------------------------------- |
-| 단위·통합 테스트          |                  140 passed | 실제 filesystem·LSP·debugger·PTY와 로컬 Provider test double 포함 |
+| 단위·통합 테스트          |                  173 passed | 실제 filesystem·LSP·debugger·PTY와 로컬 Provider test double 포함 |
 | Electron E2E              |                   25 passed | 임시 Workspace·profile에서 실제 UI와 IPC 실행                     |
 | SWARM-CG Python           |            Scoped F1 87.64% | development micro; oracle edge coverage 17.99%                    |
 | PyAnalyzer macro C        |            Scoped F1 58.20% | holdout macro; oracle edge coverage 31.68%                        |
@@ -222,9 +264,24 @@ npm run benchmark:repository
 npm run benchmark:behavior
 npm run benchmark:frameworks
 npm run benchmark:callgraph:rust
+npm run benchmark:product:check
+npm run benchmark:composer
+npm run benchmark:comprehension:check
+npm run capture:visual-matrix -- path/to/project test-results/visual-matrix
 ```
 
+[Graph 전달 protocol](docs/evaluation/visual-validation.ko.md)은 결정적 layout과
+실제로 paint된 DOM/SVG를 모두 검사합니다. 이후 candidate가 유효하지 않으면
+마지막 검증 화면을 덮어쓰지 않고 보존합니다. Composer 첫 candidate는
+Provider별로 동결하며, 사람 이해도 결과는 이름을 기록한 reviewer가 고정 과제를
+마칠 때까지 `pending`으로 유지합니다.
+
 외부 call-graph 평가는 `benchmarks/callgraph`의 manifest와 `scripts/benchmark-callgraph.ts`를 사용합니다. 저장소에는 외부 소스·동적 trace·로컬 절대 경로·blind-holdout 상세 실패를 커밋하지 않습니다.
+
+Call-graph corpus 외에도 SWE-bench, IDE-Bench, Terminal-Bench, OSWorld,
+AgentDojo를 적용 가능한 축에 mapping했습니다. Adapter가 mapping되었다고 측정
+결과가 생기는 것은 아니며, live Agent·container·VM·CUA 평가는 계속 명시적
+opt-in으로만 수행합니다.
 
 ## 중요한 안전 경계
 
@@ -236,7 +293,7 @@ npm run benchmark:callgraph:rust
 - `.env`, 알려진 credential/private-key 경로는 Agent 복사본에서 제외하지만 소스에 섞인 모든 secret을 탐지한다고 보장하지 않습니다.
 - 앱 데이터에는 분석 Reading, Agent journal, checkpoint, review와 Runtime Trace가 남습니다. 자동 삭제하지 않습니다.
 
-세부 구현 범위와 비지원 사항은 [구현 현황](docs/implementation-status.ko.md), [Engineering Core 명세](docs/engineering-core-spec-v0.ko.md), [Runtime Trace·Evaluation](docs/evaluation-runtime-trace.ko.md)을 참고하세요. 문서의 언어판 관리 원칙은 [문서 언어 정책](docs/documentation-policy.ko.md)에 고정되어 있습니다.
+세부 구현 범위와 비지원 사항은 [구현 현황](docs/implementation-status.ko.md), [Engineering Core 명세](docs/engineering-core-spec-v0.ko.md), [Graph Intelligence v1 명세](docs/graph-intelligence-v1.ko.md), [Architecture Knowledge v1 명세](docs/architecture-knowledge-v1.ko.md), [Multi-resolution Meta Graph v1 명세](docs/multi-resolution-meta-graph-v1.ko.md), [다중 저장소 Federation v1 명세](docs/multi-repository-federation-v1.ko.md), [Runtime Trace·Evaluation](docs/evaluation-runtime-trace.ko.md)을 참고하세요. 문서의 언어판 관리 원칙은 [문서 언어 정책](docs/documentation-policy.ko.md)에 고정되어 있습니다.
 
 ## 프로젝트 상태
 

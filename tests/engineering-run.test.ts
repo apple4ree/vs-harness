@@ -140,6 +140,77 @@ test("Engineering Run replay is deterministic and preserves evidence receipts", 
   assert.equal(duplicate, first, "an exact duplicate event must be idempotent");
 });
 
+test("Engineering Run persists a bounded graph impact receipt", () => {
+  const impact = event(2, "impact.analyzed", {
+    receipt: {
+      contract: "witch.graph-impact-review/v1",
+      sourceContract: "witch.graph-impact/v1",
+      sourceRevision: "source-revision-1",
+      semanticRevision: "semantic-revision-1",
+      maxDepth: 4,
+      changedPaths: ["src/retry.ts"],
+      changedNodeIds: ["src/retry.ts"],
+      affectedCount: 1,
+      affectedNodes: [
+        {
+          id: "workflow:retry",
+          label: "Retry workflow",
+          kind: "workflow",
+          path: "src/retry.ts",
+          depth: 1,
+          relationPath: ["semantic:contains:retry"],
+        },
+      ],
+      omittedAffected: 0,
+      componentIds: [],
+      workflowIds: ["workflow:retry"],
+      suggestedTestPaths: ["tests/retry.test.ts"],
+      risk: {
+        score: 31,
+        level: "medium",
+        reasons: ["One workflow is affected."],
+      },
+      unresolvedInputs: [],
+      truncated: false,
+    },
+  });
+  const projection = replayHarnessEvents([createdEvent(), impact]);
+  assert.equal(projection.impactAnalyses.length, 1);
+  assert.equal(projection.impactAnalyses[0]?.risk.level, "medium");
+  assert.equal(projection.impactAnalyses[0]?.affectedNodes[0]?.depth, 1);
+
+  const invalid = structuredClone(impact);
+  invalid.payload.receipt.risk.score = 101;
+  invalid.payloadHash = hashHarnessPayload(invalid.payload);
+  assert.equal(validateHarnessEvent(invalid).valid, false);
+});
+
+test("Engineering Run validates and replays immutable experience outcomes", () => {
+  const experience = event(2, "experience.recorded", {
+    receipt: {
+      contract: "witch.agent-experience/v1",
+      id: "experience-1",
+      runId,
+      outcome: "useful",
+      sourceRevision: "source-revision-2",
+      subjectNodeIds: ["symbol:retry"],
+      evidence: [{ path: "src/retry.ts", expectedSourceHash: "a".repeat(64) }],
+      reason: "The user applied the reviewed change.",
+      createdAt: "2026-09-01T00:00:02.000Z",
+    },
+  });
+  const projection = replayHarnessEvents([createdEvent(), experience]);
+  assert.equal(projection.experiences[0]?.outcome, "useful");
+
+  const foreign = structuredClone(experience);
+  foreign.payload.receipt.runId = "another-run";
+  foreign.payloadHash = hashHarnessPayload(foreign.payload);
+  assert.throws(
+    () => applyHarnessEvent(applyHarnessEvent(null, createdEvent()), foreign),
+    /belongs to another run/,
+  );
+});
+
 test("Engineering Run fails closed on invalid transitions, gaps, and tampering", () => {
   const initial = applyHarnessEvent(null, createdEvent());
   const invalidTransition = event(2, "state.changed", {

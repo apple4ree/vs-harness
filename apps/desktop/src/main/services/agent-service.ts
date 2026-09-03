@@ -54,6 +54,13 @@ import {
   hashHarnessPayload,
   projectLegacyAgentRun,
 } from "../../shared/engineering-run-reducer";
+import {
+  createAgentGraphContext,
+  createGraphImpactReview,
+  isAgentExperienceRecord,
+  type AgentExperienceOutcome,
+  type AgentExperienceRecord,
+} from "../../shared/agent-graph-tools";
 
 export type AgentHostOptions = {
   dataDirectory: string;
@@ -203,6 +210,10 @@ export class AgentHost extends EventEmitter {
             !Array.isArray(run.contexts) ||
             !Array.isArray(run.activity) ||
             !Array.isArray(run.changes) ||
+            (run.experiences !== undefined &&
+              (!Array.isArray(run.experiences) ||
+                run.experiences.length > 200 ||
+                !run.experiences.every(isAgentExperienceRecord))) ||
             !Number.isFinite(Date.parse(run.createdAt)),
         )
       )
@@ -301,6 +312,8 @@ export class AgentHost extends EventEmitter {
       projection.verification.map((receipt) => [receipt.intentId, receipt]),
     );
     const planEvaluation = projection.planEvaluations.at(-1);
+    const impact = projection.impactAnalyses.at(-1);
+    const experience = projection.experiences.at(-1);
     run.engineering = {
       contract: projection.contract,
       state: projection.state,
@@ -330,6 +343,15 @@ export class AgentHost extends EventEmitter {
               : {}),
           }
         : {}),
+      ...(impact
+        ? {
+            impactAffectedNodes: impact.affectedCount,
+            impactRiskScore: impact.risk.score,
+            impactRiskLevel: impact.risk.level,
+          }
+        : {}),
+      experienceCount: projection.experiences.length,
+      ...(experience ? { latestExperienceOutcome: experience.outcome } : {}),
       healthy: true,
     };
   }
@@ -371,6 +393,21 @@ export class AgentHost extends EventEmitter {
       ...(run.engineering?.analysisChangedRelations !== undefined
         ? {
             analysisChangedRelations: run.engineering.analysisChangedRelations,
+          }
+        : {}),
+      ...(run.engineering?.impactAffectedNodes !== undefined
+        ? { impactAffectedNodes: run.engineering.impactAffectedNodes }
+        : {}),
+      ...(run.engineering?.impactRiskScore !== undefined
+        ? { impactRiskScore: run.engineering.impactRiskScore }
+        : {}),
+      ...(run.engineering?.impactRiskLevel
+        ? { impactRiskLevel: run.engineering.impactRiskLevel }
+        : {}),
+      experienceCount: run.engineering?.experienceCount || 0,
+      ...(run.engineering?.latestExperienceOutcome
+        ? {
+            latestExperienceOutcome: run.engineering.latestExperienceOutcome,
           }
         : {}),
       healthy: false,
@@ -468,6 +505,32 @@ export class AgentHost extends EventEmitter {
       if (changedPaths.length)
         projection = await this.appendEngineeringEvent(run, "file.changed", {
           paths: changedPaths,
+        });
+      if (
+        projection.repairs.some((repair) => repair.status === "passed") &&
+        !run.experiences?.some(
+          (experience) => experience.outcome === "corrected",
+        )
+      ) {
+        const corrected = this.createExperience(
+          run,
+          "corrected",
+          run.changes,
+          projection.sourceRevision,
+          "before",
+          "Witch verification failed, then a bounded repair produced a passing isolated review.",
+        );
+        run.experiences = [...(run.experiences || []), corrected];
+        projection = await this.appendEngineeringEvent(
+          run,
+          "experience.recorded",
+          { receipt: corrected },
+          corrected.createdAt,
+        );
+      }
+      if (run.graphImpact)
+        projection = await this.appendEngineeringEvent(run, "impact.analyzed", {
+          receipt: run.graphImpact,
         });
       projection = await this.transitionEngineeringRun(
         run,
@@ -583,7 +646,10 @@ export class AgentHost extends EventEmitter {
           reason: "budget-exhausted",
           stoppedAt: new Date().toISOString(),
         });
-        this.activity(run, "Repair budget exhausted; review remains available.");
+        this.activity(
+          run,
+          "Repair budget exhausted; review remains available.",
+        );
         break;
       }
       seenFingerprints.add(fingerprint);
@@ -618,8 +684,7 @@ export class AgentHost extends EventEmitter {
             fingerprint,
             failedIntentIds: failures.map((receipt) => receipt.intentId).sort(),
             status: failures.length ? "failed" : "passed",
-            startedAt:
-              projection.repairs.at(-1)?.startedAt || completedAt,
+            startedAt: projection.repairs.at(-1)?.startedAt || completedAt,
             completedAt,
             checkpointId: checkpoint.checkpointId,
           },
@@ -770,7 +835,10 @@ export class AgentHost extends EventEmitter {
         run.status = "review";
         return false;
       }
-      run.changes = await this.isolation.collect(run.workspaceRoot, active.copy!);
+      run.changes = await this.isolation.collect(
+        run.workspaceRoot,
+        active.copy!,
+      );
       await this.closeEngineeringTools(active);
       run.status = "review";
       return true;
@@ -822,6 +890,15 @@ export class AgentHost extends EventEmitter {
         ...run,
         activity: [...run.activity],
         changes: [...run.changes],
+        ...(run.graphContext
+          ? { graphContext: structuredClone(run.graphContext) }
+          : {}),
+        ...(run.graphImpact
+          ? { graphImpact: structuredClone(run.graphImpact) }
+          : {}),
+        ...(run.experiences
+          ? { experiences: structuredClone(run.experiences) }
+          : {}),
         ...(run.engineering ? { engineering: { ...run.engineering } } : {}),
       },
     });
@@ -830,6 +907,60 @@ export class AgentHost extends EventEmitter {
     run.activity.push(text.slice(0, 1000));
     run.activity = run.activity.slice(-80);
     this.publish(run);
+  }
+  private previousExperiences(root: string) {
+    const records = this.runs
+      .filter((run) => run.workspaceRoot === root)
+      .flatMap((run) => run.experiences || [])
+      .sort(
+        (left, right) =>
+          right.createdAt.localeCompare(left.createdAt) ||
+          left.id.localeCompare(right.id),
+      );
+    return [
+      ...new Map(records.map((record) => [record.id, record])).values(),
+    ].slice(0, 100);
+  }
+  private createExperience(
+    run: AgentRun,
+    outcome: AgentExperienceOutcome,
+    changes: AgentRun["changes"],
+    sourceRevision: string,
+    expected: "before" | "after",
+    reason: string,
+  ): AgentExperienceRecord {
+    const subjectNodeIds = [
+      ...(run.graphImpact?.changedNodeIds || []),
+      ...(run.graphImpact?.componentIds || []),
+      ...(run.graphImpact?.workflowIds || []),
+      ...(run.graphContext?.selectedNodeIds || []),
+    ];
+    return {
+      contract: "witch.agent-experience/v1",
+      id: randomUUID(),
+      runId: run.id,
+      outcome,
+      sourceRevision,
+      ...(run.graphImpact?.semanticRevision ||
+      run.graphContext?.semanticRevision
+        ? {
+            semanticRevision:
+              run.graphImpact?.semanticRevision ||
+              run.graphContext?.semanticRevision,
+          }
+        : {}),
+      subjectNodeIds: [...new Set(subjectNodeIds)].sort().slice(0, 200),
+      evidence: changes
+        .map((change) => ({
+          path: change.path,
+          expectedSourceHash:
+            expected === "before" ? change.beforeHash : change.afterHash,
+        }))
+        .sort((left, right) => left.path.localeCompare(right.path))
+        .slice(0, 200),
+      reason: reason.slice(0, 1_000),
+      createdAt: new Date().toISOString(),
+    };
   }
   private contexts(
     requested: ComponentContext[],
@@ -1018,7 +1149,10 @@ export class AgentHost extends EventEmitter {
               boundary:
                 "Source-only explicit framework registrations. Rule-backed static facts are not proof that a route, task, graph edge, or channel executed at runtime.",
               coverage: graph.frameworks.coverage.filter(
-                (item) => item.detectedFiles || item.candidateCount || item.excludedCount,
+                (item) =>
+                  item.detectedFiles ||
+                  item.candidateCount ||
+                  item.excludedCount,
               ),
               candidates: graph.frameworks.candidates
                 .filter(
@@ -1125,6 +1259,12 @@ export class AgentHost extends EventEmitter {
         throw new Error("Native session belongs to another Agent Provider");
     }
     const contexts = this.contexts(request.contexts || [], graph);
+    const graphContext = createAgentGraphContext(
+      graph,
+      request.prompt.trim(),
+      contexts,
+      this.previousExperiences(root),
+    );
     const run: AgentRun = {
       id: randomUUID(),
       providerId,
@@ -1134,6 +1274,7 @@ export class AgentHost extends EventEmitter {
       prompt: request.prompt.trim(),
       mode: request.mode,
       contexts,
+      graphContext,
       status: "preparing",
       createdAt: new Date().toISOString(),
       response: "",
@@ -1355,6 +1496,7 @@ export class AgentHost extends EventEmitter {
       const contextText = JSON.stringify(
         {
           revision: graph.revision,
+          graphTools: run.graphContext,
           scopeNote:
             "A module nodeId selects the entire module. Path lists are previews (at most 80 paths / 24,000 characters each); totalPaths is the full file count. Inspect the workspace for additional files when needed.",
           components: run.contexts,
@@ -1452,6 +1594,13 @@ export class AgentHost extends EventEmitter {
       await this.prepareEngineeringReview(active, incompleteReview).catch(
         (error) => this.markEngineeringFailure(run, error),
       );
+      if (run.status === "review") {
+        run.graphImpact = createGraphImpactReview(graph, run.changes);
+        run.activity.push(
+          `Graph impact: ${run.graphImpact.risk.level} risk (${run.graphImpact.risk.score}/100), ${run.graphImpact.affectedCount} affected nodes.`,
+        );
+        run.activity = run.activity.slice(-80);
+      }
       run.completedAt = new Date().toISOString();
       await this.finalizeEngineeringRun(run).catch((error) =>
         this.markEngineeringFailure(run, error),
@@ -1485,7 +1634,9 @@ export class AgentHost extends EventEmitter {
         "attention-required",
       ].includes(projection.state)
     )
-      throw new Error("The parent Engineering Run is not stable enough to continue");
+      throw new Error(
+        "The parent Engineering Run is not stable enough to continue",
+      );
     return { parent, projection };
   }
   async resume(
@@ -1635,6 +1786,21 @@ export class AgentHost extends EventEmitter {
       "analysis.updated",
       { receipt: analysis },
       analysis.completedAt,
+    );
+    const useful = this.createExperience(
+      run,
+      "useful",
+      selected,
+      analysis.afterRevision || projection.sourceRevision,
+      "after",
+      `The user explicitly applied ${applied.length} reviewed path(s) to the source workspace.`,
+    );
+    run.experiences = [...(run.experiences || []), useful];
+    projection = await this.appendEngineeringEvent(
+      run,
+      "experience.recorded",
+      { receipt: useful },
+      useful.createdAt,
     );
     if (run.status === "applied")
       await this.transitionEngineeringRun(
@@ -1934,10 +2100,19 @@ export class AgentHost extends EventEmitter {
       throw error;
     }
     const previous = { ...run };
+    const deadEnd = this.createExperience(
+      run,
+      "dead-end",
+      run.changes,
+      engineering.sourceRevision,
+      "before",
+      "The user archived the pending review without applying its proposed changes.",
+    );
     run.status = "archived";
     run.changes = [];
     run.archivePath = archivePath;
     run.archivedAt = archivedAt;
+    run.experiences = [...(run.experiences || []), deadEnd];
     try {
       await this.persist();
     } catch (error) {
@@ -1949,12 +2124,18 @@ export class AgentHost extends EventEmitter {
       );
     }
     try {
+      const recorded = await this.appendEngineeringEvent(
+        run,
+        "experience.recorded",
+        { receipt: deadEnd },
+        deadEnd.createdAt,
+      );
       await this.transitionEngineeringRun(
         run,
-        engineering,
+        recorded,
         "archived",
         `Archived the pending review at ${archivePath}`,
-        archivedAt,
+        deadEnd.createdAt,
       );
     } catch (error) {
       this.markEngineeringFailure(run, error);

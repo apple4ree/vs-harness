@@ -1,0 +1,6 @@
+{
+  "name": "@bench/app",
+  "dependencies": {
+    "@bench/core": "workspace:*"
+  }
+}

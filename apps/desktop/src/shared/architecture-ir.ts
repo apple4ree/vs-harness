@@ -6,6 +6,7 @@ import type {
 import { finalizeSemanticGraph, validateSemanticGraph } from "./semantic-ir";
 import { finalizeBehaviorGraph, validateBehaviorGraph } from "./behavior-ir";
 import { finalizeFrameworkGraph, validateFrameworkGraph } from "./framework-ir";
+import { finalizeKnowledgeGraph, validateKnowledgeGraph } from "./knowledge-ir";
 
 export type ArchitectureGraphDraft = Omit<ArchitectureGraph, "validation">;
 
@@ -75,6 +76,46 @@ export function validateArchitectureGraph(
       "document",
       "A source revision is required",
     );
+  if (graph.integrity) {
+    const receipt = graph.integrity;
+    const metricSets = [receipt.candidate, receipt.loss, receipt.baseline].filter(
+      Boolean,
+    ) as NonNullable<typeof receipt.baseline>[];
+    const metricsValid = metricSets.every((metrics) =>
+      Object.values(metrics).every(
+        (value) => Number.isSafeInteger(value) && value >= 0,
+      ),
+    );
+    const revisionValid =
+      receipt.status === "fallback"
+        ? receipt.baselineRevision === graph.revision &&
+          receipt.candidateRevision !== graph.revision
+        : receipt.candidateRevision === graph.revision;
+    if (
+      receipt.contract !== "witch.analysis-integrity/v1" ||
+      !(receipt.status === "accepted" || receipt.status === "fallback") ||
+      ![
+        "initial",
+        "stable",
+        "explained-shrink",
+        "user-accepted",
+        "unexplained-shrink",
+      ].includes(receipt.decision) ||
+      !receipt.candidateRevision ||
+      !metricsValid ||
+      !Array.isArray(receipt.missingPaths) ||
+      !Array.isArray(receipt.confirmedDeletedPaths) ||
+      !receipt.detectedAt ||
+      !revisionValid
+    )
+      diagnostic(
+        diagnostics,
+        "IR_INTEGRITY_RECEIPT_INVALID",
+        "error",
+        "document",
+        "Analysis integrity receipt is malformed or bound to another revision",
+      );
+  }
 
   for (const node of graph.nodes) {
     if (!node.id) {
@@ -369,6 +410,37 @@ export function validateArchitectureGraph(
         );
     }
   }
+  if (graph.knowledge) {
+    if (graph.knowledge.workspaceRoot !== graph.workspaceRoot)
+      diagnostic(
+        diagnostics,
+        "IR_KNOWLEDGE_ROOT_MISMATCH",
+        "error",
+        "knowledge",
+        "Architecture knowledge belongs to a different workspace",
+      );
+    if (graph.knowledge.sourceRevision !== graph.revision)
+      diagnostic(
+        diagnostics,
+        "IR_KNOWLEDGE_REVISION_MISMATCH",
+        "error",
+        "knowledge",
+        "Architecture knowledge was not produced from this source revision",
+      );
+    const knowledge = validateKnowledgeGraph(
+      graph.knowledge,
+      graph.nodes,
+      graph.semantic,
+    );
+    for (const item of knowledge.diagnostics)
+      diagnostic(
+        diagnostics,
+        `IR_${item.code}`,
+        item.severity,
+        `knowledge:${item.subject}`,
+        item.message,
+      );
+  }
 
   diagnostics.sort(
     (a, b) =>
@@ -435,6 +507,14 @@ export function finalizeArchitectureGraph(
       frameworkDraft,
       graph.semantic,
       graph.nodes,
+    );
+  }
+  if (graph.knowledge) {
+    const { validation: _validation, ...knowledgeDraft } = graph.knowledge;
+    graph.knowledge = finalizeKnowledgeGraph(
+      knowledgeDraft,
+      graph.nodes,
+      graph.semantic,
     );
   }
   const validation = validateArchitectureGraph(graph);

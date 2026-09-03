@@ -113,11 +113,24 @@ contextBridge.exposeInMainWorld("witch", {
   analysis: {
     start: () => ipcRenderer.invoke("analysis:start"),
     clearIndex: () => ipcRenderer.invoke("analysis:clear-index"),
+    acceptCandidate: (candidateRevision: string) =>
+      ipcRenderer.invoke("analysis:accept-candidate", candidateRevision),
     compose: (
       request: import("../shared/semantic-composer").SemanticComposerRequest,
     ) => ipcRenderer.invoke("analysis:compose", request),
     snapshots: () => ipcRenderer.invoke("analysis:snapshots"),
     current: () => ipcRenderer.invoke("analysis:current"),
+    federationCandidates: () =>
+      ipcRenderer.invoke("analysis:federation-candidates"),
+    federationApprovals: () =>
+      ipcRenderer.invoke("analysis:federation-approvals"),
+    revokeFederationApproval: (approvalId: string) =>
+      ipcRenderer.invoke("analysis:revoke-federation-approval", approvalId),
+    federate: (snapshotIds: string[]) =>
+      ipcRenderer.invoke("analysis:federate", snapshotIds),
+    approveFederation: (
+      request: import("../shared/federation").FederationApprovalRequest,
+    ) => ipcRenderer.invoke("analysis:approve-federation", request),
     delta: (snapshotId: string) =>
       ipcRenderer.invoke("analysis:delta", snapshotId),
     export: (format: "json" | "html") =>

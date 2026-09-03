@@ -91,3 +91,22 @@ traversal, omitted nodes, and projection stability. They do not prove that a
 diagram explains a system well. Presentation claims therefore require a dated
 screenshot review with the same repository revision and view settings. Human
 review results are reported separately from call-graph accuracy.
+
+## 7. Cross-product comparison
+
+Before comparing Witch with another structure explorer, IDE, ADE, Agent harness,
+or computer-use system, declare the product class and applicable tasks. Each
+claim is labeled `documented`, `observed`, or `measured`. A documented feature is
+not counted as measured behavior.
+
+The complete evaluated configuration includes the product build, Provider and
+adapter, model, reasoning settings, permissions, benchmark revision, and
+environment. Results from different configurations remain separate. Applicable
+failures, timeouts, refusals, and infrastructure failures are retained. A
+capability outside the declared product class is `not-applicable`; a claimed
+capability that cannot complete its task is `fail`.
+
+Analysis fidelity, explanation usability, developer workflow, Agent harness,
+safety and governance, and scale and efficiency are reported independently.
+They are not combined into a weighted overall score. See the
+[product benchmark protocol](product-benchmark.md).

@@ -170,7 +170,8 @@ test("agent protocol yields a persisted review without editing the original", as
   const history = await reopened.list(root);
   assert.equal(history[0].status, "review");
   assert.deepEqual(history[0].nativeSession, result.nativeSession);
-  await reopened.apply(root, result.id, ["greeting.ts"]);
+  const appliedRun = await reopened.apply(root, result.id, ["greeting.ts"]);
+  assert.equal(appliedRun.experiences?.at(-1)?.outcome, "useful");
   assert.deepEqual(analysisCalls[0], ["greeting.ts"]);
   const appliedProjection = await new EngineeringRunJournal(
     path.join(directory, "engineering-runs"),
@@ -184,6 +185,7 @@ test("agent protocol yields a persisted review without editing the original", as
     changedRelations: 0,
     completedAt: appliedProjection.analysisUpdates.at(-1)?.completedAt,
   });
+  assert.equal(appliedProjection.experiences.at(-1)?.outcome, "useful");
   assert.match(
     await fs.readFile(path.join(root, "greeting.ts"), "utf8"),
     /Welcome to Witch/,
@@ -384,6 +386,7 @@ test("AgentHost routes a run through the selected Provider contract", async (t) 
   const root = path.join(directory, "project");
   await fs.mkdir(root);
   await fs.writeFile(path.join(root, "main.ts"), "export const value = 1;\n");
+  let providerPrompt = "";
   const provider: AgentProviderAdapter = {
     id: "claude",
     descriptor: () => ({
@@ -406,7 +409,8 @@ test("AgentHost routes a run through the selected Provider contract", async (t) 
       },
     }),
     isConnected: () => false,
-    execute: async (_input, handlers) => {
+    execute: async (input, handlers) => {
+      providerPrompt = input.prompt;
       await handlers.onSession({
         providerId: "claude",
         sessionId: "native-claude-session",
@@ -437,6 +441,10 @@ test("AgentHost routes a run through the selected Provider contract", async (t) 
   const result = await completed;
   assert.equal(result.providerLabel, "Claude Code");
   assert.equal(result.response, "Claude contract response");
+  assert.match(providerPrompt, /witch\.agent-graph-context\/v1/);
+  assert.match(providerPrompt, /"delivery": "preflight-context"/);
+  assert.match(providerPrompt, /"contract": "witch\.graph-meta\/v1"/);
+  assert.match(providerPrompt, /not live tool access/);
   assert.deepEqual(result.nativeSession, {
     providerId: "claude",
     sessionId: "native-claude-session",
@@ -510,14 +518,31 @@ test("Engineering Run repairs a failed isolated verification within its budget",
   assert.equal(review.engineering?.verificationPassed, 2);
   assert.equal(review.engineering?.checkpointCount, 3);
   assert.equal(review.engineering?.planUnexpectedFiles, 0);
+  assert.equal(review.experiences?.at(-1)?.outcome, "corrected");
+  assert.equal(review.graphImpact?.sourceContract, "witch.graph-impact/v1");
+  assert.equal(review.graphImpact?.changedPaths[0], "main.ts");
+  assert.equal(
+    review.engineering?.impactRiskLevel,
+    review.graphImpact?.risk.level,
+  );
+  assert.equal(
+    review.engineering?.impactRiskScore,
+    review.graphImpact?.risk.score,
+  );
   assert.match(review.response, /Initial change[\s\S]*Syntax repaired/);
   assert.match(review.changes[0]?.after || "", /value = 2/);
-  assert.match(await fs.readFile(path.join(root, "main.ts"), "utf8"), /value = 1/);
+  assert.match(
+    await fs.readFile(path.join(root, "main.ts"), "utf8"),
+    /value = 1/,
+  );
   const projection = await new EngineeringRunJournal(
     path.join(directory, "engineering-runs"),
   ).verify(started.id);
   assert.equal(projection.repairs.length, 1);
   assert.equal(projection.repairs[0].status, "passed");
+  assert.equal(projection.impactAnalyses.length, 1);
+  assert.equal(projection.experiences.at(-1)?.outcome, "corrected");
+  assert.equal(projection.impactAnalyses[0]?.changedPaths[0], "main.ts");
   assert.equal(projection.planEvaluations.length, 2);
   assert.equal(projection.repairStopReason, undefined);
 });
@@ -550,7 +575,8 @@ test("Engineering Run stops repair when the same failure fingerprint repeats", a
           );
         handlers.onEvent({
           type: "message-completed",
-          text: executions === 1 ? "Initial invalid change" : "No effective repair",
+          text:
+            executions === 1 ? "Initial invalid change" : "No effective repair",
         });
         return { status: "completed" };
       }),
@@ -564,7 +590,11 @@ test("Engineering Run stops repair when the same failure fingerprint repeats", a
     contexts: [],
   });
   const review = await finished;
-  assert.equal(executions, 2, "the repeated fingerprint must prevent attempt 2");
+  assert.equal(
+    executions,
+    2,
+    "the repeated fingerprint must prevent attempt 2",
+  );
   assert.equal(review.engineering?.repairAttempts, 1);
   assert.equal(review.engineering?.verificationFailed, 1);
   assert.equal(review.engineering?.repairStopReason, "same-fingerprint");
@@ -679,7 +709,9 @@ test("Engineering Plan records changes outside an attached file scope", async (t
   assert.deepEqual(projection.planEvaluations.at(-1)?.unexpectedFiles, [
     "outside.ts",
   ]);
-  assert.deepEqual(projection.planEvaluations.at(-1)?.missingFiles, ["main.ts"]);
+  assert.deepEqual(projection.planEvaluations.at(-1)?.missingFiles, [
+    "main.ts",
+  ]);
 });
 
 test("two Provider forks retain the same immutable source baseline", async (t) => {
@@ -1025,7 +1057,16 @@ test("archiving a review preserves source, staged files and the full pending dif
   }
   const archived = await service.archive(root, started.id);
   assert.equal(archived.status, "archived");
+  assert.equal(archived.experiences?.at(-1)?.outcome, "dead-end");
   assert.deepEqual(archived.changes, []);
+  assert.equal(
+    (
+      await new EngineeringRunJournal(
+        path.join(directory, "engineering-runs"),
+      ).verify(started.id)
+    ).experiences.at(-1)?.outcome,
+    "dead-end",
+  );
   assert.equal(
     await fs.readFile(path.join(root, "greeting.ts"), "utf8"),
     original,

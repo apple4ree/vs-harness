@@ -35,6 +35,10 @@ import {
 } from "./polyglot-type-analysis";
 import { buildBehaviorGraph } from "./behavior-analysis";
 import { analyzeFrameworks } from "./framework-analysis";
+import {
+  analyzeArchitectureKnowledge,
+  isArchitectureKnowledgePath,
+} from "./knowledge-analysis";
 
 const SOURCE_EXTENSIONS = new Set([
   ".ts",
@@ -66,6 +70,8 @@ const SOURCE_EXTENSIONS = new Set([
   ".yml",
   ".yaml",
   ".md",
+  ".toml",
+  ".ini",
 ]);
 const DEEP_EXTENSIONS = new Set([
   ".ts",
@@ -79,7 +85,7 @@ const DEEP_EXTENSIONS = new Set([
   ".py",
   ".rs",
 ]);
-export const ARCHITECTURE_ANALYZER_VERSION = "polyglot-static-v18";
+export const ARCHITECTURE_ANALYZER_VERSION = "polyglot-static-v19";
 
 function coverageLanguage(extension: string) {
   if ([".ts", ".tsx", ".mts", ".cts"].includes(extension)) return "typescript";
@@ -106,6 +112,8 @@ function coverageLanguage(extension: string) {
     ".yml": "yaml",
     ".yaml": "yaml",
     ".md": "markdown",
+    ".toml": "toml",
+    ".ini": "ini",
   };
   return names[extension] || extension.replace(/^\./, "") || "unknown";
 }
@@ -1232,8 +1240,10 @@ export async function analyzeRepository(
   options.signal?.throwIfAborted();
   const listing = await listWorkspace(root);
   const files = listing.entries.filter((entry) => entry.kind === "file");
-  const indexedFiles = files.filter((entry) =>
-    SOURCE_EXTENSIONS.has(entry.extension),
+  const indexedFiles = files.filter(
+    (entry) =>
+      SOURCE_EXTENSIONS.has(entry.extension) ||
+      isArchitectureKnowledgePath(entry.path),
   );
   const sourceFiles = indexedFiles.filter((entry) => entry.size <= TEXT_LIMIT);
   const nodes: ArchitectureNode[] = [];
@@ -1270,6 +1280,7 @@ export async function analyzeRepository(
   const typeScriptTexts = new Map<string, string>();
   const pythonTexts = new Map<string, string>();
   const rustTexts = new Map<string, string>();
+  const knowledgeContents = new Map<string, string>();
   let authoredContent: string | null = null;
   let bytesRead = 0;
   let memoryCacheHits = 0;
@@ -1298,6 +1309,7 @@ export async function analyzeRepository(
     const contentRequired =
       DEEP_EXTENSIONS.has(file.extension) ||
       authoredPath ||
+      isArchitectureKnowledgePath(file.path) ||
       Boolean(cached?.imports.length);
     let content = metadataHit ? cached?.content : undefined;
     if (content !== undefined) memoryCacheHits++;
@@ -1350,6 +1362,8 @@ export async function analyzeRepository(
       typeScriptTexts.set(file.path, content);
     if (file.extension === ".py") pythonTexts.set(file.path, content);
     if (file.extension === ".rs") rustTexts.set(file.path, content);
+    if (isArchitectureKnowledgePath(file.path))
+      knowledgeContents.set(file.path, content);
     options.cache?.set(file.path, {
       hash,
       ...parsed,
@@ -1705,6 +1719,14 @@ export async function analyzeRepository(
     symbolRelations,
     callCorroborations,
   });
+  const knowledge = analyzeArchitectureKnowledge({
+    workspaceRoot: root,
+    sourceRevision: revision,
+    generatedAt,
+    nodes,
+    semantic: semantic.graph,
+    contents: knowledgeContents,
+  });
   const deepContents = new Map([
     ...typeScriptTexts,
     ...pythonTexts,
@@ -1849,5 +1871,6 @@ export async function analyzeRepository(
     semantic: semantic.graph,
     behavior,
     frameworks,
+    knowledge,
   });
 }

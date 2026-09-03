@@ -26,6 +26,7 @@ the current preview into a complete or certified IDE.
 - Dynamic traces depend on upstream test coverage and are not complete static
   truth.
 - Witch-owned fixtures measure regressions, not independent generalization.
+- The Federation suite's six Witch-owned cases do not establish accuracy on independent multi-repository systems, package aliases, or runtime deployment topology.
 - The current Rust benchmark is micro development data; no independent Rust
   macro holdout has been published yet.
 
@@ -58,6 +59,22 @@ not measure whether a person understands the architecture. Readability,
 explanation quality, and comparison with another visualization tool require a
 dated human review and screenshots. Such review is qualitative evidence, not a
 substitute for graph accuracy.
+
+## Cross-product comparison limits
+
+- A feature matrix is not performance evidence unless cells are marked and
+  reproduced as `measured` under a common task.
+- IDE, ADE, graph explorer, Agent harness, and CUA results are only comparable
+  on declared overlapping capabilities.
+- SWE-bench-style patch success does not measure editor reliability, visual
+  comprehension, approval safety, or rollback quality.
+- Terminal and computer-use benchmarks can execute untrusted actions and require
+  isolation beyond the ordinary static benchmark runner.
+- Provider, model, reasoning effort, permissions, context budget, and price are
+  part of the product configuration; changing them invalidates a direct run-to-run
+  comparison.
+- P3 human comprehension and broad live P4 Agent evaluation are protocol-defined
+  or partial, so current dated Witch results do not claim those lanes are complete.
 
 ## Security limits
 

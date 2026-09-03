@@ -1,0 +1,48 @@
+{
+  "contract": "witch.comprehension-benchmark/v1",
+  "policy": {
+    "sourceContentsForbidden": true,
+    "namedReviewerRequired": true,
+    "aggregateScoreForbidden": true,
+    "taskOrder": "fixed",
+    "practiceTasks": 0
+  },
+  "cases": [
+    {
+      "id": "python-agent-risk",
+      "language": "python",
+      "root": "../semantic-composer/fixtures/python-agent-risk",
+      "tasks": [
+        { "id": "py-entry", "prompt": "Find the order workflow entry point.", "expectedEvidencePaths": ["app/main.py"] },
+        { "id": "py-agent", "prompt": "Find where the agent loop is implemented.", "expectedEvidencePaths": ["agent/runner.py"] },
+        { "id": "py-risk", "prompt": "Follow the agent to its risk decision.", "expectedEvidencePaths": ["risk/policy.py"] },
+        { "id": "py-retry", "prompt": "Find evidence for the retry bound.", "expectedEvidencePaths": ["agent/runner.py"] },
+        { "id": "py-feed", "prompt": "Find the quote source used by the entry point.", "expectedEvidencePaths": ["market/feed.py"] }
+      ]
+    },
+    {
+      "id": "rust-order-engine",
+      "language": "rust",
+      "root": "../semantic-composer/fixtures/rust-order-engine",
+      "tasks": [
+        { "id": "rs-entry", "prompt": "Find the order workflow entry point.", "expectedEvidencePaths": ["src/app/mod.rs"] },
+        { "id": "rs-agent", "prompt": "Find where the agent loop is implemented.", "expectedEvidencePaths": ["src/agent/mod.rs"] },
+        { "id": "rs-risk", "prompt": "Follow the agent to its risk decision.", "expectedEvidencePaths": ["src/risk/mod.rs"] },
+        { "id": "rs-retry", "prompt": "Find evidence for the retry bound.", "expectedEvidencePaths": ["src/agent/mod.rs"] },
+        { "id": "rs-feed", "prompt": "Find the quote source used by the entry point.", "expectedEvidencePaths": ["src/market/mod.rs"] }
+      ]
+    },
+    {
+      "id": "typescript-agent-loop",
+      "language": "typescript",
+      "root": "../semantic-composer/fixtures/typescript-agent-loop",
+      "tasks": [
+        { "id": "ts-entry", "prompt": "Find the order workflow entry point.", "expectedEvidencePaths": ["src/app/main.ts"] },
+        { "id": "ts-agent", "prompt": "Find where the agent loop is implemented.", "expectedEvidencePaths": ["src/agent/runner.ts"] },
+        { "id": "ts-risk", "prompt": "Follow the agent to its risk decision.", "expectedEvidencePaths": ["src/risk/policy.ts"] },
+        { "id": "ts-retry", "prompt": "Find evidence for the retry bound.", "expectedEvidencePaths": ["src/agent/runner.ts"] },
+        { "id": "ts-feed", "prompt": "Find the quote source used by the entry point.", "expectedEvidencePaths": ["src/market/feed.ts"] }
+      ]
+    }
+  ]
+}

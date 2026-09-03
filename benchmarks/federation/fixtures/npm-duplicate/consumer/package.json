@@ -1,0 +1,6 @@
+{
+  "name": "@bench/duplicate-consumer",
+  "dependencies": {
+    "@bench/shared": "workspace:*"
+  }
+}

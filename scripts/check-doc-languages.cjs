@@ -4,7 +4,16 @@ const { basename } = require("node:path");
 
 const files = execFileSync(
   "git",
-  ["ls-files", "-z", "--", "*.md", "*.mdx"],
+  [
+    "ls-files",
+    "-z",
+    "--cached",
+    "--others",
+    "--exclude-standard",
+    "--",
+    "*.md",
+    "*.mdx",
+  ],
   { encoding: "utf8" },
 )
   .split("\0")

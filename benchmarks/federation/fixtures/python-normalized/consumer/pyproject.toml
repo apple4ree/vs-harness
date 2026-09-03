@@ -1,0 +1,5 @@
+[project]
+name = "risk-client"
+dependencies = [
+  "risk_engine>=1"
+]

@@ -1,0 +1,310 @@
+{
+  "contractVersion": 1,
+  "id": "witch.product-benchmark/v1",
+  "title": "Witch ADE, IDE, and code-intelligence product benchmark",
+  "policy": {
+    "aggregation": "separate-dimensions",
+    "evidenceLevels": ["documented", "observed", "measured"],
+    "resultStates": ["pass", "fail", "partial", "not-applicable", "not-run"],
+    "missingCapability": "A capability claimed by the evaluated product is fail when its task is applicable; a capability outside the declared product class is not-applicable.",
+    "comparisonUnit": "product-build + provider + model + configuration + benchmark-revision + environment"
+  },
+  "toolClasses": [
+    "code-structure-explorer",
+    "ide",
+    "ade",
+    "coding-agent-harness",
+    "computer-use-agent"
+  ],
+  "dimensions": [
+    {
+      "id": "analysis-fidelity",
+      "title": "Analysis fidelity",
+      "question": "Does the product recover source-backed structure, calls, workflows, behavior, and framework registrations?",
+      "metrics": [
+        { "id": "edge-precision", "unit": "ratio", "direction": "higher" },
+        { "id": "edge-recall", "unit": "ratio", "direction": "higher" },
+        { "id": "scoped-f1", "unit": "ratio", "direction": "higher" },
+        {
+          "id": "oracle-edge-coverage",
+          "unit": "ratio",
+          "direction": "higher"
+        },
+        {
+          "id": "invalid-reading-acceptance",
+          "unit": "count",
+          "direction": "lower"
+        }
+      ]
+    },
+    {
+      "id": "explanation-usability",
+      "title": "Explanation and visual usability",
+      "question": "Can a person answer architecture questions, reach the source evidence, and understand omissions?",
+      "metrics": [
+        {
+          "id": "comprehension-task-success",
+          "unit": "ratio",
+          "direction": "higher"
+        },
+        {
+          "id": "median-time-to-evidence",
+          "unit": "milliseconds",
+          "direction": "lower"
+        },
+        {
+          "id": "wrong-source-selection",
+          "unit": "count",
+          "direction": "lower"
+        },
+        {
+          "id": "projection-omission-disclosure",
+          "unit": "ratio",
+          "direction": "higher"
+        },
+        {
+          "id": "layout-constraint-violations",
+          "unit": "count",
+          "direction": "lower"
+        }
+      ]
+    },
+    {
+      "id": "developer-workflow",
+      "title": "IDE and ADE workflow",
+      "question": "Can the product preserve edits and move reliably through search, navigation, execution, debugging, and recovery?",
+      "metrics": [
+        {
+          "id": "scripted-workflow-pass-rate",
+          "unit": "ratio",
+          "direction": "higher"
+        },
+        {
+          "id": "save-fidelity-failures",
+          "unit": "count",
+          "direction": "lower"
+        },
+        {
+          "id": "navigation-p95",
+          "unit": "milliseconds",
+          "direction": "lower"
+        },
+        {
+          "id": "external-change-recovery-rate",
+          "unit": "ratio",
+          "direction": "higher"
+        },
+        {
+          "id": "platform-package-pass-rate",
+          "unit": "ratio",
+          "direction": "higher"
+        }
+      ]
+    },
+    {
+      "id": "agent-harness",
+      "title": "Agent engineering harness",
+      "question": "Does the complete product configuration produce bounded, reviewable, reproducible changes?",
+      "metrics": [
+        {
+          "id": "task-resolution-rate",
+          "unit": "ratio",
+          "direction": "higher"
+        },
+        {
+          "id": "changed-path-precision",
+          "unit": "ratio",
+          "direction": "higher"
+        },
+        {
+          "id": "verification-pass-rate",
+          "unit": "ratio",
+          "direction": "higher"
+        },
+        { "id": "human-interventions", "unit": "count", "direction": "lower" },
+        {
+          "id": "tokens-per-resolved-task",
+          "unit": "count",
+          "direction": "lower"
+        },
+        {
+          "id": "cost-per-resolved-task",
+          "unit": "currency",
+          "direction": "lower"
+        }
+      ]
+    },
+    {
+      "id": "safety-and-governance",
+      "title": "Safety, review, and governance",
+      "question": "Does the product fail closed, preserve approval boundaries, and leave enough evidence to audit and recover?",
+      "metrics": [
+        {
+          "id": "unauthorized-original-writes",
+          "unit": "count",
+          "direction": "lower"
+        },
+        {
+          "id": "scope-escape-successes",
+          "unit": "count",
+          "direction": "lower"
+        },
+        { "id": "secret-egress-events", "unit": "count", "direction": "lower" },
+        {
+          "id": "rollback-success-rate",
+          "unit": "ratio",
+          "direction": "higher"
+        },
+        {
+          "id": "journal-integrity-rate",
+          "unit": "ratio",
+          "direction": "higher"
+        }
+      ]
+    },
+    {
+      "id": "scale-and-efficiency",
+      "title": "Scale and efficiency",
+      "question": "Does the product stay bounded and responsive as repositories, graphs, and Agent trajectories grow?",
+      "metrics": [
+        {
+          "id": "cold-analysis-time",
+          "unit": "milliseconds",
+          "direction": "lower"
+        },
+        {
+          "id": "warm-analysis-time",
+          "unit": "milliseconds",
+          "direction": "lower"
+        },
+        {
+          "id": "incremental-analysis-time",
+          "unit": "milliseconds",
+          "direction": "lower"
+        },
+        { "id": "peak-process-rss", "unit": "mebibytes", "direction": "lower" },
+        {
+          "id": "interaction-p95",
+          "unit": "milliseconds",
+          "direction": "lower"
+        },
+        {
+          "id": "context-bytes-per-answer",
+          "unit": "bytes",
+          "direction": "lower"
+        }
+      ]
+    }
+  ],
+  "lanes": [
+    {
+      "id": "P0",
+      "title": "Source conformance",
+      "maturity": "automated",
+      "dimensionIds": ["developer-workflow", "safety-and-governance"],
+      "commands": [
+        "npm run typecheck",
+        "npm test",
+        "npm run build",
+        "npm run test:e2e"
+      ]
+    },
+    {
+      "id": "P1",
+      "title": "Analysis oracle",
+      "maturity": "automated",
+      "dimensionIds": ["analysis-fidelity"],
+      "commands": [
+        "npm run benchmark:callgraph:rust",
+        "npm run benchmark:behavior",
+        "npm run benchmark:frameworks"
+      ]
+    },
+    {
+      "id": "P2",
+      "title": "Repository scale and projection",
+      "maturity": "automated",
+      "dimensionIds": ["explanation-usability", "scale-and-efficiency"],
+      "commands": [
+        "npm run benchmark -- 5000",
+        "npm run benchmark:repository -- --root <checkout> --output <receipt>"
+      ]
+    },
+    {
+      "id": "P3",
+      "title": "Human comprehension",
+      "maturity": "protocol-defined",
+      "dimensionIds": ["explanation-usability"],
+      "commands": []
+    },
+    {
+      "id": "P4",
+      "title": "Agent task completion",
+      "maturity": "partial",
+      "dimensionIds": [
+        "agent-harness",
+        "safety-and-governance",
+        "scale-and-efficiency"
+      ],
+      "commands": ["npm run eval:offline"]
+    },
+    {
+      "id": "P5",
+      "title": "Adversarial recovery",
+      "maturity": "partial",
+      "dimensionIds": ["agent-harness", "safety-and-governance"],
+      "commands": ["npm run eval:offline"]
+    },
+    {
+      "id": "P6",
+      "title": "Packaged platform",
+      "maturity": "protocol-defined",
+      "dimensionIds": ["developer-workflow", "scale-and-efficiency"],
+      "commands": ["npm run package:win", "npm run package:mac"]
+    }
+  ],
+  "externalAdapters": [
+    {
+      "id": "swarm-cg-pyanalyzer-dypybench",
+      "scope": "Static and dynamically observed call-graph agreement",
+      "applicability": ["code-structure-explorer", "ide", "ade"],
+      "status": "integrated",
+      "url": "https://github.com/secure-software-engineering/SWARM-CG"
+    },
+    {
+      "id": "swe-bench",
+      "scope": "Issue-to-patch task resolution in reproducible repositories",
+      "applicability": ["ade", "coding-agent-harness"],
+      "status": "planned",
+      "url": "https://github.com/SWE-bench/SWE-bench"
+    },
+    {
+      "id": "ide-bench",
+      "scope": "Coding agents using an IDE-native structured tool surface",
+      "applicability": ["ade", "coding-agent-harness"],
+      "status": "candidate",
+      "url": "https://github.com/AfterQuery/ide-bench"
+    },
+    {
+      "id": "terminal-bench",
+      "scope": "Agent completion of terminal-based tasks",
+      "applicability": ["ade", "coding-agent-harness"],
+      "status": "candidate",
+      "url": "https://github.com/harbor-framework/terminal-bench"
+    },
+    {
+      "id": "osworld",
+      "scope": "Computer-use task success in isolated desktop environments",
+      "applicability": ["computer-use-agent"],
+      "status": "deferred",
+      "url": "https://github.com/xlang-ai/OSWorld"
+    },
+    {
+      "id": "agentdojo",
+      "scope": "Agent prompt-injection attacks and defenses",
+      "applicability": ["coding-agent-harness", "computer-use-agent"],
+      "status": "reference-only",
+      "url": "https://github.com/ethz-spylab/agentdojo"
+    }
+  ]
+}

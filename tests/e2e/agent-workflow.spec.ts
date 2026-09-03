@@ -111,6 +111,16 @@ test("component chat runs isolated edits, honors canceled approval, applies diff
       healthy: true,
     });
     expect(run.engineering!.eventCount).toBeGreaterThan(5);
+    expect(run.graphContext).toMatchObject({
+      contract: "witch.agent-graph-context/v1",
+      delivery: "preflight-context",
+      sourceRevision: before,
+    });
+    expect(run.graphImpact).toMatchObject({
+      contract: "witch.graph-impact-review/v1",
+      sourceContract: "witch.graph-impact/v1",
+      changedPaths: ["greeting.ts"],
+    });
     expect(
       (
         await fs.readFile(
@@ -119,6 +129,12 @@ test("component chat runs isolated edits, honors canceled approval, applies diff
         )
       ).trim(),
     ).toContain('"type":"review.created"');
+    expect(
+      await fs.readFile(
+        path.join(profile, "engineering-runs", run.id, "events.ndjson"),
+        "utf8",
+      ),
+    ).toContain('"type":"impact.analyzed"');
     expect(
       await fs.readFile(
         path.join(profile, "engineering-runs", run.id, "events.ndjson"),
@@ -137,6 +153,7 @@ test("component chat runs isolated edits, honors canceled approval, applies diff
       name: "Review agent changes",
       exact: true,
     });
+    await expect(review.getByLabel("Graph impact receipt")).toBeVisible();
     await expect(review.locator(".monaco-diff-editor")).toContainText(
       "Welcome to Witch",
     );
@@ -204,6 +221,12 @@ test("component chat runs isolated edits, honors canceled approval, applies diff
       .getByRole("button", { name: "Send message", exact: true })
       .click();
     await expect(page.locator(".run-state.completed")).toHaveCount(1);
+    const contextRun = (
+      await page.evaluate(() => window.witch.agent.list())
+    )[0];
+    expect(contextRun.graphContext?.experience?.included).toEqual(
+      expect.arrayContaining([expect.objectContaining({ outcome: "useful" })]),
+    );
     await page.getByLabel("Message Witch").fill("WAIT_FOREVER");
     await page
       .getByRole("button", { name: "Send message", exact: true })
@@ -261,6 +284,13 @@ test("component chat runs isolated edits, honors canceled approval, applies diff
     await archive.click();
     await expect(page.locator(".run-state.archived")).toHaveCount(1);
     const archived = (await page.evaluate(() => window.witch.agent.list()))[0];
+    expect(archived.experiences?.at(-1)?.outcome).toBe("dead-end");
+    expect(
+      await fs.readFile(
+        path.join(profile, "engineering-runs", archived.id, "events.ndjson"),
+        "utf8",
+      ),
+    ).toContain('"type":"experience.recorded"');
     const snapshot = JSON.parse(
       await fs.readFile(archived.archivePath!, "utf8"),
     );

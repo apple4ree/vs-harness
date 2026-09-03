@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "repositoryKey": "routing-consumer",
+  "mappings": [
+    {
+      "ecosystem": "npm",
+      "package": "@bench/routing",
+      "provider": "routing-primary"
+    }
+  ]
+}

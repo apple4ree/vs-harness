@@ -173,6 +173,79 @@
   background: rgba(127, 29, 29, 0.15);
   color: #fca5a5;
 }
+.agent-impact-summary {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 3px 10px;
+  margin-top: 9px;
+  padding: 9px 10px;
+  border: 1px solid #4e3b62;
+  border-left: 3px solid #9c79cb;
+  border-radius: 7px;
+  background: #1b1227;
+  font-size: 11px;
+}
+.agent-impact-summary.risk-medium {
+  border-left-color: #d2a95d;
+}
+.agent-impact-summary.risk-high,
+.agent-impact-summary.risk-critical {
+  border-left-color: #df708e;
+}
+.agent-impact-summary > span {
+  color: #b9a4cf;
+}
+.agent-impact-summary > strong {
+  text-transform: capitalize;
+}
+.agent-impact-summary > small {
+  grid-column: 1 / -1;
+  color: #9f91ae;
+}
+.agent-experience-context {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 7px 0;
+  padding: 6px 8px;
+  border: 1px solid rgba(125, 211, 252, 0.2);
+  border-radius: 6px;
+  background: rgba(14, 116, 144, 0.08);
+  color: #b8dcec;
+  font-size: 10px;
+}
+.agent-experience-context small {
+  color: #879eaa;
+}
+.agent-experience-outcomes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 8px;
+}
+.agent-experience-outcomes span {
+  padding: 3px 6px;
+  border: 1px solid #4c3a60;
+  border-radius: 999px;
+  background: #1b1325;
+  color: #a999b9;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.agent-experience-outcomes .experience-useful {
+  border-color: rgba(110, 231, 183, 0.35);
+  color: #8fd5bc;
+}
+.agent-experience-outcomes .experience-corrected {
+  border-color: rgba(196, 181, 253, 0.4);
+  color: #c4b5fd;
+}
+.agent-experience-outcomes .experience-dead-end {
+  border-color: rgba(251, 191, 36, 0.32);
+  color: #d9b96c;
+}
 .agent-native-controls {
   display: flex;
   flex-wrap: wrap;

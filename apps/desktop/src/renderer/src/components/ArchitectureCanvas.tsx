@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ReactFlow,
+  BaseEdge,
   Background,
   Controls,
   MiniMap,
@@ -10,10 +11,12 @@ import {
   useEdgesState,
   type NodeProps,
   type Edge,
+  type EdgeProps,
   type ReactFlowInstance,
 } from "@xyflow/react";
 import {
   buildView,
+  buildArchitectureReadingPresentation,
   groupWorkflowCatalogCards,
   isSupportWorkflowNode,
   relationsForEdge,
@@ -36,7 +39,6 @@ import {
   ArrowUpRight,
   Network,
   Package,
-  ChevronLeft,
   Maximize2,
   LocateFixed,
   ShieldCheck,
@@ -61,6 +63,15 @@ import {
 import { projectSourceNeighborhood } from "../../../shared/architecture-projection";
 import constellationAtmosphere from "../assets/witch-constellation-atmosphere.png";
 import { emptyVisualQualityReceipt } from "./architecture-visual-quality";
+import {
+  createGraphDeliveryReceipt,
+  LastGoodGraphStore,
+  stableViewConfigHash,
+  type GraphDeliveryReceipt,
+  type RenderedGraphReceipt,
+} from "./graph-delivery";
+import { inspectRenderedGraph } from "./rendered-graph-validator";
+import { GraphIntelligencePanel } from "./GraphIntelligencePanel";
 import type {
   SemanticComposerProviderId,
   SemanticComposerRequest,
@@ -95,7 +106,10 @@ function ComponentCard({ data, selected }: NodeProps<CardNode>) {
     <div
       className={`architecture-card ${data.sequence ? "is-sequence" : ""} ${data.workflowSummary ? "is-workflow-summary" : ""} ${data.workflowSummary?.support ? "is-support-workflow" : ""} ${selected ? "is-selected" : ""} ${data.changed ? "has-changed" : ""} ${data.traced ? "is-traced" : ""} ${data.dimmed ? "is-dimmed" : ""} ${data.trust ? `semantic-${data.trust}` : ""}`}
     >
-      <Handle type="target" position={Position.Left} />
+      <Handle
+        type="target"
+        position={data.layoutDirection === "TB" ? Position.Top : Position.Left}
+      />
       <div className="architecture-card-top">
         <span>
           <Icon size={14} /> {data.kind}
@@ -151,17 +165,120 @@ function ComponentCard({ data, selected }: NodeProps<CardNode>) {
         {data.changed && <span>updated</span>}
         {Boolean(data.questions) && <span>{data.questions} question</span>}
       </footer>
-      <Handle type="source" position={Position.Right} />
+      <Handle
+        type="source"
+        position={
+          data.layoutDirection === "TB" ? Position.Bottom : Position.Right
+        }
+      />
     </div>
   );
 }
 const nodeTypes = { component: ComponentCard };
+
+type RoutedEdgeData = { route?: Array<{ x: number; y: number }> };
+
+function polylineCenter(points: Array<{ x: number; y: number }>) {
+  const lengths = points.slice(1).map((point, index) =>
+    Math.hypot(point.x - points[index].x, point.y - points[index].y),
+  );
+  const target = lengths.reduce((sum, value) => sum + value, 0) / 2;
+  let walked = 0;
+  for (let index = 0; index < lengths.length; index++) {
+    if (walked + lengths[index] >= target) {
+      const ratio = lengths[index]
+        ? (target - walked) / lengths[index]
+        : 0;
+      return {
+        x: points[index].x + (points[index + 1].x - points[index].x) * ratio,
+        y: points[index].y + (points[index + 1].y - points[index].y) * ratio,
+      };
+    }
+    walked += lengths[index];
+  }
+  return points[Math.floor(points.length / 2)] || { x: 0, y: 0 };
+}
+
+function RoutedEdge({
+  id,
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  data,
+  label,
+  labelStyle,
+  labelBgStyle,
+  labelBgPadding,
+  labelBgBorderRadius,
+  style,
+  markerStart,
+  markerEnd,
+  interactionWidth,
+}: EdgeProps<Edge<RoutedEdgeData>>) {
+  const stored = data?.route || [];
+  const points =
+    stored.length > 1
+      ? stored.map((point, index) => {
+          const ratio = index / (stored.length - 1);
+          const sourceDelta = {
+            x: sourceX - stored[0].x,
+            y: sourceY - stored[0].y,
+          };
+          const targetDelta = {
+            x: targetX - stored[stored.length - 1].x,
+            y: targetY - stored[stored.length - 1].y,
+          };
+          return {
+            x:
+              point.x +
+              sourceDelta.x * (1 - ratio) +
+              targetDelta.x * ratio,
+            y:
+              point.y +
+              sourceDelta.y * (1 - ratio) +
+              targetDelta.y * ratio,
+          };
+        })
+      : [
+          { x: sourceX, y: sourceY },
+          { x: targetX, y: targetY },
+        ];
+  points[0] = { x: sourceX, y: sourceY };
+  points[points.length - 1] = { x: targetX, y: targetY };
+  const route = points
+    .map((point, index) =>
+      `${index ? "L" : "M"}${point.x.toFixed(2)},${point.y.toFixed(2)}`,
+    )
+    .join(" ");
+  const center = polylineCenter(points);
+  return (
+    <BaseEdge
+      id={id}
+      path={route}
+      labelX={center.x}
+      labelY={center.y}
+      label={label}
+      labelStyle={labelStyle}
+      labelBgStyle={labelBgStyle}
+      labelBgPadding={labelBgPadding}
+      labelBgBorderRadius={labelBgBorderRadius}
+      style={style}
+      markerStart={markerStart}
+      markerEnd={markerEnd}
+      interactionWidth={interactionWidth}
+    />
+  );
+}
+
+const edgeTypes = { routed: RoutedEdge };
 
 export function ArchitectureCanvas({
   graph,
   busy,
   onAnalyze,
   onClearIndex,
+  onAcceptCandidate,
   onOpenFile,
   onAttach,
   onExport,
@@ -175,6 +292,7 @@ export function ArchitectureCanvas({
   busy: boolean;
   onAnalyze: () => void;
   onClearIndex: () => void;
+  onAcceptCandidate: (candidateRevision: string) => void;
   onOpenFile: (path: string, line?: number) => void;
   onAttach: (context: ComponentContext) => void;
   onExport: (format: "json" | "html") => void;
@@ -193,6 +311,7 @@ export function ArchitectureCanvas({
   const [density, setDensity] = useState<GraphDensity>("readable");
   const [qualityOpen, setQualityOpen] = useState(false);
   const [coverageOpen, setCoverageOpen] = useState(false);
+  const [intelligenceOpen, setIntelligenceOpen] = useState(false);
   const [composerProvider, setComposerProvider] =
     useState<SemanticComposerProviderId>("codex");
   const [composerModel, setComposerModel] = useState("");
@@ -223,6 +342,20 @@ export function ArchitectureCanvas({
   const [runtimeBusy, setRuntimeBusy] = useState(false);
   const [runtimeNotice, setRuntimeNotice] = useState("");
   const flow = useRef<ReactFlowInstance<CardNode, Edge> | null>(null);
+  const graphStage = useRef<HTMLDivElement | null>(null);
+  const lastGoodViews = useRef(
+    new LastGoodGraphStore<{
+      nodes: CardNode[];
+      edges: Edge[];
+      viewConfigHash: string;
+    }>(),
+  );
+  const [renderedReceipt, setRenderedReceipt] =
+    useState<RenderedGraphReceipt | null>(null);
+  const [deliveryState, setDeliveryState] =
+    useState<GraphDeliveryReceipt["state"]>("candidate");
+  const [flowReady, setFlowReady] = useState(0);
+  const [renderSurfaceRevision, setRenderSurfaceRevision] = useState(0);
   const projection = useMemo(
     () =>
       graph && activeFile
@@ -263,6 +396,12 @@ export function ArchitectureCanvas({
     [runtimeMode, runtimeObservedRelations, runtimeComparison],
   );
   const layoutKey = `${graph?.workspaceRoot}|${scope}|${density}|${semanticLens}|${componentFocus}|${workflowFocus}|${workflowViewMode}|${collapseWorkflowBranches}|${workflowCatalogExpanded}|${showSupportWorkflows}|${module}|${external}|${query}|${runtimeMode}|${selectedRuntimeSession?.revision || "no-trace"}|${scope === "focus" ? projection?.focus.id || "missing" : ""}`;
+  const viewConfigHash = stableViewConfigHash(
+    `${graph?.revision || "no-graph"}|${layoutKey}`,
+  );
+  const lastGoodViewKey = stableViewConfigHash(layoutKey);
+  const fitMinimumZoom = density === "readable" ? 0.6 : 0.12;
+  const fitPadding = density === "readable" ? 0.08 : 0.22;
   const previousLayout = useRef("");
   const previous = useRef<ArchitectureGraph | null>(null);
   useEffect(() => {
@@ -367,6 +506,8 @@ export function ArchitectureCanvas({
     setRuntimeSessionId("");
     setRuntimeTaskId("");
     setRuntimeNotice("");
+    setRenderedReceipt(null);
+    setDeliveryState("candidate");
   }, [graph?.workspaceRoot]);
   const workflows = useMemo(() => {
     return selectWorkflowCatalogNodes(graph?.semantic?.nodes || []).sort(
@@ -472,6 +613,54 @@ export function ArchitectureCanvas({
     () => groupWorkflowCatalogCards(view.nodes),
     [view.nodes],
   );
+  const focusedComponentNode = componentFocus
+    ? graph?.semantic?.nodes.find((node) => node.id === componentFocus) || null
+    : null;
+  const focusedWorkflowNode = workflowFocus
+    ? graph?.semantic?.nodes.find((node) => node.id === workflowFocus) || null
+    : null;
+  const focusedWorkflowStepIds = new Set(
+    workflowFocus
+      ? graph?.semantic?.relations
+          .filter(
+            (relation) =>
+              relation.kind === "contains" && relation.from === workflowFocus,
+          )
+          .map((relation) => relation.to) || []
+      : [],
+  );
+  const isFocusedWorkflowItem = (id: string) =>
+    id === workflowFocus || focusedWorkflowStepIds.has(id);
+  const focusedWorkflowBranches = workflowFocus
+    ? graph?.semantic?.relations.filter(
+        (relation) =>
+          relation.kind === "branches-to" &&
+          isFocusedWorkflowItem(relation.from) &&
+          isFocusedWorkflowItem(relation.to),
+      ).length || 0
+    : 0;
+  const focusedWorkflowRetries = workflowFocus
+    ? graph?.semantic?.relations.filter(
+        (relation) =>
+          relation.kind === "retries" &&
+          isFocusedWorkflowItem(relation.from) &&
+          isFocusedWorkflowItem(relation.to),
+      ).length || 0
+    : 0;
+  const reading = buildArchitectureReadingPresentation({
+    scope,
+    lens: semanticLens,
+    density,
+    visibleNodes: view.nodes.length,
+    visibleEdges: view.edges.length,
+    moduleLabel:
+      scope === "focus" ? projection?.focus.path || activeFile : module,
+    componentLabel: focusedComponentNode?.label,
+    workflowLabel: focusedWorkflowNode?.label,
+    workflowSteps: focusedWorkflowStepIds.size,
+    workflowBranches: focusedWorkflowBranches,
+    workflowRetries: focusedWorkflowRetries,
+  });
   const groupedWorkflowCatalog =
     scope === "semantics" &&
     semanticLens === "workflows" &&
@@ -488,6 +677,8 @@ export function ArchitectureCanvas({
   useEffect(() => {
     const reset = previousLayout.current !== layoutKey;
     previousLayout.current = layoutKey;
+    setRenderedReceipt(null);
+    setDeliveryState("candidate");
     setNodes((previous) => {
       if (reset) return view.nodes;
       const positions = new Map(previous.map((node) => [node.id, node]));
@@ -515,14 +706,133 @@ export function ArchitectureCanvas({
     });
     if (reset)
       requestAnimationFrame(() => {
-        void flow.current?.fitView({ padding: 0.22 });
+        // React Flow commits node internals one frame after our controlled
+        // node state. Fit only after that measurement so a lens switch cannot
+        // leave the new cards translated above the graph viewport.
+        requestAnimationFrame(() => {
+          void flow.current?.fitView({
+            padding: fitPadding,
+            minZoom: fitMinimumZoom,
+          });
+        });
       });
-  }, [view, layoutKey, scope, projection]);
+  }, [view, layoutKey, scope, projection, fitMinimumZoom, fitPadding]);
+  useEffect(() => {
+    const surface = graphStage.current;
+    if (!surface || !graph?.workspaceRoot) return;
+    let frame = 0;
+    const invalidate = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() =>
+        setRenderSurfaceRevision((revision) => revision + 1),
+      );
+    };
+    const resize = new ResizeObserver(invalidate);
+    resize.observe(surface);
+    const theme = new MutationObserver(invalidate);
+    theme.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-theme"],
+    });
+    window.addEventListener("witch:validate-graph", invalidate);
+    return () => {
+      cancelAnimationFrame(frame);
+      resize.disconnect();
+      theme.disconnect();
+      window.removeEventListener("witch:validate-graph", invalidate);
+    };
+  }, [graph?.workspaceRoot]);
+  useEffect(() => {
+    if (!graph || groupedWorkflowCatalog) {
+      setRenderedReceipt(null);
+      setDeliveryState("candidate");
+      return;
+    }
+    if (deliveryState === "preserved-last-good") return;
+    let canceled = false;
+    const firstFrame = requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (canceled || !graphStage.current || !flow.current) return;
+        const currentFlow = flow.current;
+        const receipt = inspectRenderedGraph(graphStage.current, {
+          edges: currentFlow.getEdges(),
+          zoom: currentFlow.getViewport().zoom,
+          viewConfigHash,
+          profile: view.quality.profile,
+        });
+        if (canceled) return;
+        setRenderedReceipt(receipt);
+        const candidate = {
+          nodes: currentFlow.getNodes(),
+          edges: currentFlow.getEdges(),
+          viewConfigHash,
+        };
+        const resolution = lastGoodViews.current.resolve(
+          lastGoodViewKey,
+          candidate,
+          graph.validation.valid &&
+            view.quality.status !== "fail" &&
+            receipt.valid,
+        );
+        if (resolution.state === "preserved-last-good") {
+          setNodes(resolution.value.nodes);
+          setEdges(resolution.value.edges);
+          setDeliveryState("preserved-last-good");
+          requestAnimationFrame(() => {
+            void flow.current?.fitView({
+              padding: fitPadding,
+              minZoom: fitMinimumZoom,
+            });
+          });
+        } else
+          setDeliveryState(
+            resolution.state === "accepted" ? "accepted" : "rejected",
+          );
+      });
+    });
+    return () => {
+      canceled = true;
+      cancelAnimationFrame(firstFrame);
+    };
+  }, [
+    graph?.revision,
+    deliveryState,
+    fitPadding,
+    fitMinimumZoom,
+    flowReady,
+    groupedWorkflowCatalog,
+    lastGoodViewKey,
+    renderSurfaceRevision,
+    view,
+    viewConfigHash,
+  ]);
   useEffect(() => {
     setTrace(null);
     setRouteStart(null);
     setTraceNotice("");
   }, [layoutKey]);
+  const effectiveQuality = renderedReceipt?.quality || view.quality;
+  const deliveryReceipt = useMemo(
+    () =>
+      createGraphDeliveryReceipt({
+        sourceRevision: graph?.revision || "no-graph",
+        semanticRevision: graph?.semantic?.revision,
+        sourceValid: graph?.validation.valid ?? false,
+        viewConfigHash,
+        projection: view.quality,
+        rendered: renderedReceipt,
+        state: deliveryState,
+      }),
+    [
+      graph?.revision,
+      graph?.semantic?.revision,
+      graph?.validation.valid,
+      viewConfigHash,
+      view.quality,
+      renderedReceipt,
+      deliveryState,
+    ],
+  );
   const neighbors = new Set(selection ? [selection.id] : []);
   if (selection)
     for (const edge of edges) {
@@ -680,6 +990,56 @@ export function ArchitectureCanvas({
       setRuntimeBusy(false);
     }
   };
+  const openMeaningOverview = () => {
+    setScope(graph?.semantic ? "semantics" : "modules");
+    setSemanticLens("overview");
+    setComponentFocus(null);
+    setWorkflowFocus(null);
+    setModule(null);
+    setSelection(null);
+    setRelationSelection(null);
+    setQuery("");
+  };
+  const openWorkflowCatalog = () => {
+    setScope("semantics");
+    setSemanticLens("workflows");
+    setComponentFocus(null);
+    setWorkflowFocus(null);
+    setSelection(null);
+    setRelationSelection(null);
+    setQuery("");
+  };
+  const openCallGraph = () => {
+    setScope("semantics");
+    setSemanticLens("calls");
+    setComponentFocus(null);
+    setWorkflowFocus(null);
+    setSelection(null);
+    setRelationSelection(null);
+    setQuery("");
+  };
+  const readingSourcePath =
+    selection?.data.paths[0] ||
+    focusedWorkflowNode?.path ||
+    focusedWorkflowNode?.evidence[0]?.path ||
+    focusedComponentNode?.path ||
+    focusedComponentNode?.evidence[0]?.path ||
+    projection?.focus.path ||
+    null;
+  const navigateReadingTrail = (index: number) => {
+    if (index === 0) {
+      openMeaningOverview();
+      return;
+    }
+    if (reading.trail[index] === "Meaning") openMeaningOverview();
+    if (reading.trail[index] === "Modules") {
+      setScope("modules");
+      setModule(null);
+      setSelection(null);
+      setRelationSelection(null);
+      setQuery("");
+    }
+  };
   return (
     <div className="architecture-workspace">
       <div className="architecture-toolbar">
@@ -788,7 +1148,7 @@ export function ArchitectureCanvas({
           <option value="complete">Complete map</option>
         </select>
         <button
-          className={`graph-quality-status is-${groupedWorkflowCatalog ? "grouped" : view.quality.status}`}
+          className={`graph-quality-status is-${groupedWorkflowCatalog ? "grouped" : effectiveQuality.status}`}
           aria-expanded={qualityOpen}
           aria-label={
             groupedWorkflowCatalog
@@ -798,19 +1158,28 @@ export function ArchitectureCanvas({
           title={
             groupedWorkflowCatalog
               ? "Grouped catalog preserves readable card sizes; open a workflow to validate its focused graph"
-              : `${view.quality.profile} visual validation: ${view.quality.errors} errors, ${view.quality.warnings} warnings`
+              : `${effectiveQuality.profile} visual validation: ${effectiveQuality.errors} errors, ${effectiveQuality.warnings} warnings`
           }
           onClick={() => setQualityOpen((open) => !open)}
           disabled={!graph || groupedWorkflowCatalog}
         >
           {groupedWorkflowCatalog ? (
             <LayoutGrid size={14} />
-          ) : view.quality.status === "pass" ? (
+          ) : effectiveQuality.status === "pass" ? (
             <ShieldCheck size={14} />
           ) : (
             <TriangleAlert size={14} />
           )}
-          {groupedWorkflowCatalog ? "Grouped" : view.quality.status}
+          {groupedWorkflowCatalog ? "Grouped" : effectiveQuality.status}
+        </button>
+        <button
+          className={`graph-intelligence-toggle ${intelligenceOpen ? "active" : ""}`}
+          aria-expanded={intelligenceOpen}
+          disabled={!graph}
+          title="Query the evidence graph, inspect communities, and calculate typed change impact"
+          onClick={() => setIntelligenceOpen((open) => !open)}
+        >
+          <Search size={13} /> Intelligence
         </button>
         <select
           className="graph-export"
@@ -838,13 +1207,51 @@ export function ArchitectureCanvas({
           onClick={() => {
             setNodes(view.nodes);
             requestAnimationFrame(() => {
-              void flow.current?.fitView({ padding: 0.22 });
+              void flow.current?.fitView({
+                padding: fitPadding,
+                minZoom: fitMinimumZoom,
+              });
             });
           }}
         >
           <Maximize2 size={14} />
         </button>
       </div>
+      {graph?.integrity?.status === "fallback" && (
+        <section className="analysis-integrity-warning" role="alert">
+          <TriangleAlert size={17} />
+          <div>
+            <strong>Unexpected graph shrink was quarantined</strong>
+            <span>
+              Witch kept the last-known-good map ({graph.integrity.baseline?.nodes || 0} nodes).
+              The candidate lost {graph.integrity.loss.nodes} nodes, {graph.integrity.loss.symbols} symbols,
+              {graph.integrity.loss.relations} relations, and {graph.integrity.loss.knowledgeNodes} knowledge items
+              without matching source deletions.
+            </span>
+          </div>
+          <button onClick={onClearIndex} disabled={busy}>
+            <RefreshCw size={13} /> Rebuild &amp; retry
+          </button>
+          <button
+            className="is-dangerous"
+            onClick={() =>
+              onAcceptCandidate(graph.integrity!.candidateRevision)
+            }
+            disabled={busy}
+            title="Promote the quarantined candidate to the new persistent baseline"
+          >
+            Accept candidate
+          </button>
+        </section>
+      )}
+      {graph && intelligenceOpen && (
+        <GraphIntelligencePanel
+          graph={graph}
+          onOpenFile={onOpenFile}
+          onAttach={onAttach}
+          onClose={() => setIntelligenceOpen(false)}
+        />
+      )}
       {graph?.coverage && (
         <>
           <div className="analysis-coverage-bar">
@@ -1302,57 +1709,78 @@ export function ArchitectureCanvas({
           </button>
         </div>
       )}
-      {module && (
-        <div className="graph-breadcrumb">
-          <button
-            onClick={() => {
-              setModule(null);
-              setScope("modules");
-            }}
-          >
-            <ChevronLeft size={13} /> All modules
-          </button>
-          <span>{module}</span>
-        </div>
-      )}
-      {scope === "semantics" && componentFocus && (
-        <div className="graph-breadcrumb">
-          <button
-            onClick={() => {
-              setComponentFocus(null);
-              setSemanticLens("overview");
-            }}
-          >
-            <ChevronLeft size={13} /> Meaning overview
-          </button>
-          <span>
-            {graph?.semantic?.nodes.find((node) => node.id === componentFocus)
-              ?.label || "Component"}
-          </span>
-        </div>
-      )}
-      {scope === "semantics" &&
-        semanticLens === "workflows" &&
-        workflowFocus && (
-          <div className="graph-breadcrumb">
-            <button
-              aria-label="Back to workflow catalog"
-              onClick={() => {
-                setWorkflowFocus(null);
-                setWorkflowViewMode("graph");
-                setCollapseWorkflowBranches(false);
-                setSelection(null);
-                setRelationSelection(null);
-              }}
-            >
-              <ChevronLeft size={13} /> Workflow catalog
-            </button>
-            <span>
-              {graph?.semantic?.nodes.find((node) => node.id === workflowFocus)
-                ?.label || "Workflow"}
-            </span>
+      {graph && (
+        <section className="architecture-reading" aria-label="Current architecture reading">
+          <div className="architecture-reading-copy">
+            <nav className="architecture-reading-trail" aria-label="Architecture hierarchy">
+              {reading.trail.map((item, index) => (
+                <span key={`${item}:${index}`}>
+                  {index < reading.trail.length - 1 &&
+                  (index === 0 || item === "Meaning" || item === "Modules") ? (
+                    <button
+                      aria-label={
+                        index === 0
+                          ? "Back to system overview"
+                          : `Back to ${item} overview`
+                      }
+                      onClick={() => navigateReadingTrail(index)}
+                    >
+                      {item}
+                    </button>
+                  ) : (
+                    <strong>{item}</strong>
+                  )}
+                  {index < reading.trail.length - 1 && <i>›</i>}
+                </span>
+              ))}
+            </nav>
+            <span className="eyebrow">{reading.eyebrow}</span>
+            <h2>{reading.title}</h2>
+            <p>{reading.description}</p>
           </div>
-        )}
+          <div className="architecture-reading-side">
+            <div className="architecture-reading-stats">
+              {reading.stats.map((stat) => (
+                <span key={stat.label}>
+                  <small>{stat.label}</small>
+                  <strong>{stat.value}</strong>
+                </span>
+              ))}
+            </div>
+            {graph.semantic && (
+              <div className="architecture-reading-actions" aria-label="Related architecture views">
+                {workflowFocus && (
+                  <button
+                    onClick={() => {
+                      setWorkflowFocus(null);
+                      setWorkflowViewMode("graph");
+                      setCollapseWorkflowBranches(false);
+                      setSelection(null);
+                      setRelationSelection(null);
+                    }}
+                  >
+                    Workflow catalog
+                  </button>
+                )}
+                {semanticLens !== "workflows" && (
+                  <button onClick={openWorkflowCatalog}>View workflows</button>
+                )}
+                {semanticLens !== "calls" && (
+                  <button onClick={openCallGraph}>View calls</button>
+                )}
+                {readingSourcePath && (
+                  <button
+                    className="is-primary"
+                    onClick={() => onOpenFile(readingSourcePath)}
+                  >
+                    Open source <ArrowUpRight size={12} />
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        </section>
+      )}
       <div className="architecture-graph-region">
       {!graph ? (
         <div className="empty-state">
@@ -1381,8 +1809,19 @@ export function ArchitectureCanvas({
         </div>
       ) : (
         <div
+          ref={graphStage}
           className={`graph-stage ${groupedWorkflowCatalog ? "is-workflow-catalog" : ""}`}
+          data-graph-contract={deliveryReceipt.contract}
+          data-graph-valid={deliveryReceipt.valid ? "true" : "false"}
+          data-graph-state={deliveryReceipt.state}
+          data-view-config-hash={deliveryReceipt.viewConfigHash}
+          data-render-status={deliveryReceipt.stages.rendered}
         >
+          <output
+            hidden
+            className="graph-delivery-receipt"
+            data-receipt={JSON.stringify(deliveryReceipt)}
+          />
           <img
             className="architecture-atmosphere architecture-atmosphere-canvas"
             src={constellationAtmosphere}
@@ -1413,9 +1852,9 @@ export function ArchitectureCanvas({
               <header>
                 <div>
                   <span className="eyebrow">
-                    {view.quality.profile} profile
+                    {effectiveQuality.profile} profile
                   </span>
-                  <strong>Visual validation · {view.quality.status}</strong>
+                  <strong>Visual validation · {effectiveQuality.status}</strong>
                 </div>
                 <button
                   aria-label="Close visual quality diagnostics"
@@ -1425,13 +1864,24 @@ export function ArchitectureCanvas({
                 </button>
               </header>
               <p>
-                {view.quality.nodeCount} nodes · {view.quality.edgeCount}{" "}
-                connections · {view.quality.errors} errors ·{" "}
-                {view.quality.warnings} warnings
+                {effectiveQuality.nodeCount} nodes · {effectiveQuality.edgeCount}{" "}
+                connections · {effectiveQuality.errors} errors ·{" "}
+                {effectiveQuality.warnings} warnings
               </p>
-              {view.quality.diagnostics.length ? (
+              <div className="graph-delivery-stages">
+                <span>analysis {deliveryReceipt.stages.analysis}</span>
+                <span>projection {deliveryReceipt.stages.projection}</span>
+                <span>render {deliveryReceipt.stages.rendered}</span>
+                <code>{deliveryReceipt.viewConfigHash}</code>
+              </div>
+              {deliveryReceipt.state === "preserved-last-good" && (
+                <div className="graph-last-good-notice" role="status">
+                  Candidate rejected; the latest validated view remains visible.
+                </div>
+              )}
+              {effectiveQuality.diagnostics.length ? (
                 <ul>
-                  {view.quality.diagnostics
+                  {effectiveQuality.diagnostics
                     .slice(0, 8)
                     .map((diagnostic, index) => (
                       <li key={`${diagnostic.code}:${index}`}>
@@ -1565,12 +2015,14 @@ export function ArchitectureCanvas({
               edges={displayedEdges}
               onInit={(instance) => {
                 flow.current = instance;
+                setFlowReady((ready) => ready + 1);
               }}
               nodeTypes={nodeTypes}
+              edgeTypes={edgeTypes}
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
               fitView
-              fitViewOptions={{ padding: 0.22 }}
+              fitViewOptions={{ padding: fitPadding, minZoom: fitMinimumZoom }}
               minZoom={0.12}
               maxZoom={1.8}
               nodesConnectable={false}
@@ -1677,7 +2129,7 @@ export function ArchitectureCanvas({
               <>
                 {graph.scannedFiles} files · {graph.edges.length} source
                 relations · verified IR {graph.validation.sourceBackedEdges}/
-                {graph.validation.edgeCount} · visual {view.quality.status} ·{" "}
+                {graph.validation.edgeCount} · visual {effectiveQuality.status} ·{" "}
                 {graph.revision.slice(0, 8)}
               </>
             )}
@@ -1711,6 +2163,54 @@ export function ArchitectureCanvas({
               ×
             </button>
           </header>
+          <section className="component-reading-summary" aria-label="Selection summary">
+            <p>
+              {selectedSemanticNode?.description ||
+                selection.data.description ||
+                selection.data.subtitle}
+            </p>
+            <dl>
+              <div>
+                <dt>Sources</dt>
+                <dd>{selection.data.paths.length}</dd>
+              </div>
+              <div>
+                <dt>Relations</dt>
+                <dd>{selectedSemanticRelations.length || related.length}</dd>
+              </div>
+              <div>
+                <dt>Evidence</dt>
+                <dd>
+                  {selectedSemanticNode
+                    ? selectedSemanticNode.evidence.length +
+                      selectedSemanticRelations.reduce(
+                        (count, relation) => count + relation.evidence.length,
+                        0,
+                      )
+                    : related.reduce(
+                        (count, relation) => count + relation.evidence.length,
+                        0,
+                      )}
+                </dd>
+              </div>
+            </dl>
+            <div className="component-related-views" aria-label="Selection destinations">
+              {graph?.semantic && semanticLens !== "calls" && (
+                <button onClick={openCallGraph}>Calls</button>
+              )}
+              {graph?.semantic && semanticLens !== "workflows" && (
+                <button onClick={openWorkflowCatalog}>Workflows</button>
+              )}
+              {selection.data.paths[0] && (
+                <button
+                  className="is-primary"
+                  onClick={() => onOpenFile(selection.data.paths[0])}
+                >
+                  Source <ArrowUpRight size={12} />
+                </button>
+              )}
+            </div>
+          </section>
           {selection.data.paths.length > 0 && (
             <button
               className="attach-component"

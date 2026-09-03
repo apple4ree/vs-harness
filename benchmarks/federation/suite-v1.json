@@ -1,0 +1,197 @@
+{
+  "contract": "witch.federation-benchmark/v1",
+  "policy": {
+    "executeRepositoryCode": false,
+    "exactGroundTruthOnly": true,
+    "separateMetrics": true,
+    "approvalTimestamp": "2026-09-04T00:00:00.000Z"
+  },
+  "cases": [
+    {
+      "id": "npm-exact-provider",
+      "ecosystem": "npm",
+      "repositories": [
+        {
+          "id": "consumer",
+          "root": "fixtures/npm-exact/consumer",
+          "role": "active"
+        },
+        {
+          "id": "provider",
+          "root": "fixtures/npm-exact/provider",
+          "role": "snapshot"
+        }
+      ],
+      "expectedLinks": [
+        {
+          "from": "consumer",
+          "to": "provider",
+          "ecosystem": "npm",
+          "packageName": "@bench/core",
+          "status": "provisional",
+          "trust": "inferred"
+        }
+      ],
+      "expectedQuestionKinds": []
+    },
+    {
+      "id": "python-pep503-provider",
+      "ecosystem": "python",
+      "repositories": [
+        {
+          "id": "consumer",
+          "root": "fixtures/python-normalized/consumer",
+          "role": "active"
+        },
+        {
+          "id": "provider",
+          "root": "fixtures/python-normalized/provider",
+          "role": "snapshot"
+        }
+      ],
+      "expectedLinks": [
+        {
+          "from": "consumer",
+          "to": "provider",
+          "ecosystem": "python",
+          "packageName": "risk_engine",
+          "status": "provisional",
+          "trust": "inferred"
+        }
+      ],
+      "expectedQuestionKinds": []
+    },
+    {
+      "id": "cargo-separator-negative",
+      "ecosystem": "cargo",
+      "repositories": [
+        {
+          "id": "consumer",
+          "root": "fixtures/cargo-negative/consumer",
+          "role": "active"
+        },
+        {
+          "id": "provider",
+          "root": "fixtures/cargo-negative/provider",
+          "role": "snapshot"
+        }
+      ],
+      "expectedLinks": [],
+      "expectedQuestionKinds": []
+    },
+    {
+      "id": "npm-duplicate-provider",
+      "ecosystem": "npm",
+      "repositories": [
+        {
+          "id": "consumer",
+          "root": "fixtures/npm-duplicate/consumer",
+          "role": "active"
+        },
+        {
+          "id": "primary",
+          "root": "fixtures/npm-duplicate/primary",
+          "role": "snapshot"
+        },
+        {
+          "id": "replica",
+          "root": "fixtures/npm-duplicate/replica",
+          "role": "snapshot"
+        }
+      ],
+      "expectedLinks": [
+        {
+          "from": "consumer",
+          "to": "primary",
+          "ecosystem": "npm",
+          "packageName": "@bench/shared",
+          "status": "conflicting",
+          "trust": "inferred"
+        },
+        {
+          "from": "consumer",
+          "to": "replica",
+          "ecosystem": "npm",
+          "packageName": "@bench/shared",
+          "status": "conflicting",
+          "trust": "inferred"
+        }
+      ],
+      "expectedQuestionKinds": ["ambiguous-provider"],
+      "approvalTarget": "primary"
+    },
+    {
+      "id": "npm-authored-provider",
+      "ecosystem": "npm",
+      "repositories": [
+        {
+          "id": "consumer",
+          "root": "fixtures/npm-authored/consumer",
+          "role": "active"
+        },
+        {
+          "id": "primary",
+          "root": "fixtures/npm-authored/primary",
+          "role": "snapshot"
+        },
+        {
+          "id": "replica",
+          "root": "fixtures/npm-authored/replica",
+          "role": "snapshot"
+        }
+      ],
+      "expectedLinks": [
+        {
+          "from": "consumer",
+          "to": "primary",
+          "ecosystem": "npm",
+          "packageName": "@bench/routing",
+          "status": "resolved",
+          "trust": "authored",
+          "resolutionSource": "repository-manifest"
+        }
+      ],
+      "expectedQuestionKinds": []
+    },
+    {
+      "id": "npm-authored-mismatch",
+      "ecosystem": "npm",
+      "repositories": [
+        {
+          "id": "consumer",
+          "root": "fixtures/npm-authored-mismatch/consumer",
+          "role": "active"
+        },
+        {
+          "id": "primary",
+          "root": "fixtures/npm-authored-mismatch/primary",
+          "role": "snapshot"
+        },
+        {
+          "id": "replica",
+          "root": "fixtures/npm-authored-mismatch/replica",
+          "role": "snapshot"
+        }
+      ],
+      "expectedLinks": [
+        {
+          "from": "consumer",
+          "to": "primary",
+          "ecosystem": "npm",
+          "packageName": "@bench/mismatch",
+          "status": "conflicting",
+          "trust": "inferred"
+        },
+        {
+          "from": "consumer",
+          "to": "replica",
+          "ecosystem": "npm",
+          "packageName": "@bench/mismatch",
+          "status": "conflicting",
+          "trust": "inferred"
+        }
+      ],
+      "expectedQuestionKinds": ["authored-mismatch"]
+    }
+  ]
+}

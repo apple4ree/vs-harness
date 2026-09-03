@@ -1,0 +1,30 @@
+{
+  "contract": "witch.semantic-composer-benchmark/v1",
+  "policy": {
+    "freezeFirstCandidate": true,
+    "fallbackAllowed": false,
+    "executeRepositoryCode": false,
+    "aggregateProviders": false,
+    "humanReview": "pending-until-named-reviewer"
+  },
+  "cases": [
+    {
+      "id": "python-agent-risk",
+      "language": "python",
+      "root": "fixtures/python-agent-risk",
+      "minimum": { "components": 3, "relations": 2, "workflows": 1, "evidenceCoverage": 1 }
+    },
+    {
+      "id": "rust-order-engine",
+      "language": "rust",
+      "root": "fixtures/rust-order-engine",
+      "minimum": { "components": 3, "relations": 2, "workflows": 1, "evidenceCoverage": 1 }
+    },
+    {
+      "id": "typescript-agent-loop",
+      "language": "typescript",
+      "root": "fixtures/typescript-agent-loop",
+      "minimum": { "components": 3, "relations": 2, "workflows": 1, "evidenceCoverage": 1 }
+    }
+  ]
+}
