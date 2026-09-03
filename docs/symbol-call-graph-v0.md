@@ -1,5 +1,11 @@
 # Symbol call graph v0
 
+<!-- witch-doc-languages: ko,en -->
+
+> **한국어:** TypeScript/JavaScript direct identifier call을 검증된 symbol relation으로 수용하는 조건, 제외 규칙과 증거 계약을 정의합니다.
+>
+> **English:** This specification defines acceptance conditions, exclusions, and evidence contracts for verified TypeScript/JavaScript direct-identifier symbol calls.
+
 Witch's first symbol-call slice adds source-grounded TypeScript/JavaScript call relations to the separately validated `witch.semantic/v1` graph. The file-level `witch.architecture/v1` topology remains an import/export graph.
 
 ## Accepted relation

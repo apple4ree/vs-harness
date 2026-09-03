@@ -1,5 +1,11 @@
 # Python dispatch and Rust ground-truth benchmark
 
+<!-- witch-doc-languages: ko,en -->
+
+> **한국어:** Python class/property/decorator/반환 callable dispatch와 Rust 수동 ground-truth fixture에 대한 구현 및 측정 결과를 기록합니다.
+>
+> **English:** This report records the implementation and measurements for Python class/property/decorator/returned-callable dispatch and the manually authored Rust ground-truth fixture.
+
 Date: 2026-09-02
 
 Analyzer at original measurement: `polyglot-static-v17` / `semantic-static-v12`

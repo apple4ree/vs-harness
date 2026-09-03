@@ -1,5 +1,11 @@
 # Witch architecture views
 
+<!-- witch-doc-languages: ko,en -->
+
+> **한국어:** 하나의 검증된 Architecture IR을 Modules, Files, Focus, Reach, Route, Delta 화면에서 해석하는 규칙과 의도적 비주장 범위를 설명합니다.
+>
+> **English:** This guide explains how Modules, Files, Focus, Reach, Route, and Delta views read one validated Architecture IR without inventing new relations or runtime claims.
+
 Witch의 구조 탐색은 하나의 검증된 `witch.architecture/v1` IR을 여러 방식으로 읽습니다. 각 화면은 같은 source hash, stable node ID, authored relation ID, evidence line을 재사용합니다. 화면 전환이 새로운 관계를 만들어 내지 않습니다.
 
 ## 현재 지원하는 관점

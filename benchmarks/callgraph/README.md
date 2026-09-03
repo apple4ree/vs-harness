@@ -1,5 +1,11 @@
 # Call-graph evaluation sets
 
+<!-- witch-doc-languages: ko,en -->
+
+> **한국어:** Witch 호출 그래프 평가 corpus의 역할, 규모, 공개 범위와 재현 규칙을 설명합니다. 점수는 development·holdout·blind-holdout과 micro·macro 규모를 함께 밝혀야 합니다.
+>
+> **English:** This document defines the roles, scales, publication boundaries, and reproduction rules for Witch call-graph corpora. Every score must name both its evaluation role and scale.
+
 Public definitions and interpretation rules:
 
 - [Evaluation methodology](../../docs/evaluation/methodology.md)

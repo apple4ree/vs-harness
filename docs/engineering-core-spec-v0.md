@@ -1,5 +1,11 @@
 # Witch Engineering Core v0 보완 명세
 
+<!-- witch-doc-languages: ko,en -->
+
+> **한국어:** 분석 깊이, Agent 실행, Harness 커널과 안전한 변경 흐름을 강화하기 위한 Witch 0.3 Engineering Core 요구사항과 구현 진행 기록입니다.
+>
+> **English:** This specification defines Witch 0.3 Engineering Core requirements and implementation progress across analysis depth, Agent execution, the Harness kernel, and safe change workflows.
+
 - 문서 상태: 구현 진행 중
 - 목표 버전: Witch 0.3 Engineering Core
 - 기준 구현: Witch 0.2 이후 현재 로컬 작업 트리

@@ -1,5 +1,11 @@
 # Witch semantic analysis policy
 
+<!-- witch-doc-languages: ko,en -->
+
+> **한국어:** Python·Rust·TypeScript 중심의 심층 분석, System–Component–Workflow 계층, Inferred/Authored 대조와 변경 이력에 대한 핵심 정책입니다.
+>
+> **English:** This core policy defines deep analysis for Python, Rust, and TypeScript; the System–Component–Workflow hierarchy; Inferred/Authored comparison; and auditable change history.
+
 > Python · Rust · TypeScript를 중심으로 한 Agent/금융 시스템 분석 계약
 
 - 결정일: 2026-08-30

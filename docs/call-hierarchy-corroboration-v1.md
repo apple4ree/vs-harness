@@ -1,5 +1,11 @@
 # Call hierarchy corroboration and workflow exploration v1
 
+<!-- witch-doc-languages: ko,en -->
+
+> **한국어:** 보수적인 Python/Rust source binder 결과를 Pyright와 선택적 rust-analyzer call hierarchy로 교차 검증하는 신뢰 전이와 안전 예산을 정의합니다.
+>
+> **English:** This specification defines trust transitions and safety budgets when Pyright or optional rust-analyzer call hierarchy corroborates conservative Python/Rust source binding.
+
 Witch now connects its conservative Python/Rust source binder to the language servers already used by the editor. Pyright is bundled; rust-analyzer is used when an executable is installed or configured. This is a second static observer, not a runtime trace.
 
 ## Trust transitions

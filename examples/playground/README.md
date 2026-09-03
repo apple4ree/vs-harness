@@ -1,5 +1,11 @@
 # Witch playground
 
+<!-- witch-doc-languages: ko,en -->
+
+> **한국어:** 별도 패키지 설치 없이 Witch의 구조 탐색, Agent Ask/Change, diff 검토와 Task 실행을 체험하는 작은 JavaScript 프로젝트입니다.
+>
+> **English:** This dependency-free JavaScript project demonstrates Witch's structure explorer, Agent Ask/Change flow, diff review, and approved Task execution.
+
 패키지 설치 없이 실행할 수 있는 작은 JavaScript 프로젝트입니다. 외부 서비스·인증 정보·네트워크를 사용하지 않습니다. Node.js 22 이상을 사용하세요.
 
 Witch에서 이 폴더를 **Open repository**로 열면 `src → src/services → src/domain`, `src → src/ui` 관계를 살펴볼 수 있습니다. 테스트 파일도 실제 import 관계로 표시됩니다.

@@ -1,5 +1,11 @@
 # Polyglot call and workflow control flow v1
 
+<!-- witch-doc-languages: ko,en -->
+
+> **한국어:** Python·Rust·TypeScript/JavaScript 호출과 source-level `precedes`, `branches-to`, `retries` 관계를 Semantic graph에 투영하는 신뢰 계약을 정의합니다.
+>
+> **English:** This specification defines the trust contract for projecting Python, Rust, and TypeScript/JavaScript calls plus source-level `precedes`, `branches-to`, and `retries` into the Semantic graph.
+
 Witch now projects conservative Python and Rust symbol calls, plus source-level workflow order, branch membership, and explicit retry controllers into the separately validated `witch.semantic/v1` graph. Project code is read but never imported, compiled, or executed during this analysis.
 
 ## Trust contract

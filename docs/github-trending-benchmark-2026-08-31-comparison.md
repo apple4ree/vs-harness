@@ -1,5 +1,11 @@
 # GitHub Trending Top 10 — Witch 개선 전후 비교 벤치마크
 
+<!-- witch-doc-languages: ko,en -->
+
+> **한국어:** 동일한 GitHub Trending 10개 저장소에서 Witch 개선 전후의 구조 분석 범위, 검증 결과와 화면 변화를 비교합니다.
+>
+> **English:** This report compares Witch before and after the analysis improvements on the same ten GitHub Trending repositories, covering scope, validation, and presentation changes.
+
 - 측정일: 2026-08-31 (Asia/Seoul)
 - 기준 보고서: `docs/github-trending-benchmark-2026-08-31.md`
 - 대상: 기준 보고서와 동일한 10개 checkout 및 동일 commit

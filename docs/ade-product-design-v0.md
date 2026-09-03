@@ -1,5 +1,11 @@
 # 독립형 AI-native ADE — 제품 설계 v0
 
+<!-- witch-doc-languages: ko,en -->
+
+> **한국어:** 독립형 AI-native ADE의 초기 제품 목표, 사용자 흐름, 범위와 단계별 구현 방향을 기록한 설계 문서입니다.
+>
+> **English:** This historical product design defines the original goals, user journeys, scope, and staged implementation direction for the standalone AI-native ADE. Refer to the implementation-status document for current behavior.
+
 이 문서는 초기 제품 설계 기록입니다. 현재 구현과 향후 계획을 구분하려면 [구현 현황](implementation-status.md)을 확인하세요. Git 관리와 Claude 어댑터는 이번 구현 범위에서 제외했습니다.
 
 작성일: 2026-08-28<br>

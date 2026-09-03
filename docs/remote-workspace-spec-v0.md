@@ -1,5 +1,11 @@
 # Witch Remote Workspace v0 — 제품·기술 명세
 
+<!-- witch-doc-languages: ko,en -->
+
+> **한국어:** SSH 기반 원격 파일 Workspace, 분석기, Task·Debugger와 격리 Agent를 단계적으로 연결하기 위한 제품·기술 명세입니다. 현재 구현은 대화형 SSH 터미널 단계까지입니다.
+>
+> **English:** This product and technical specification defines a phased SSH-based remote file workspace, analyzers, Tasks, Debugger, and isolated Agent workflow. The current implementation reaches interactive SSH terminals only.
+
 ## 1. 목적
 
 Witch Remote Workspace는 로컬 Witch UI에서 SSH 호스트의 코드, 실행 환경과 Agent 작업을 안전하게 다루는 기능이다. 목표는 VS Code 기능 전체를 복제하는 것이 아니라 원격 개발의 핵심 흐름과 Witch의 구조 분석·검토 기능을 결합하는 것이다.

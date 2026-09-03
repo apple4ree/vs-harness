@@ -1,5 +1,11 @@
 # Witch 0.2.0 — 검증 기록
 
+<!-- witch-doc-languages: ko,en -->
+
+> **한국어:** 실제 실행한 로컬 테스트·E2E·패키지 검증과 아직 검증하지 못한 플랫폼·배포 범위를 구분해 기록합니다.
+>
+> **English:** This verification log distinguishes checks actually run from platform, packaging, and distribution claims that have not yet been verified.
+
 최근 검증일: 2026-08-31. 로컬 실행 환경: Windows 11 x64, Node.js 22.14.0, npm 10.9.2, Electron 44.0.0.
 
 이 문서는 실제로 실행한 검증과 아직 실행하지 못한 검증을 구분합니다. VS Code 기능 전체 또는 모든 저장소에 대한 호환성을 보증하지 않습니다.

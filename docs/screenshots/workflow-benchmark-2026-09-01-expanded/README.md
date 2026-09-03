@@ -1,4 +1,8 @@
-# Witch GitHub benchmark screenshots
+# Witch GitHub benchmark screenshots / Witch GitHub 벤치마크 스크린샷
+
+<!-- witch-doc-languages: ko,en -->
+
+2026-08-31에 고정한 benchmark checkout으로 생성했습니다. 저장소 코드는 실행하지 않았습니다.
 
 Generated from the fixed 2026-08-31 benchmark checkouts. Repository code was not executed.
 
