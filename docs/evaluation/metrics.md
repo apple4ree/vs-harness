@@ -1,10 +1,6 @@
 # Evaluation metrics
 
-<!-- witch-doc-languages: ko,en -->
-
-> **한국어:** 호출 그래프 Precision·Recall·F1, Scoped F1, oracle coverage와 제품 품질 지표의 정확한 계산 및 유효성 조건을 정의합니다.
->
-> **English:** This document defines the exact calculation and validity conditions for call-graph precision, recall, F1, Scoped F1, oracle coverage, and product-quality metrics.
+[English](metrics.md) · [한국어](metrics.ko.md)
 
 ## Call-graph sets
 

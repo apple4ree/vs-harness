@@ -1,10 +1,6 @@
 # Reproducing Witch evaluation
 
-<!-- witch-doc-languages: ko,en -->
-
-> **한국어:** Witch의 소스 검증, offline Agent 평가, 내장 fixture와 외부 호출 그래프 평가를 같은 조건에서 재현하는 명령·환경·보고 규칙입니다.
->
-> **English:** This guide defines the commands, environment, and reporting requirements for reproducing source verification, offline Agent evaluation, built-in fixtures, and external call-graph evaluation.
+[English](reproducibility.md) · [한국어](reproducibility.ko.md)
 
 ## Environment
 

@@ -1,0 +1,65 @@
+# Witch GitHub 벤치마크 스크린샷
+
+[한국어](README.ko.md) · [English](README.md)
+
+2026-08-31에 고정한 benchmark checkout으로 생성했습니다. 저장소 코드는 실행하지 않았습니다.
+
+## 1. THU-MAIC/OpenMAIC
+
+![THU-MAIC/OpenMAIC](./01-THU-MAIC--OpenMAIC.png)
+
+화면: semantic-components
+
+## 2. K-Dense-AI/scientific-agent-skills
+
+![K-Dense-AI/scientific-agent-skills](./02-K-Dense-AI--scientific-agent-skills.png)
+
+화면: semantic-components
+
+## 3. Lakr233/vphone-cli
+
+![Lakr233/vphone-cli](./03-Lakr233--vphone-cli.png)
+
+화면: semantic-components
+
+## 4. tt-a1i/archify
+
+![tt-a1i/archify](./04-tt-a1i--archify.png)
+
+화면: semantic-components
+
+## 5. p-e-w/heretic
+
+![p-e-w/heretic](./05-p-e-w--heretic.png)
+
+화면: semantic-components
+
+## 6. unclecode/crawl4ai
+
+![unclecode/crawl4ai](./06-unclecode--crawl4ai.png)
+
+화면: semantic-components
+
+## 7. mvanhorn/last30days-skill
+
+![mvanhorn/last30days-skill](./07-mvanhorn--last30days-skill.png)
+
+화면: semantic-components
+
+## 8. majd/ipatool
+
+![majd/ipatool](./08-majd--ipatool.png)
+
+화면: semantic-components
+
+## 9. punkpeye/awesome-mcp-servers
+
+![punkpeye/awesome-mcp-servers](./09-punkpeye--awesome-mcp-servers.png)
+
+화면: semantic-components
+
+## 10. checkstyle/checkstyle
+
+![checkstyle/checkstyle](./10-checkstyle--checkstyle.png)
+
+화면: semantic-components

@@ -1511,7 +1511,35 @@ test("accepting a TypeScript auto-import completion changes the editor buffer be
     .first();
   await editor.click({ position: { x: 220, y: 40 } });
   await page.keyboard.press(`${mod}+a`);
-  await page.keyboard.insertText("const value = welco");
+  const draft = "const value = welco";
+  await page.keyboard.insertText(draft);
+  // A newly-created export reaches tsserver asynchronously on CI. Wait for the
+  // actual auto-import edit, rather than merely waiting for a label that can be
+  // accepted while its completion details still read "Loading…".
+  await expect
+    .poll(
+      () =>
+        page.evaluate(
+          async ({ path, content, root }) => {
+            await window.witch.lsp.change(path, content, root);
+            const items = await window.witch.lsp.completion(
+              path,
+              { line: 0, character: content.length },
+              root,
+            );
+            return items.some(
+              (item) =>
+                item.label === "welcome" &&
+                item.additionalTextEdits?.some((edit) =>
+                  edit.newText.includes("import"),
+                ),
+            );
+          },
+          { path: relative, content: draft, root: fixture },
+        ),
+      { timeout: 30_000 },
+    )
+    .toBe(true);
   await page.keyboard.press("Control+Space");
   const suggestions = page.locator(".suggest-widget.visible");
   const welcome = suggestions

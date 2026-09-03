@@ -1,10 +1,6 @@
 # Witch Python Debugger v0
 
-<!-- witch-doc-languages: ko,en -->
-
-> **한국어:** 선택된 Python 환경의 debugpy를 사용하는 제한된 DAP client, 실행 승인, breakpoint·stack·variable 지원과 비지원 범위를 설명합니다.
->
-> **English:** This guide documents the bounded DAP client that uses debugpy from the selected Python environment, including launch approval, breakpoints, stacks, variables, and exclusions.
+[English](python-debugger-v0.md) · [한국어](python-debugger-v0.ko.md)
 
 Witch routes Python launch configurations through a bounded Debug Adapter Protocol client while retaining the existing Node inspector debugger.
 

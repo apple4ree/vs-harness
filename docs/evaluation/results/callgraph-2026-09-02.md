@@ -1,10 +1,6 @@
 # Call-graph evaluation result · 2026-09-02
 
-<!-- witch-doc-languages: ko,en -->
-
-> **한국어:** 2026-09-02 analyzer checkpoint의 Python·Rust 호출 그래프 development/holdout 측정값과 해석 경계를 고정한 결과 보고서입니다.
->
-> **English:** This result report freezes the Python and Rust development/holdout call-graph measurements and interpretation boundaries for the 2026-09-02 analyzer checkpoint.
+[English](callgraph-2026-09-02.md) · [한국어](callgraph-2026-09-02.ko.md)
 
 Source commit: `fb308351fd81994d23627020fbe3a9bc946e1b8a`
 

@@ -217,12 +217,10 @@ async function main() {
     path.join(output, "capture-results.json"),
     JSON.stringify({ generatedAt: new Date().toISOString(), results }, null, 2),
   );
-  const markdown = [
-    "# Witch GitHub benchmark screenshots / Witch GitHub 벤치마크 스크린샷",
+  const englishMarkdown = [
+    "# Witch GitHub Benchmark Screenshots",
     "",
-    "<!-- witch-doc-languages: ko,en -->",
-    "",
-    "2026-08-31에 고정한 benchmark checkout으로 생성했습니다. 저장소 코드는 실행하지 않았습니다.",
+    "[English](README.md) · [한국어](README.ko.md)",
     "",
     "Generated from the fixed 2026-08-31 benchmark checkouts. Repository code was not executed.",
     "",
@@ -233,11 +231,32 @@ async function main() {
         ? `![${result.repository}](./${path.basename(result.screenshot).replaceAll(" ", "%20")})`
         : `Capture failed: ${result.note || "Unknown error"}`,
       "",
-      `화면 / View: ${result.view}${result.expanded ? " · 확장된 production/support catalog / Expanded production and support catalog" : ""}${result.note ? ` · 참고 / Note: ${result.note}` : ""}`,
+      `View: ${result.view}${result.expanded ? " · Expanded production and support catalog" : ""}${result.note ? ` · Note: ${result.note}` : ""}`,
       "",
     ]),
   ].join("\n");
-  await fs.writeFile(path.join(output, "README.md"), markdown);
+  const koreanMarkdown = [
+    "# Witch GitHub 벤치마크 스크린샷",
+    "",
+    "[한국어](README.ko.md) · [English](README.md)",
+    "",
+    "2026-08-31에 고정한 benchmark checkout으로 생성했습니다. 저장소 코드는 실행하지 않았습니다.",
+    "",
+    ...results.flatMap((result) => [
+      `## ${result.rank}. ${result.repository}`,
+      "",
+      result.screenshot
+        ? `![${result.repository}](./${path.basename(result.screenshot).replaceAll(" ", "%20")})`
+        : `캡처 실패: ${result.note || "알 수 없는 오류"}`,
+      "",
+      `화면: ${result.view}${result.expanded ? " · 확장된 production/support catalog" : ""}${result.note ? ` · 참고: ${result.note}` : ""}`,
+      "",
+    ]),
+  ].join("\n");
+  await Promise.all([
+    fs.writeFile(path.join(output, "README.md"), englishMarkdown),
+    fs.writeFile(path.join(output, "README.ko.md"), koreanMarkdown),
+  ]);
   if (results.some((result) => !result.screenshot)) process.exitCode = 1;
 }
 
