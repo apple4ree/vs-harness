@@ -1,10 +1,6 @@
 # GitHub Trending Daily Top 10 — Witch real-repository benchmark
 
-<!-- witch-doc-languages: ko,en -->
-
-> **한국어:** 2026-08-31 GitHub Trending 상위 10개 실제 저장소를 고정해 Witch의 정적 구조 분석 성공률, 규모와 실패 원인을 측정한 보고서입니다.
->
-> **English:** This report measures Witch's static-analysis success, scale, and failure causes on ten fixed real repositories from GitHub Trending on 2026-08-31.
+[English](github-trending-benchmark-2026-08-31.md) · [한국어](github-trending-benchmark-2026-08-31.ko.md)
 
 > Follow-up: the same ten commits were rerun after coverage, workflow-policy,
 > progressive-view, and persistent-index improvements. See

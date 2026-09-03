@@ -1,10 +1,6 @@
 # Analysis depth v1
 
-<!-- witch-doc-languages: ko,en -->
-
-> **한국어:** TypeScript/JavaScript, Python, Rust에서 타입 계층과 모듈 상태 접근을 어떤 신뢰 수준으로 추출하는지 설명합니다. 저장소 코드는 분석 중 실행하지 않습니다.
->
-> **English:** This document explains how Witch extracts type hierarchy and module-state access for TypeScript/JavaScript, Python, and Rust, including the trust assigned to each relation.
+[English](analysis-depth-v1.md) · [한국어](analysis-depth-v1.ko.md)
 
 Witch now retains internal type hierarchy and module-state access that the
 symbol parsers previously discarded. The implementation remains source-only:

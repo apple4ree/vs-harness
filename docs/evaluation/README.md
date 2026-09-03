@@ -1,10 +1,6 @@
 # Witch evaluation
 
-<!-- witch-doc-languages: ko,en -->
-
-> **한국어:** Witch가 제품 신뢰성, 분석 충실도, 규모, 시각적 설명력과 Agent Harness를 어떻게 평가하고 공개하는지 안내하는 시작 문서입니다.
->
-> **English:** This is the entry point for how Witch evaluates and publishes product reliability, analysis fidelity, scale, presentation quality, and the Agent Harness.
+[English](README.md) · [한국어](README.ko.md)
 
 Witch publishes how it is measured without redistributing third-party benchmark
 source. The goal is to make every performance or quality claim traceable to a

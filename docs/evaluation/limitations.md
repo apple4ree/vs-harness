@@ -1,10 +1,6 @@
 # Evaluation limitations
 
-<!-- witch-doc-languages: ko,en -->
-
-> **한국어:** 현재 평가가 증명하지 못하는 언어 분석, 동적 실행, 제품 안정성, 보안, 원격 개발과 배포 범위를 명시합니다.
->
-> **English:** This document states what the current evaluation does not establish across language analysis, runtime behavior, product reliability, security, remote development, and distribution.
+[English](limitations.md) · [한국어](limitations.ko.md)
 
 The published methodology makes Witch's evidence inspectable; it does not turn
 the current preview into a complete or certified IDE.

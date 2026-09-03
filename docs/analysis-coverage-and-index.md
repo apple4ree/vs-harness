@@ -1,10 +1,6 @@
 # Witch analysis coverage and incremental index
 
-<!-- witch-doc-languages: ko,en -->
-
-> **한국어:** 각 Architecture reading이 표시해야 하는 분석 범위, 제외 사유, 언어별 깊이와 영속 증분 인덱스의 무효화·재사용 규칙을 정의합니다.
->
-> **English:** This document defines analysis coverage, exclusion reasons, per-language depth, and the invalidation and reuse rules of the persistent incremental index.
+[English](analysis-coverage-and-index.md) · [한국어](analysis-coverage-and-index.ko.md)
 
 - Implemented: 2026-08-31
 - Analyzer: `polyglot-static-v8`

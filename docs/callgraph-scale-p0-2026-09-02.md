@@ -1,10 +1,6 @@
 # P0 call-graph and scale hardening — 2026-09-02
 
-<!-- witch-doc-languages: ko,en -->
-
-> **한국어:** TypeScript 깊은 import chain, Python/JavaScript callable 전달, 대형 저장소 한도와 측정 receipt를 강화한 P0 구현 결과를 기록합니다.
->
-> **English:** This report records the P0 hardening of deep TypeScript import chains, Python/JavaScript callable propagation, large-repository limits, and measurement receipts.
+[English](callgraph-scale-p0-2026-09-02.md) · [한국어](callgraph-scale-p0-2026-09-02.ko.md)
 
 This report records the first implementation slice from the Witch benchmark
 review. The run used `polyglot-static-v16` and `semantic-static-v11`.

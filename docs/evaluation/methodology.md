@@ -1,10 +1,6 @@
 # Evaluation methodology
 
-<!-- witch-doc-languages: ko,en -->
-
-> **한국어:** development·holdout·blind-holdout 평가 lane, micro·macro 규모, 과적합 방지 규칙과 결과 공개 조건을 정의합니다.
->
-> **English:** This methodology defines evaluation lanes, micro/macro scales, anti-overfitting rules, and publication conditions.
+[English](methodology.md) · [한국어](methodology.ko.md)
 
 ## 1. Measurement lanes
 

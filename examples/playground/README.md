@@ -1,27 +1,23 @@
-# Witch playground
+# Witch Playground
 
-<!-- witch-doc-languages: ko,en -->
+[English](README.md) · [한국어](README.ko.md)
 
-> **한국어:** 별도 패키지 설치 없이 Witch의 구조 탐색, Agent Ask/Change, diff 검토와 Task 실행을 체험하는 작은 JavaScript 프로젝트입니다.
->
-> **English:** This dependency-free JavaScript project demonstrates Witch's structure explorer, Agent Ask/Change flow, diff review, and approved Task execution.
+This is a small JavaScript project that runs without installing packages. It uses no external services, credentials, or network access. Use Node.js 22 or newer.
 
-패키지 설치 없이 실행할 수 있는 작은 JavaScript 프로젝트입니다. 외부 서비스·인증 정보·네트워크를 사용하지 않습니다. Node.js 22 이상을 사용하세요.
+Open this directory with **Open repository** in Witch to inspect the `src → src/services → src/domain` and `src → src/ui` relations. Test files also appear through their real import relations.
 
-Witch에서 이 폴더를 **Open repository**로 열면 `src → src/services → src/domain`, `src → src/ui` 관계를 살펴볼 수 있습니다. 테스트 파일도 실제 import 관계로 표시됩니다.
+1. In Constellation, double-click a module to open its files and select an edge to inspect import evidence.
+2. Drag the handle of the `src/services` card into the conversation panel.
+3. If Codex CLI is signed in, ask “Explain how the greeting is produced” in Ask mode.
+4. In Change mode, ask “Change Hello to Welcome and update the test expectation.”
+5. Review the isolated diff. The original project is still unchanged. Approve and apply selected files to update the graph's change indicators.
+6. To keep the proposal without applying it, choose **Archive without applying**.
 
-1. Constellation에서 모듈을 더블클릭해 파일을 보고, 연결을 클릭해 import 근거를 확인합니다.
-2. `src/services` 카드의 드래그 손잡이를 채팅창에 놓습니다.
-3. Codex CLI가 로그인되어 있으면 Ask 모드에서 “인사말이 만들어지는 과정을 설명해줘”라고 요청합니다.
-4. Change 모드에서 “인사말의 Hello를 Welcome으로 바꾸고, 테스트의 기대값도 맞춰줘”라고 요청합니다.
-5. 격리 작업의 diff를 확인합니다. 아직 원본은 바뀌지 않습니다. 원하는 파일을 승인·적용하면 그래프의 변경 표시가 갱신됩니다.
-6. 적용하지 않으려면 Archive without applying으로 변경안을 보관합니다.
-
-터미널에서는 이 프로젝트 폴더에서 다음을 실행할 수 있습니다. Witch의 Tasks에서도 같은 npm scripts를 선택할 수 있으며, 실행 전에 명령을 확인합니다.
+Run the following commands from this project directory in a terminal. The same npm scripts are available through Witch Tasks after command review.
 
 ```sh
 npm start
 npm test
 ```
 
-`src/main.js`를 열고 Run and debug에서 Node 실행을 시작해 브레이크포인트도 확인할 수 있습니다. AI 호출은 실제 공급자 사용량을 소비하지만, 코드 탐색·그래프·테스트 실행에는 AI가 필요하지 않습니다.
+Open `src/main.js` and start Node from Run and debug to try a breakpoint. AI requests consume real Provider usage, but code navigation, graphs, and test execution do not require AI.

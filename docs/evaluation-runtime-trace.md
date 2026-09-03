@@ -1,10 +1,6 @@
 # Evaluation · Optional Runtime Trace
 
-<!-- witch-doc-languages: ko,en -->
-
-> **한국어:** 명시 승인된 Project Task의 제한된 구조 Runtime Trace와 동일 fixture에서 Provider를 비교하는 offline-first 평가 harness의 신뢰 경계를 정의합니다.
->
-> **English:** This specification defines the trust boundaries of explicitly approved structural Runtime Trace and the offline-first Provider evaluation harness.
+[English](evaluation-runtime-trace.md) · [한국어](evaluation-runtime-trace.ko.md)
 
 Phase 6 adds two independent capabilities: a bounded structural runtime reading
 for one explicitly approved Project Task, and an offline-first evaluation harness

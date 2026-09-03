@@ -1,10 +1,6 @@
 # Witch Workspace Toolchains v0
 
-<!-- witch-doc-languages: ko,en -->
-
-> **한국어:** 프로젝트 코드를 실행하지 않고 Python 환경과 uv·Poetry·Ruff·Cargo 도구를 발견하고, 사용자가 승인한 Task로 연결하는 규칙을 설명합니다.
->
-> **English:** This guide explains how Witch discovers Python environments and uv, Poetry, Ruff, and Cargo tools without running project code, then exposes them through explicitly approved Tasks.
+[English](workspace-toolchains-v0.md) · [한국어](workspace-toolchains-v0.ko.md)
 
 Workspace Toolchains is the project-scoped boundary between source intelligence and explicit local execution. It discovers candidates without executing them, stores user choices outside the repository, and supplies the same active Python environment to Pyright and generated Tasks.
 

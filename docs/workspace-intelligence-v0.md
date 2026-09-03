@@ -1,10 +1,6 @@
 # Witch Workspace Intelligence v0
 
-<!-- witch-doc-languages: ko,en -->
-
-> **한국어:** Editor, architecture analyzer와 Agent context가 공유하는 언어 서비스 계약, Provider 선택, LSP 안전 경계와 지원 기능을 정의합니다.
->
-> **English:** This specification defines the shared language-service contract, Provider routing, LSP safety boundaries, and supported operations used by the editor, analyzer, and Agent context builder.
+[English](workspace-intelligence-v0.md) · [한국어](workspace-intelligence-v0.ko.md)
 
 ## Purpose
 
