@@ -1,5 +1,11 @@
 # Framework Adapter fixed-corpus benchmark
 
+<!-- witch-doc-languages: ko,en -->
+
+> **한국어:** 고정 corpus에서 FastAPI, LangGraph, Celery, Express, NestJS, Next.js, Axum, Tokio adapter의 탐지·제외·검증 결과를 기록합니다.
+>
+> **English:** This dated report records detections, exclusions, and validation outcomes for the FastAPI, LangGraph, Celery, Express, NestJS, Next.js, Axum, and Tokio adapters on a fixed corpus.
+
 - 실행일: 2026-09-01
 - 계약: `witch.framework-benchmark/v1`
 - corpus: `C:\Users\cdi65\witch-benchmarks\github-trending-2026-08-31`

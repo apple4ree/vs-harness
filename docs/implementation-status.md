@@ -1,5 +1,11 @@
 # Witch 0.2 implementation status
 
+<!-- witch-doc-languages: ko,en -->
+
+> **한국어:** 현재 Witch 0.2 preview에 실제 구현·검증된 기능, 의도적인 비지원 범위, 의존성 주의사항과 사용자 데이터 위치를 정리한 기준 문서입니다.
+>
+> **English:** This is the canonical status document for capabilities actually implemented and verified in the Witch 0.2 preview, deliberate exclusions, dependency notes, and user-data locations.
+
 This is an early desktop preview, not feature parity with VS Code.
 
 ## Architecture decisions

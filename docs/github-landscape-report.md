@@ -1,5 +1,11 @@
 # Witch GitHub 프로젝트 비교 조사 보고서
 
+<!-- witch-doc-languages: ko,en -->
+
+> **한국어:** 인터랙티브 코드 구조 탐색과 ADE/Agent 작업 흐름을 제공하는 공개 프로젝트들을 조사하고 Witch의 위치, 격차와 차별화 방향을 비교합니다.
+>
+> **English:** This landscape report surveys public interactive code-structure and ADE/Agent projects, then compares Witch's position, gaps, and differentiation opportunities.
+
 > 인터랙티브 코드 구조 탐색과 AI-native ADE의 교차점
 
 - 조사일: 2026-08-30

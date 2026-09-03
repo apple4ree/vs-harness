@@ -1,5 +1,11 @@
 # 독립형 AI-native ADE — UX 설계 v0
 
+<!-- witch-doc-languages: ko,en -->
+
+> **한국어:** Witch의 현자·비전가 테마와 첫 Vertical Slice의 화면 구조, 상호작용 및 접근성 원칙을 기록한 초기 UX 설계입니다.
+>
+> **English:** This historical UX design records Witch's sage-and-seer visual direction plus the layout, interactions, and accessibility principles of the first vertical slice.
+
 이 문서는 초기 UX 설계 기록입니다. 실제 구현 범위와 제한은 [구현 현황](implementation-status.md)을 기준으로 확인하세요.
 
 작성일: 2026-08-28<br>

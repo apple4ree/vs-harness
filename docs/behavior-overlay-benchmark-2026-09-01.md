@@ -1,5 +1,11 @@
 # Behavior Overlay fixed-corpus benchmark
 
+<!-- witch-doc-languages: ko,en -->
+
+> **한국어:** 2026-09-01 고정 GitHub corpus에서 Behavior overlay의 relation 수, 검증 상태와 진단 결과를 측정한 기록입니다. 프로젝트 코드는 실행하지 않았습니다.
+>
+> **English:** This dated report records Behavior-overlay relation counts, validation states, and diagnostics on the fixed GitHub corpus without executing repository code.
+
 - 실행일: 2026-09-01
 - 계약: `witch.behavior-benchmark/v1`
 - 분석기: repository source를 실행하지 않는 정적 분석

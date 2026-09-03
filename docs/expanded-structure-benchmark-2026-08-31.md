@@ -1,5 +1,11 @@
 # Witch 확장 구조화 도구 교차 벤치마크
 
+<!-- witch-doc-languages: ko,en -->
+
+> **한국어:** Witch를 Archify 외 여러 구조화 도구와 분석 깊이, 시각화, 근거 추적, 대규모 그래프 관점에서 비교한 확장 조사 보고서입니다.
+>
+> **English:** This expanded benchmark compares Witch with Archify and other structure-analysis tools across depth, visualization, evidence traceability, and large-graph usability.
+
 - 평가일: 2026-08-31 (Asia/Seoul)
 - 대상: 기존 GitHub Trending 고정 corpus 10개, 동일 commit
 - 목적: 기존 Witch ↔ Archify 시각 비교를 넘어 구조 추출 방식이 다른 도구를 같은 저장소에서 교차 검증

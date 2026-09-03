@@ -1,5 +1,11 @@
 # Witch Desktop — 애플리케이션 아키텍처 v0
 
+<!-- witch-doc-languages: ko,en -->
+
+> **한국어:** Electron·React·TypeScript 기반 Witch Desktop의 초기 프로세스 경계, IPC, 저장소, Agent 및 패키징 구조를 기록한 설계 이력입니다.
+>
+> **English:** This historical architecture document records the original Electron, React, and TypeScript process boundaries, IPC, storage, Agent integration, and packaging design. It is not a statement of current feature completeness.
+
 이 문서는 초기 설계 기록입니다. 아래의 Git worktree·Claude 어댑터·분석 Worker 등은 현재 구현을 의미하지 않습니다. 최신 구현 범위와 검증 결과는 [구현 현황](implementation-status.md)을 기준으로 확인하세요.
 
 작성일: 2026-08-28<br>

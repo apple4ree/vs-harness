@@ -218,7 +218,11 @@ async function main() {
     JSON.stringify({ generatedAt: new Date().toISOString(), results }, null, 2),
   );
   const markdown = [
-    "# Witch GitHub benchmark screenshots",
+    "# Witch GitHub benchmark screenshots / Witch GitHub 벤치마크 스크린샷",
+    "",
+    "<!-- witch-doc-languages: ko,en -->",
+    "",
+    "2026-08-31에 고정한 benchmark checkout으로 생성했습니다. 저장소 코드는 실행하지 않았습니다.",
     "",
     "Generated from the fixed 2026-08-31 benchmark checkouts. Repository code was not executed.",
     "",
@@ -229,7 +233,7 @@ async function main() {
         ? `![${result.repository}](./${path.basename(result.screenshot).replaceAll(" ", "%20")})`
         : `Capture failed: ${result.note || "Unknown error"}`,
       "",
-      `View: ${result.view}${result.expanded ? " · Expanded production and support catalog" : ""}${result.note ? ` · Note: ${result.note}` : ""}`,
+      `화면 / View: ${result.view}${result.expanded ? " · 확장된 production/support catalog / Expanded production and support catalog" : ""}${result.note ? ` · 참고 / Note: ${result.note}` : ""}`,
       "",
     ]),
   ].join("\n");

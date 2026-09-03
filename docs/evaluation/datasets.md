@@ -1,5 +1,11 @@
 # Evaluation datasets
 
+<!-- witch-doc-languages: ko,en -->
+
+> **한국어:** Witch 평가에 사용하는 외부·내부 corpus의 revision, 역할, 규모, oracle과 비배포 원칙을 선언합니다. 제3자 source archive는 저장소에 포함하지 않습니다.
+>
+> **English:** This document declares the revisions, roles, scales, oracles, and non-vendoring rules of Witch evaluation corpora.
+
 Witch stores dataset descriptions and immutable manifests, not third-party
 source archives. A contributor obtains each corpus from its upstream project and
 checks out the declared revision.

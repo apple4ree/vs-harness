@@ -1,5 +1,11 @@
 # Witch end-to-end analysis Workflow benchmark
 
+<!-- witch-doc-languages: ko,en -->
+
+> **한국어:** 고정된 GitHub Trending 10개 저장소에서 인덱싱부터 Architecture·Semantic·Behavior·Framework validation까지 수행한 end-to-end Workflow 결과입니다.
+>
+> **English:** This report records the end-to-end Workflow from indexing through Architecture, Semantic, Behavior, and Framework validation on ten fixed GitHub Trending repositories.
+
 - 실행일: 2026-09-01 (Asia/Seoul)
 - 대상: 2026-08-31 GitHub Trending 고정 checkout 10개
 - 원시 결과: `C:\Users\cdi65\witch-benchmarks\github-trending-2026-08-31\results-workflow-2026-09-01`
